@@ -131,12 +131,12 @@ layout: center
 
 ```mermaid
 flowchart LR
-    A["Request\n(CLI/API)"] --> B["Query\nLoader"]
-    B --> C["Param\nResolver"]
+    A["Request<br/>(CLI/API)"] --> B["Query<br/>Loader"]
+    B --> C["Param<br/>Resolver"]
     C --> D["Extractor"]
-    D --> E["Polars\nDataFrame"]
+    D --> E["Polars<br/>DataFrame"]
     E --> F["Uploader"]
-    F --> G["Parquet en\nVolume"]
+    F --> G["Parquet en<br/>Volume"]
 ```
 
 ---
@@ -182,13 +182,13 @@ layout: center
 
 ```mermaid
 flowchart LR
-    A["Poll\nbridge_events"] --> B["Validar\nEvento"]
-    B --> C["Leer datos\nDatabricks"]
+    A["Poll<br/>bridge_events"] --> B["Validar<br/>Evento"]
+    B --> C["Leer datos<br/>Databricks"]
     C --> D{"Operación"}
-    D -->|INSERT| E["Bulk\nInsert"]
-    D -->|UPDATE| F["Update\nby PK"]
-    D -->|DELETE| G["Delete\ncon límite"]
-    E --> H["Actualizar\nstatus"]
+    D -->|INSERT| E["Bulk<br/>Insert"]
+    D -->|UPDATE| F["Update<br/>by PK"]
+    D -->|DELETE| G["Delete<br/>con límite"]
+    E --> H["Actualizar<br/>status"]
     F --> H
     G --> H
 ```
@@ -664,25 +664,25 @@ nuitka --standalone --onefile `
 ```mermaid
 flowchart TB
     subgraph Consumers["Consumidores"]
-        ExtApp["Apps Externas\n(Python, Services)"]
-        DBNotebook["Databricks\nNotebooks"]
-        DBJob["Databricks\nJobs/Workflows"]
+        ExtApp["Apps Externas<br/>(Python, Services)"]
+        DBNotebook["Databricks<br/>Notebooks"]
+        DBJob["Databricks<br/>Jobs/Workflows"]
     end
 
     subgraph SDKLayer["SDKs"]
-        ClientSDK["BridgeClient\n(SDK API Local)"]
-        OperatorSDK["BridgeOperator\n(SDK Databricks)"]
+        ClientSDK["BridgeClient<br/>(SDK API Local)"]
+        OperatorSDK["BridgeOperator<br/>(SDK Databricks)"]
     end
 
     subgraph BridgeService["Bridge Service (On-Premise)"]
-        API["REST API\n:8000"]
+        API["REST API<br/>:8000"]
         Poller["Event Poller"]
         Core["Core Layer"]
     end
 
     subgraph DataSources["Data Sources"]
-        SQL[(SQL Server\nOn-Premise)]
-        DBX[(Databricks\nUnity Catalog)]
+        SQL[(SQL Server<br/>On-Premise)]
+        DBX[(Databricks<br/>Unity Catalog)]
     end
 
     ExtApp --> ClientSDK
