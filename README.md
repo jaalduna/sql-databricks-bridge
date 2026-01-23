@@ -144,6 +144,7 @@ The test suite uses mocks for SQL Server, so you can validate the extraction log
 - [Quick Start Guide](docs/QUICK_START.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Epics and User Stories](docs/EPICS_AND_USER_STORIES.md)
+- [Guía de Usuario (Español)](docs/GUIA_USUARIO.md) - Guía completa en español con ejemplos de configuración
 
 ## License
 
