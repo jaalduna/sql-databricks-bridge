@@ -662,21 +662,43 @@ nuitka --standalone --onefile `
 # Arquitectura de Deployment
 
 ```mermaid
-flowchart LR
-    subgraph S1["Servidor LATAM Norte"]
-        SQL1[(SQL Server<br/>México, Colombia)]
-        B1[sql-databricks-bridge.exe]
+flowchart TB
+    subgraph Consumers["Consumidores"]
+        ExtApp["Apps Externas\n(Python, Services)"]
+        DBNotebook["Databricks\nNotebooks"]
+        DBJob["Databricks\nJobs/Workflows"]
     end
 
-    subgraph S2["Servidor LATAM Sur"]
-        SQL2[(SQL Server<br/>Brasil, Argentina)]
-        B2[sql-databricks-bridge.exe]
+    subgraph SDKLayer["SDKs"]
+        ClientSDK["BridgeClient\n(SDK API Local)"]
+        OperatorSDK["BridgeOperator\n(SDK Databricks)"]
     end
 
-    B1 --> SQL1
-    B2 --> SQL2
-    B1 --> DBX[Databricks<br/>Unity Catalog]
-    B2 --> DBX
+    subgraph BridgeService["Bridge Service (On-Premise)"]
+        API["REST API\n:8000"]
+        Poller["Event Poller"]
+        Core["Core Layer"]
+    end
+
+    subgraph DataSources["Data Sources"]
+        SQL[(SQL Server\nOn-Premise)]
+        DBX[(Databricks\nUnity Catalog)]
+    end
+
+    ExtApp --> ClientSDK
+    ClientSDK -->|HTTP| API
+
+    DBNotebook --> OperatorSDK
+    DBJob --> OperatorSDK
+    OperatorSDK -->|Direct| Core
+
+    API --> Core
+    Poller --> Core
+    Poller -.->|Poll Events| DBX
+
+    Core <-->|Extract| SQL
+    Core <-->|Sync| SQL
+    Core <-->|Upload/Read| DBX
 ```
 
 ---
