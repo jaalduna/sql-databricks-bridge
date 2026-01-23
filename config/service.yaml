@@ -1,0 +1,29 @@
+# SQL-Databricks Bridge Service Configuration
+#
+# This file contains service-level configuration options.
+
+# Polling settings for Databricks -> SQL sync
+polling:
+  interval_seconds: 10
+  max_events_per_poll: 100
+  retry_max_attempts: 3
+  retry_delay_seconds: 5
+  retry_max_delay_seconds: 60
+
+# Extraction settings
+extraction:
+  default_chunk_size: 100000
+  compression: "zstd"
+  max_concurrent_queries: 4
+
+# Sync event table location (Databricks)
+sync:
+  catalog: "bridge"
+  schema: "events"
+  events_table: "bridge_events"
+
+# Logging
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  audit_file: "logs/audit.jsonl"
