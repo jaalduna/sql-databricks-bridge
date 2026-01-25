@@ -118,6 +118,8 @@ class Extractor:
         query_name: str,
         country: str,
         chunk_size: int = 100_000,
+        limit: int | None = None,
+        extra_params: dict[str, str] | None = None,
     ) -> Iterator[pl.DataFrame]:
         """Execute a single query and yield result chunks.
 
@@ -125,17 +127,29 @@ class Extractor:
             query_name: Name of query to execute.
             country: Country for parameter resolution.
             chunk_size: Rows per chunk.
+            limit: Optional row limit (for testing). Wraps query with SELECT TOP N.
+            extra_params: Additional parameters to merge (override YAML params).
 
         Yields:
             DataFrame chunks with query results.
         """
-        # Resolve parameters
+        # Resolve parameters from YAML
         params = self.param_resolver.resolve_params(country)
+
+        # Merge extra parameters (override YAML values)
+        if extra_params:
+            params.update(extra_params)
 
         # Format query with parameters
         formatted_query = self.query_loader.format_query(query_name, params)
 
-        logger.info(f"Executing query: {query_name}")
+        # Apply row limit if specified (SQL Server TOP syntax)
+        if limit is not None and limit > 0:
+            formatted_query = f"SELECT TOP {limit} * FROM ({formatted_query}) AS _limited_subquery"
+            logger.info(f"Executing query: {query_name} (limited to {limit} rows)")
+        else:
+            logger.info(f"Executing query: {query_name}")
+
         logger.debug(f"Formatted query: {formatted_query[:200]}...")
 
         # Execute and yield chunks
