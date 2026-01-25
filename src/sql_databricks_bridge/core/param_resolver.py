@@ -15,20 +15,20 @@ class ConfigNotFoundError(Exception):
     pass
 
 
-def flatten_dict(d: dict[str, Any], parent_key: str = "", sep: str = "_") -> dict[str, str]:
+def flatten_dict(d: dict[str, Any], parent_key: str = "", sep: str = ".") -> dict[str, str]:
     """Flatten nested dictionary into single-level dict with compound keys.
 
     Args:
         d: Nested dictionary to flatten.
         parent_key: Prefix for keys (used in recursion).
-        sep: Separator between nested key levels.
+        sep: Separator between nested key levels (default "." for SQL param compatibility).
 
     Returns:
         Flattened dictionary with string values.
 
     Example:
         >>> flatten_dict({"a": {"b": 1, "c": 2}})
-        {"a_b": "1", "a_c": "2"}
+        {"a.b": "1", "a.c": "2"}
     """
     items: list[tuple[str, str]] = []
 

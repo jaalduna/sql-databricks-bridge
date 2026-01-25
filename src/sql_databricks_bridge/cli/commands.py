@@ -70,6 +70,14 @@ def extract(
         "--chunk-size",
         help="Rows per extraction chunk",
     )] = 100_000,
+    limit: Annotated[int, typer.Option(
+        "--limit", "-l",
+        help="Limit rows per query (for testing). Wraps queries with SELECT TOP N",
+    )] = None,
+    params: Annotated[list[str], typer.Option(
+        "--param", "-p",
+        help="Extra parameters as key=value (can specify multiple). Example: --param precios.mes_ini=20250101",
+    )] = None,
     overwrite: Annotated[bool, typer.Option(
         "--overwrite",
         help="Overwrite existing files",
@@ -91,6 +99,17 @@ def extract(
     setup_logging(verbose)
 
     try:
+        # Parse extra parameters from --param options
+        extra_params: dict[str, str] = {}
+        if params:
+            for param in params:
+                if "=" not in param:
+                    console.print(f"[bold red]Error:[/bold red] Invalid parameter format: {param}")
+                    console.print("  Expected format: key=value (e.g., --param precios.mes_ini=20250101)")
+                    raise typer.Exit(code=1)
+                key, value = param.split("=", 1)
+                extra_params[key.strip()] = value.strip()
+
         # Initialize components
         sql_client = SQLServerClient()
         databricks_client = DatabricksClient()
@@ -109,6 +128,12 @@ def extract(
         console.print(f"  Country: {country}")
         console.print(f"  Queries: {len(job.queries)}")
         console.print(f"  Destination: {destination}")
+        if limit:
+            console.print(f"  [yellow]Row limit: {limit:,} rows per query (testing mode)[/yellow]")
+        if extra_params:
+            console.print(f"  Extra params: {len(extra_params)}")
+            for k, v in extra_params.items():
+                console.print(f"    {k}={v}")
         console.print()
 
         # Run extraction with progress
@@ -130,7 +155,10 @@ def extract(
                     # Execute query
                     import polars as pl
 
-                    chunks = list(extractor.execute_query(query_name, country, chunk_size))
+                    chunks = list(extractor.execute_query(
+                        query_name, country, chunk_size,
+                        limit=limit, extra_params=extra_params if extra_params else None
+                    ))
 
                     if chunks:
                         combined = pl.concat(chunks)

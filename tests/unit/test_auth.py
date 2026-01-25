@@ -272,13 +272,14 @@ class TestAuditLogger:
             assert len(file_handlers) > 0, "File handler should be added"
 
         finally:
-            Path(file_path).unlink(missing_ok=True)
-            # Clean up handlers to avoid affecting other tests
+            # Clean up handlers FIRST to release file lock (required on Windows)
             audit_log = log_module.getLogger("sql_databricks_bridge.audit")
-            audit_log.handlers = [
-                h for h in audit_log.handlers
-                if not isinstance(h, log_module.FileHandler)
-            ]
+            for h in audit_log.handlers[:]:
+                if isinstance(h, log_module.FileHandler):
+                    h.close()
+                    audit_log.removeHandler(h)
+            # Now safe to delete the file
+            Path(file_path).unlink(missing_ok=True)
 
     def test_log_levels(self, logger, caplog):
         """Different event types use different log levels."""
