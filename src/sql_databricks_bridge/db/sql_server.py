@@ -88,12 +88,40 @@ class SQLServerClient:
             result = conn.execute(text(query), params or {})
             columns = list(result.keys())
 
+            # Infer schema from first chunk with larger sample
+            first_chunk_rows = result.fetchmany(chunk_size)
+            if not first_chunk_rows:
+                return
+
+            # Create first DataFrame and capture its schema
+            first_df = pl.DataFrame(
+                [dict(zip(columns, row)) for row in first_chunk_rows],
+                infer_schema_length=None,  # Scan all rows in chunk for schema
+            )
+            schema = first_df.schema
+            yield first_df
+
+            # Apply same schema to subsequent chunks
             while True:
                 rows = result.fetchmany(chunk_size)
                 if not rows:
                     break
 
-                yield pl.DataFrame([dict(zip(columns, row)) for row in rows])
+                # Create DataFrame with inferred schema, then cast to match first chunk
+                chunk_df = pl.DataFrame(
+                    [dict(zip(columns, row)) for row in rows],
+                    infer_schema_length=None,
+                )
+
+                # Cast columns to match the schema from first chunk
+                try:
+                    for col, dtype in schema.items():
+                        if col in chunk_df.columns and chunk_df[col].dtype != dtype:
+                            chunk_df = chunk_df.with_columns(pl.col(col).cast(dtype, strict=False))
+                except Exception:
+                    pass  # If casting fails, use original types
+
+                yield chunk_df
 
     def execute_write(
         self,
