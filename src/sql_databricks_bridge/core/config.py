@@ -10,7 +10,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class SQLServerSettings(BaseSettings):
     """SQL Server connection settings."""
 
-    model_config = SettingsConfigDict(env_prefix="SQLSERVER_")
+    model_config = SettingsConfigDict(
+        env_prefix="SQLSERVER_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     host: str = Field(default="localhost", description="SQL Server hostname")
     port: int = Field(default=1433, description="SQL Server port")
@@ -25,11 +30,23 @@ class SQLServerSettings(BaseSettings):
         default=True,
         description="Trust server certificate",
     )
+    use_windows_auth: bool = Field(
+        default=False,
+        description="Use Windows Authentication (Trusted_Connection)",
+    )
 
     @property
     def connection_string(self) -> str:
         """Build ODBC connection string."""
         trust_cert = "yes" if self.trust_server_certificate else "no"
+        if self.use_windows_auth:
+            return (
+                f"DRIVER={{{self.driver}}};"
+                f"SERVER={self.host},{self.port};"
+                f"DATABASE={self.database};"
+                f"Trusted_Connection=yes;"
+                f"TrustServerCertificate={trust_cert}"
+            )
         return (
             f"DRIVER={{{self.driver}}};"
             f"SERVER={self.host},{self.port};"
@@ -44,6 +61,12 @@ class SQLServerSettings(BaseSettings):
         """Build SQLAlchemy connection URL."""
         trust_cert = "yes" if self.trust_server_certificate else "no"
         driver_encoded = self.driver.replace(" ", "+")
+        if self.use_windows_auth:
+            return (
+                f"mssql+pyodbc://@{self.host}:{self.port}/{self.database}"
+                f"?driver={driver_encoded}&TrustServerCertificate={trust_cert}"
+                f"&Trusted_Connection=yes"
+            )
         return (
             f"mssql+pyodbc://{self.username}:{self.password.get_secret_value()}"
             f"@{self.host}:{self.port}/{self.database}"
@@ -54,7 +77,12 @@ class SQLServerSettings(BaseSettings):
 class DatabricksSettings(BaseSettings):
     """Databricks connection settings."""
 
-    model_config = SettingsConfigDict(env_prefix="DATABRICKS_")
+    model_config = SettingsConfigDict(
+        env_prefix="DATABRICKS_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     host: str = Field(default="", description="Databricks workspace URL")
     token: SecretStr = Field(default=SecretStr(""), description="Personal access token")
