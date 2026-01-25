@@ -325,6 +325,129 @@ INSERT INTO bridge.events.bridge_events (
 
 The poller processes events every 10 seconds.
 
+## SDKs
+
+The bridge provides two SDKs for different use cases:
+
+```mermaid
+flowchart TB
+    subgraph External["External Applications"]
+        App1["Python App"]
+        App2["Service"]
+        App3["Script"]
+    end
+
+    subgraph Bridge["SQL-Databricks Bridge Server"]
+        API["REST API\n(FastAPI)"]
+        Core["Core Layer"]
+    end
+
+    subgraph Databricks["Databricks Environment"]
+        NB["Notebook"]
+        Job["Job"]
+        WF["Workflow"]
+    end
+
+    subgraph SDK["SDKs"]
+        Client["BridgeClient\n(API Local)"]
+        Operator["BridgeOperator\n(Databricks Jobs)"]
+    end
+
+    App1 --> Client
+    App2 --> Client
+    App3 --> Client
+    Client -->|"HTTP/REST"| API
+    API --> Core
+
+    NB --> Operator
+    Job --> Operator
+    WF --> Operator
+    Operator -->|"Direct"| Core
+
+    Core --> SQL[(SQL Server)]
+    Core --> DBX[(Databricks\nUnity Catalog)]
+```
+
+### SDK: API Local (BridgeClient)
+
+For external applications consuming the REST API:
+
+```python
+from sql_databricks_bridge.sdk import BridgeClient
+
+# Initialize client
+client = BridgeClient(
+    base_url="http://localhost:8000",
+    token="your-api-token"
+)
+
+# Extract data from SQL Server to Databricks
+job = client.extract(
+    queries_path="./queries",
+    config_path="./config",
+    country="Colombia",
+    destination="/Volumes/catalog/schema/volume"
+)
+
+# Submit sync event (Databricks → SQL Server)
+event = client.submit_sync_event(
+    operation="INSERT",
+    source_table="catalog.schema.source_table",
+    target_table="dbo.target_table",
+    primary_keys=["id"]
+)
+```
+
+### SDK: Databricks Jobs (BridgeOperator)
+
+For scripts running directly in Databricks notebooks/jobs:
+
+```python
+from sql_databricks_bridge.sdk.databricks import BridgeOperator
+
+# Initialize operator (uses job context credentials)
+operator = BridgeOperator(
+    sql_server_host="server.database.windows.net",
+    sql_server_database="KWP_Colombia",
+    sql_server_user=dbutils.secrets.get("scope", "sql_user"),
+    sql_server_password=dbutils.secrets.get("scope", "sql_pass")
+)
+
+# Sync from Databricks table to SQL Server
+result = operator.sync_to_sql_server(
+    source_table="catalog.schema.calibrated_panel",
+    target_table="dbo.CalibrationResults",
+    operation="INSERT",
+    primary_keys=["id_hogar", "periodo"]
+)
+
+# Extract from SQL Server to Spark DataFrame
+df = operator.extract_to_spark(
+    query="SELECT * FROM dbo.Ventas WHERE fecha >= '2024-01-01'"
+)
+df.write.format("delta").saveAsTable("catalog.schema.ventas")
+```
+
+### SDK Comparison
+
+| Feature | BridgeClient (API Local) | BridgeOperator (Databricks) |
+|---------|--------------------------|----------------------------|
+| **Use Case** | External apps, services | Notebooks, Jobs, Workflows |
+| **Connection** | HTTP to REST API | Direct library usage |
+| **Requires Server** | Yes | No |
+| **Authentication** | API Token | SQL Server credentials |
+| **Best For** | Automation, integrations | Data pipelines in Databricks |
+
+### Installation
+
+```bash
+# From PyPI
+pip install sql-databricks-bridge
+
+# In Databricks job (requirements.txt)
+sql-databricks-bridge>=1.0.0
+```
+
 ## Development
 
 ```bash
