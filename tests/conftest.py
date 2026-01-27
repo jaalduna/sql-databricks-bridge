@@ -160,6 +160,25 @@ def patch_sql_server():
 
 
 @pytest.fixture
+def mock_delta_writer():
+    """Create a mocked DeltaTableWriter.
+
+    Use this fixture for unit tests that write to Delta tables.
+    """
+    from sql_databricks_bridge.core.delta_writer import WriteResult
+
+    mock_writer = MagicMock()
+    mock_writer.resolve_table_name.return_value = "main.default.cl_query1"
+    mock_writer.table_exists.return_value = False
+    mock_writer.write_dataframe.return_value = WriteResult(
+        table_name="main.default.cl_query1",
+        rows=5,
+        duration_seconds=1.5,
+    )
+    return mock_writer
+
+
+@pytest.fixture
 def patch_databricks():
     """Patch Databricks client globally for tests."""
     with patch("sql_databricks_bridge.db.databricks.DatabricksClient") as mock:

@@ -32,9 +32,17 @@ class ExtractionRequest(BaseModel):
         ...,
         description="Country name for parameter resolution",
     )
-    destination: str = Field(
-        ...,
-        description="Databricks volume path for output files",
+    destination: str | None = Field(
+        default=None,
+        description="Databricks volume path (used for staging only; tables written to catalog.schema)",
+    )
+    target_catalog: str | None = Field(
+        default=None,
+        description="Override default Unity Catalog name for output tables",
+    )
+    target_schema: str | None = Field(
+        default=None,
+        description="Override default schema name for output tables",
     )
     queries: list[str] | None = Field(
         default=None,
@@ -65,6 +73,7 @@ class QueryResult(BaseModel):
     query_name: str
     status: JobStatus
     rows_extracted: int = 0
+    table_name: str | None = None
     files_created: list[str] = Field(default_factory=list)
     error: str | None = None
     duration_seconds: float = 0.0
