@@ -27,7 +27,7 @@ class QueryLoader:
         self._loaded = False
 
     def discover_queries(self) -> dict[str, str]:
-        """Discover all .sql files in the queries path.
+        """Discover all .sql files and files without extensions in the queries path.
 
         Returns:
             Dictionary mapping query names (file stems) to SQL content.
@@ -42,11 +42,23 @@ class QueryLoader:
             raise ValueError(f"Queries path is not a directory: {self.queries_path}")
 
         queries = {}
+
+        # First, discover .sql files
         for sql_file in self.queries_path.glob("*.sql"):
             query_name = sql_file.stem
             query_content = sql_file.read_text(encoding="utf-8")
             queries[query_name] = query_content
             logger.debug(f"Discovered query: {query_name}")
+
+        # Then, discover files without extensions (common in some projects)
+        for file_path in self.queries_path.iterdir():
+            if file_path.is_file() and not file_path.suffix:
+                query_name = file_path.name
+                # Skip if already discovered with .sql extension
+                if query_name not in queries:
+                    query_content = file_path.read_text(encoding="utf-8")
+                    queries[query_name] = query_content
+                    logger.debug(f"Discovered query (no extension): {query_name}")
 
         self._cache = queries
         self._loaded = True

@@ -24,8 +24,8 @@ _extractors: dict[str, Extractor] = {}
 
 
 def get_extractor(request: ExtractionRequest) -> Extractor:
-    """Create extractor for request."""
-    sql_client = SQLServerClient()
+    """Create extractor for request with country-specific SQL Server connection."""
+    sql_client = SQLServerClient(country=request.country)
     return Extractor(
         queries_path=request.queries_path,
         config_path=request.config_path,
@@ -52,11 +52,13 @@ async def run_extraction_job(
                 continue
 
             # Execute query and upload
-            chunks = list(extractor.execute_query(
-                query_name,
-                job.country,
-                job.chunk_size,
-            ))
+            chunks = list(
+                extractor.execute_query(
+                    query_name,
+                    job.country,
+                    job.chunk_size,
+                )
+            )
 
             if chunks:
                 import polars as pl
