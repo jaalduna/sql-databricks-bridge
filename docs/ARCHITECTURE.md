@@ -4,7 +4,7 @@
 
 SQL-Databricks Bridge provides bidirectional data synchronization between SQL Server and Databricks:
 
-1. **Extraction Flow** (SQL Server → Databricks): API + CLI for extracting data from SQL Server and uploading to Databricks Volumes as Parquet files.
+1. **Extraction Flow** (SQL Server → Databricks): API + CLI for extracting data from SQL Server and writing to Databricks Unity Catalog as Delta tables.
 
 2. **Sync Flow** (Databricks → SQL Server): Polling-based event system for syncing data changes back to SQL Server.
 
@@ -25,10 +25,10 @@ SQL-Databricks Bridge provides bidirectional data synchronization between SQL Se
 │         ┌────────▼────────┐                                         │
 │         │    Core Layer   │                                         │
 │         ├─────────────────┤                                         │
-│         │ • Query Loader  │                                         │
-│         │ • Param Resolver│                                         │
-│         │ • Extractor     │                                         │
-│         │ • Uploader      │                                         │
+│         │ • Query Loader      │                                     │
+│         │ • Param Resolver    │                                     │
+│         │ • Extractor         │                                     │
+│         │ • DeltaTableWriter  │                                     │
 │         └────────┬────────┘                                         │
 │                  │                                                   │
 │    ┌─────────────┴─────────────┐                                    │
@@ -44,7 +44,7 @@ SQL-Databricks Bridge provides bidirectional data synchronization between SQL Se
     ┌───────────┐            ┌─────────────────┐
     │SQL Server │            │   Databricks    │
     │ Database  │            │ Unity Catalog   │
-    └───────────┘            │ + Volumes       │
+    └───────────┘            │ (Delta Tables)  │
                              └─────────────────┘
 ```
 
@@ -68,7 +68,8 @@ SQL-Databricks Bridge provides bidirectional data synchronization between SQL Se
 │   ├── query_loader.py     # SQL file discovery
 │   ├── param_resolver.py   # YAML parameter merging
 │   ├── extractor.py        # SQL query execution
-│   └── uploader.py         # Databricks file upload
+│   ├── delta_writer.py     # Delta table writer (stage-then-CTAS)
+│   └── uploader.py         # Databricks file upload (legacy)
 ├── sync/
 │   ├── poller.py           # Event polling loop
 │   ├── operations.py       # INSERT/UPDATE/DELETE logic
@@ -107,10 +108,13 @@ SQL-Databricks Bridge provides bidirectional data synchronization between SQL Se
 5. Results converted to Polars DataFrame
          │
          ▼
-6. Uploader writes Parquet to Databricks Volume
+6. DeltaTableWriter (stage-then-CTAS):
+   a. Stage parquet to Volume/_staging/
+   b. CREATE OR REPLACE TABLE ... AS SELECT * FROM read_files()
+   c. Cleanup staging file
          │
          ▼
-7. Job status updated
+7. Delta table available at {catalog}.{schema}.{country}_{query}
 ```
 
 ### Sync Flow (Databricks → SQL)
