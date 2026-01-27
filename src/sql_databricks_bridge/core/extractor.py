@@ -22,9 +22,9 @@ class ExtractionJob:
 
     job_id: str
     country: str
-    destination: str
-    queries: list[str]
-    chunk_size: int
+    destination: str = ""
+    queries: list[str] = field(default_factory=list)
+    chunk_size: int = 100_000
     status: JobStatus = JobStatus.PENDING
     created_at: datetime = field(default_factory=datetime.utcnow)
     started_at: datetime | None = None
