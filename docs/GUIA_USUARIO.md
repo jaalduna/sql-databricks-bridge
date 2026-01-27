@@ -254,31 +254,46 @@ poetry run sql-databricks-bridge --help
 poetry run sql-databricks-bridge extract --help
 ```
 
-### Extraer Datos (SQL Server → Databricks)
+### Extraer Datos (SQL Server → Databricks Delta Tables)
+
+Los datos se escriben como **tablas Delta** en Unity Catalog con el formato `{catalog}.{schema}.{country}_{query}`.
+Ver [DELTA_TABLES.md](DELTA_TABLES.md) para documentación completa.
 
 ```bash
-# Extracción básica
+# Extracción básica (usa DATABRICKS_CATALOG/SCHEMA del .env)
+poetry run sql-databricks-bridge extract \
+  --queries-path ./queries \
+  --config-path ./config \
+  --country CL
+
+# Sobrescribir catalog.schema de destino
 poetry run sql-databricks-bridge extract \
   --queries-path ./queries \
   --config-path ./config \
   --country CL \
-  --destination /Volumes/mi_catalogo/mi_schema/mi_volume/output
+  --destination kpi_dev_01.bronze
 
 # Extracción con queries específicas
 poetry run sql-databricks-bridge extract \
   --queries-path ./queries \
   --config-path ./config \
   --country CL \
-  --destination /Volumes/mi_catalogo/mi_schema/mi_volume/output \
-  --queries extraer_usuarios,extraer_ventas
+  --query extraer_usuarios \
+  --query extraer_ventas
 
-# Extracción con sobrescritura
+# Extracción con sobrescritura de tablas existentes
 poetry run sql-databricks-bridge extract \
   --queries-path ./queries \
   --config-path ./config \
   --country CL \
-  --destination /Volumes/mi_catalogo/mi_schema/mi_volume/output \
   --overwrite
+
+# Extracción limitada para testing (SELECT TOP N)
+poetry run sql-databricks-bridge extract \
+  --queries-path ./queries \
+  --config-path ./config \
+  --country CL \
+  --limit 100
 ```
 
 ### Listar Queries Disponibles
@@ -342,9 +357,10 @@ curl -X POST http://localhost:8000/extract \
   -H "Content-Type: application/json" \
   -d '{
     "country": "CL",
-    "destination": "/Volumes/catalogo/schema/volume/output",
     "queries_path": "/ruta/a/queries",
     "config_path": "/ruta/a/config",
+    "target_catalog": "kpi_prd_01",
+    "target_schema": "bronze",
     "queries": ["extraer_usuarios", "extraer_ventas"],
     "chunk_size": 100000,
     "overwrite": false
@@ -361,6 +377,8 @@ curl -X POST http://localhost:8000/extract \
 }
 ```
 
+Las tablas se crean como `kpi_prd_01.bronze.cl_extraer_usuarios` y `kpi_prd_01.bronze.cl_extraer_ventas`.
+
 #### Consultar Estado de Job
 
 ```bash
@@ -373,7 +391,7 @@ curl http://localhost:8000/jobs/abc123-def456-...
   "job_id": "abc123-def456-...",
   "status": "completed",
   "country": "CL",
-  "destination": "/Volumes/catalogo/schema/volume/output",
+  "destination": "",
   "queries_total": 2,
   "queries_completed": 2,
   "queries_failed": 0,
@@ -382,12 +400,14 @@ curl http://localhost:8000/jobs/abc123-def456-...
       "query_name": "extraer_usuarios",
       "status": "completed",
       "rows_extracted": 15000,
+      "table_name": "kpi_prd_01.bronze.cl_extraer_usuarios",
       "duration_seconds": 12.5
     },
     {
       "query_name": "extraer_ventas",
       "status": "completed",
       "rows_extracted": 250000,
+      "table_name": "kpi_prd_01.bronze.cl_extraer_ventas",
       "duration_seconds": 45.2
     }
   ]
