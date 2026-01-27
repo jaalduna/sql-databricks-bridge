@@ -267,6 +267,7 @@ sql-databricks-bridge serve
 | `extract` | Extract data from SQL Server to Databricks |
 | `list-queries` | List available SQL query files |
 | `show-params` | Show resolved parameters for a country |
+| `list-countries` | List available countries and their SQL Server configs |
 | `test-connection` | Test SQL Server and Databricks connectivity |
 | `serve` | Start the REST API server |
 | `version` | Show version information |
@@ -283,6 +284,51 @@ sql-databricks-bridge serve
 | GET | `/health/ready` | Readiness probe |
 
 ## Configuration
+
+### Multi-Country Support with kantar_db_handler
+
+This bridge supports **multi-country deployments** where different countries use different SQL Server instances. This is achieved through integration with `kantar_db_handler`, which manages country-specific database configurations.
+
+**How it works:**
+
+1. Each country has a configuration file in `kantar_db_handler` (e.g., `Chile.json`, `Argentina.json`)
+2. Each config specifies the SQL Server hostname and database for that country
+3. When you make a request with a `country` parameter, the bridge automatically connects to the correct server
+
+**Available countries:**
+```bash
+# List all configured countries and their servers
+sql-databricks-bridge list-countries
+```
+
+**Example usage:**
+
+```bash
+# Extract data from Chile
+sql-databricks-bridge extract \
+  --country Chile \
+  --queries-path ./queries \
+  --config-path ./config \
+  --destination /Volumes/catalog/schema/volume
+
+# Extract data from Argentina (connects to different server automatically)
+sql-databricks-bridge extract \
+  --country Argentina \
+  --queries-path ./queries \
+  --config-path ./config \
+  --destination /Volumes/catalog/schema/volume
+```
+
+**Installation:**
+
+```bash
+# kantar_db_handler should be in the same parent directory
+pip install -e ../kantar_db_handler
+```
+
+**Fallback to manual configuration:**
+
+If `kantar_db_handler` is not installed, the bridge uses the SQL Server settings from `.env` (single server only).
 
 ### Environment Variables
 

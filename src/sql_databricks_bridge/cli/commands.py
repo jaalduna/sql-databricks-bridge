@@ -46,46 +46,82 @@ def version() -> None:
 
 @app.command()
 def extract(
-    queries_path: Annotated[str, typer.Option(
-        "--queries-path", "-q",
-        help="Path to directory containing SQL query files",
-    )],
-    config_path: Annotated[str, typer.Option(
-        "--config-path", "-c",
-        help="Path to directory containing YAML config files",
-    )],
-    country: Annotated[str, typer.Option(
-        "--country",
-        help="Country name for parameter resolution",
-    )],
-    destination: Annotated[str, typer.Option(
-        "--destination", "-d",
-        help="Databricks volume path for output files",
-    )],
-    queries: Annotated[list[str], typer.Option(
-        "--query",
-        help="Specific queries to run (can specify multiple)",
-    )] = None,
-    chunk_size: Annotated[int, typer.Option(
-        "--chunk-size",
-        help="Rows per extraction chunk",
-    )] = 100_000,
-    limit: Annotated[int, typer.Option(
-        "--limit", "-l",
-        help="Limit rows per query (for testing). Wraps queries with SELECT TOP N",
-    )] = None,
-    params: Annotated[list[str], typer.Option(
-        "--param", "-p",
-        help="Extra parameters as key=value (can specify multiple). Example: --param precios.mes_ini=20250101",
-    )] = None,
-    overwrite: Annotated[bool, typer.Option(
-        "--overwrite",
-        help="Overwrite existing files",
-    )] = False,
-    verbose: Annotated[bool, typer.Option(
-        "--verbose", "-v",
-        help="Enable verbose output",
-    )] = False,
+    queries_path: Annotated[
+        str,
+        typer.Option(
+            "--queries-path",
+            "-q",
+            help="Path to directory containing SQL query files",
+        ),
+    ],
+    config_path: Annotated[
+        str,
+        typer.Option(
+            "--config-path",
+            "-c",
+            help="Path to directory containing YAML config files",
+        ),
+    ],
+    country: Annotated[
+        str,
+        typer.Option(
+            "--country",
+            help="Country name for parameter resolution",
+        ),
+    ],
+    destination: Annotated[
+        str,
+        typer.Option(
+            "--destination",
+            "-d",
+            help="Databricks volume path for output files",
+        ),
+    ],
+    queries: Annotated[
+        list[str],
+        typer.Option(
+            "--query",
+            help="Specific queries to run (can specify multiple)",
+        ),
+    ] = None,
+    chunk_size: Annotated[
+        int,
+        typer.Option(
+            "--chunk-size",
+            help="Rows per extraction chunk",
+        ),
+    ] = 100_000,
+    limit: Annotated[
+        int,
+        typer.Option(
+            "--limit",
+            "-l",
+            help="Limit rows per query (for testing). Wraps queries with SELECT TOP N",
+        ),
+    ] = None,
+    params: Annotated[
+        list[str],
+        typer.Option(
+            "--param",
+            "-p",
+            help="Extra parameters as key=value (can specify multiple). Example: --param precios.mes_ini=20250101",
+        ),
+    ] = None,
+    overwrite: Annotated[
+        bool,
+        typer.Option(
+            "--overwrite",
+            help="Overwrite existing files",
+        ),
+    ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose",
+            "-v",
+            help="Enable verbose output",
+        ),
+    ] = False,
 ) -> None:
     """Extract data from SQL Server to Databricks.
 
@@ -105,13 +141,15 @@ def extract(
             for param in params:
                 if "=" not in param:
                     console.print(f"[bold red]Error:[/bold red] Invalid parameter format: {param}")
-                    console.print("  Expected format: key=value (e.g., --param precios.mes_ini=20250101)")
+                    console.print(
+                        "  Expected format: key=value (e.g., --param precios.mes_ini=20250101)"
+                    )
                     raise typer.Exit(code=1)
                 key, value = param.split("=", 1)
                 extra_params[key.strip()] = value.strip()
 
         # Initialize components
-        sql_client = SQLServerClient()
+        sql_client = SQLServerClient(country=country)
         databricks_client = DatabricksClient()
         extractor = Extractor(queries_path, config_path, sql_client)
         uploader = Uploader(databricks_client)
@@ -149,16 +187,23 @@ def extract(
                     # Check if file exists
                     output_path = f"{destination}/{country}/{query_name}/{query_name}.parquet"
                     if not overwrite and uploader.file_exists(output_path):
-                        progress.update(task, description=f"[yellow]Skipped {query_name} (exists)[/yellow]")
+                        progress.update(
+                            task, description=f"[yellow]Skipped {query_name} (exists)[/yellow]"
+                        )
                         continue
 
                     # Execute query
                     import polars as pl
 
-                    chunks = list(extractor.execute_query(
-                        query_name, country, chunk_size,
-                        limit=limit, extra_params=extra_params if extra_params else None
-                    ))
+                    chunks = list(
+                        extractor.execute_query(
+                            query_name,
+                            country,
+                            chunk_size,
+                            limit=limit,
+                            extra_params=extra_params if extra_params else None,
+                        )
+                    )
 
                     if chunks:
                         combined = pl.concat(chunks)
@@ -197,10 +242,14 @@ def extract(
 
 @app.command()
 def list_queries(
-    queries_path: Annotated[str, typer.Option(
-        "--queries-path", "-q",
-        help="Path to directory containing SQL query files",
-    )],
+    queries_path: Annotated[
+        str,
+        typer.Option(
+            "--queries-path",
+            "-q",
+            help="Path to directory containing SQL query files",
+        ),
+    ],
 ) -> None:
     """List available SQL queries."""
     try:
@@ -224,14 +273,21 @@ def list_queries(
 
 @app.command()
 def show_params(
-    config_path: Annotated[str, typer.Option(
-        "--config-path", "-c",
-        help="Path to directory containing YAML config files",
-    )],
-    country: Annotated[str, typer.Option(
-        "--country",
-        help="Country name",
-    )],
+    config_path: Annotated[
+        str,
+        typer.Option(
+            "--config-path",
+            "-c",
+            help="Path to directory containing YAML config files",
+        ),
+    ],
+    country: Annotated[
+        str,
+        typer.Option(
+            "--country",
+            help="Country name",
+        ),
+    ],
 ) -> None:
     """Show resolved parameters for a country."""
     try:
@@ -253,19 +309,45 @@ def show_params(
 
 
 @app.command()
-def test_connection() -> None:
+def test_connection(
+    country: Annotated[
+        str,
+        typer.Option(
+            "--country",
+            help="Country code to test SQL Server connection (optional)",
+        ),
+    ] = None,
+) -> None:
     """Test connections to SQL Server and Databricks."""
     settings = get_settings()
 
     # Test SQL Server
     console.print("[bold]Testing SQL Server connection...[/bold]")
-    sql_client = SQLServerClient()
+
+    if country:
+        console.print(f"  Using country-specific connection: {country}")
+        sql_client = SQLServerClient(country=country)
+    else:
+        console.print(f"  Using default connection from .env")
+        sql_client = SQLServerClient()
+
     sql_ok = sql_client.test_connection()
 
     if sql_ok:
-        console.print(f"  [green]✓ Connected to {settings.sql_server.host}[/green]")
+        if country:
+            try:
+                from kantar_db_handler.configs import get_country_params
+
+                params = get_country_params(country)
+                console.print(
+                    f"  [green]✓ Connected to {params['server']}/{params['database']}[/green]"
+                )
+            except:
+                console.print(f"  [green]✓ Connection successful[/green]")
+        else:
+            console.print(f"  [green]✓ Connected to {settings.sql_server.host}[/green]")
     else:
-        console.print(f"  [red]✗ Failed to connect to {settings.sql_server.host}[/red]")
+        console.print(f"  [red]✗ Failed to connect[/red]")
 
     sql_client.close()
 
@@ -280,6 +362,53 @@ def test_connection() -> None:
         console.print(f"  [red]✗ Failed to connect to {settings.databricks.host}[/red]")
 
     if not (sql_ok and db_ok):
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def list_countries() -> None:
+    """List available countries from kantar_db_handler."""
+    try:
+        from kantar_db_handler.configs import get_country_params
+        import importlib.resources as pkg_resources
+
+        # Get list of country config files
+        try:
+            config_files = pkg_resources.files("kantar_db_handler.config_files")
+            countries = [
+                f.name.replace(".json", "") for f in config_files.iterdir() if f.suffix == ".json"
+            ]
+        except Exception:
+            console.print("[yellow]Could not list country files automatically[/yellow]")
+            console.print(
+                "Available countries (known): Argentina, Bolivia, Brasil, CAM, Chile, Colombia, Ecuador, Mexico, Peru"
+            )
+            return
+
+        if not countries:
+            console.print("[yellow]No country configurations found[/yellow]")
+            return
+
+        table = Table(title="Available Countries")
+        table.add_column("Country", style="cyan")
+        table.add_column("Server", style="green")
+        table.add_column("Database", style="yellow")
+
+        for country in sorted(countries):
+            try:
+                params = get_country_params(country)
+                table.add_row(country, params.get("server", "-"), params.get("database", "-"))
+            except Exception as e:
+                table.add_row(country, "[red]Error loading config[/red]", str(e)[:30])
+
+        console.print(table)
+
+    except ImportError:
+        console.print("[bold red]Error:[/bold red] kantar_db_handler not installed")
+        console.print("Install it with: pip install kantar-db-handler")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(code=1)
 
 

@@ -112,7 +112,10 @@ class SyncEvent(BaseModel):
     operation: SyncEventOperation
     source_table: str = Field(..., description="Databricks source table (catalog.schema.table)")
     target_table: str = Field(..., description="SQL Server target table (schema.table)")
-    primary_keys: list[str] = Field(default_factory=list, description="PK columns for UPDATE/DELETE")
+    country: str = Field(..., description="Country code for SQL Server connection")
+    primary_keys: list[str] = Field(
+        default_factory=list, description="PK columns for UPDATE/DELETE"
+    )
     priority: int = Field(default=0, description="Higher priority processed first")
     status: SyncEventStatus = Field(default=SyncEventStatus.PENDING)
     rows_expected: int | None = None

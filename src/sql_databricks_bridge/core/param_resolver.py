@@ -125,8 +125,8 @@ class ParamResolver:
         # Deep merge: country params override common params
         merged = self._deep_merge(common, country_cfg)
 
-        # Flatten to single-level dict
-        flattened = flatten_dict(merged)
+        # Flatten to single-level dict with underscore separator for SQL compatibility
+        flattened = flatten_dict(merged, sep="_")
 
         logger.info(f"Resolved {len(flattened)} parameters for {country}")
         return flattened

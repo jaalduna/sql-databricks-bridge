@@ -29,9 +29,9 @@ _event_subscribers: list[WebSocket] = []
 # --- Dependency injection ---
 
 
-def get_sync_operator() -> SyncOperator:
-    """Create sync operator with clients."""
-    sql_client = SQLServerClient()
+def get_sync_operator(country: str) -> SyncOperator:
+    """Create sync operator with clients for specific country."""
+    sql_client = SQLServerClient(country=country)
     databricks_client = DatabricksClient()
     return SyncOperator(
         sql_client=sql_client,
@@ -90,7 +90,6 @@ def api_event_to_model(event: SyncEvent) -> SyncEventModel:
 )
 async def submit_sync_event(
     event: SyncEvent,
-    operator: Annotated[SyncOperator, Depends(get_sync_operator)],
     process_immediately: bool = Query(
         default=False,
         description="Process event immediately instead of queuing",
@@ -107,9 +106,14 @@ async def submit_sync_event(
 
     # Store event
     _sync_events[event.event_id] = event
-    logger.info(f"Received sync event {event.event_id}: {event.operation.value}")
+    logger.info(
+        f"Received sync event {event.event_id}: {event.operation.value} for country {event.country}"
+    )
 
     if process_immediately:
+        # Create country-specific operator
+        operator = get_sync_operator(event.country)
+
         # Process synchronously
         event.status = SyncEventStatus.PROCESSING
         await broadcast_event_update(event)
@@ -200,10 +204,7 @@ async def get_sync_event(event_id: str) -> SyncEvent:
     summary="Retry failed event",
     description="Retry a failed or blocked sync event.",
 )
-async def retry_sync_event(
-    event_id: str,
-    operator: Annotated[SyncOperator, Depends(get_sync_operator)],
-) -> SyncEvent:
+async def retry_sync_event(event_id: str) -> SyncEvent:
     """Retry a failed sync event."""
     event = _sync_events.get(event_id)
 
@@ -218,6 +219,9 @@ async def retry_sync_event(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot retry event with status: {event.status.value}",
         )
+
+    # Create country-specific operator
+    operator = get_sync_operator(event.country)
 
     # Reset and reprocess
     event.status = SyncEventStatus.PROCESSING
