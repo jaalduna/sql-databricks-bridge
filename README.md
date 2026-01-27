@@ -357,6 +357,59 @@ users:
         max_delete_rows: 10000
 ```
 
+### Important Technical Notes
+
+#### Catalog and Schema Names with Special Characters
+
+When using Unity Catalog, catalog and schema names containing special characters (like hyphens) must be enclosed in backticks. The bridge automatically handles this for you:
+
+```bash
+# Correct - the bridge adds backticks internally
+sql-databricks-bridge extract \
+  --destination 002-mwp.bronze \
+  --country Bolivia
+
+# This creates tables in: `002-mwp`.`bronze`.`Bolivia_table_name`
+```
+
+**Why this matters:**
+- Unity Catalog allows hyphens in names: `002-mwp`, `dev-workspace`, etc.
+- SQL requires backticks for identifiers with special characters
+- The bridge handles this automatically in table creation and staging paths
+
+#### Windows Console Compatibility
+
+The CLI has been optimized for Windows environments:
+
+- **Unicode symbols removed**: Progress indicators use ASCII-compatible characters (OK, FAIL, ->)
+- **Time-based progress**: Replaced Unicode spinner with elapsed time display
+- **No encoding errors**: Works correctly in Windows Command Prompt and PowerShell
+
+If you encounter encoding issues on other platforms, ensure your terminal supports UTF-8:
+```bash
+# Linux/macOS
+export LANG=en_US.UTF-8
+
+# Windows PowerShell
+$OutputEncoding = [System.Text.Encoding]::UTF8
+```
+
+#### Stage-then-CTAS Pattern
+
+The bridge uses a two-phase approach for creating Delta tables:
+
+1. **Stage**: Upload Parquet file to `/Volumes/{catalog}/{schema}/{volume}/_staging/`
+2. **CTAS**: Execute `CREATE OR REPLACE TABLE ... AS SELECT * FROM read_files()`
+3. **Cleanup**: Delete temporary staging file
+
+**Benefits:**
+- Atomic table replacements (no intermediate states)
+- Automatic schema inference from Parquet
+- Unity Catalog integration
+- Clean storage (no leftover staging files)
+
+The staging path automatically uses the same catalog/schema as the target table, ensuring proper namespace alignment.
+
 ## Databricks → SQL Sync
 
 Insert events into `bridge.events.bridge_events`:

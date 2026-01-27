@@ -44,11 +44,11 @@ class DeltaTableWriter:
         """Build fully-qualified Delta table name.
 
         Returns:
-            "{catalog}.{schema}.{country}_{query_name}"
+            "`{catalog}`.`{schema}`.`{country}_{query_name}`"
         """
         cat = catalog or self._settings.catalog
         sch = schema or self._settings.schema_name
-        return f"{cat}.{sch}.{country}_{query_name}"
+        return f"`{cat}`.`{sch}`.`{country}_{query_name}`"
 
     def write_dataframe(
         self,
@@ -73,7 +73,12 @@ class DeltaTableWriter:
         start_time = datetime.utcnow()
 
         table_name = self.resolve_table_name(query_name, country, catalog, schema)
-        staging_path = f"{self._settings.volume_path}/_staging/{country}_{query_name}.parquet"
+
+        # Build staging path using target catalog/schema (not defaults from env)
+        target_catalog = catalog or self._settings.catalog
+        target_schema = schema or self._settings.schema_name
+        staging_volume_path = f"/Volumes/{target_catalog}/{target_schema}/{self._settings.volume}"
+        staging_path = f"{staging_volume_path}/_staging/{country}_{query_name}.parquet"
 
         rows = len(df)
 
