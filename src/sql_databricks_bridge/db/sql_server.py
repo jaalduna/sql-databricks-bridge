@@ -10,30 +10,82 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from sql_databricks_bridge.core.config import SQLServerSettings, get_settings
 
+try:
+    from kantar_db_handler.configs import get_country_params
+
+    KANTAR_DB_HANDLER_AVAILABLE = True
+except ImportError:
+    KANTAR_DB_HANDLER_AVAILABLE = False
+
 
 class SQLServerClient:
-    """SQL Server database client."""
+    """SQL Server database client with country-based configuration support."""
 
-    def __init__(self, settings: SQLServerSettings | None = None) -> None:
+    def __init__(
+        self,
+        settings: SQLServerSettings | None = None,
+        country: str | None = None,
+        server: str | None = None,
+        database: str | None = None,
+    ) -> None:
         """Initialize SQL Server client.
 
         Args:
             settings: SQL Server settings. Uses default settings if not provided.
+            country: Country code to load server/database from kantar_db_handler.
+            server: Override server hostname.
+            database: Override database name.
+
+        Note:
+            Priority order: (server + database) > country > settings
+            If country is provided and kantar_db_handler is available, it will
+            load server/database from country config files.
         """
         self.settings = settings or get_settings().sql_server
         self._engine: Engine | None = None
 
+        # Handle country-based configuration
+        if country and KANTAR_DB_HANDLER_AVAILABLE:
+            params = get_country_params(country)
+            self._server = server or params["server"]
+            self._database = database or params["database"]
+        else:
+            self._server = server or self.settings.host
+            self._database = database or self.settings.database
+
     @property
     def engine(self) -> Engine:
-        """Get or create SQLAlchemy engine."""
+        """Get or create SQLAlchemy engine with dynamic server/database."""
         if self._engine is None:
+            connection_url = self._build_connection_url()
             self._engine = create_engine(
-                self.settings.sqlalchemy_url,
+                connection_url,
                 pool_pre_ping=True,
                 pool_size=5,
                 max_overflow=10,
             )
         return self._engine
+
+    def _build_connection_url(self) -> str:
+        """Build SQLAlchemy connection URL with dynamic server/database.
+
+        Returns:
+            SQLAlchemy connection URL string.
+        """
+        trust_cert = "yes" if self.settings.trust_server_certificate else "no"
+        driver_encoded = self.settings.driver.replace(" ", "+")
+
+        if self.settings.use_windows_auth:
+            return (
+                f"mssql+pyodbc://@{self._server}:{self.settings.port}/{self._database}"
+                f"?driver={driver_encoded}&TrustServerCertificate={trust_cert}"
+                f"&Trusted_Connection=yes"
+            )
+        return (
+            f"mssql+pyodbc://{self.settings.username}:{self.settings.password.get_secret_value()}"
+            f"@{self._server}:{self.settings.port}/{self._database}"
+            f"?driver={driver_encoded}&TrustServerCertificate={trust_cert}"
+        )
 
     def test_connection(self) -> bool:
         """Test database connectivity.
