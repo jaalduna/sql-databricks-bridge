@@ -12,10 +12,10 @@ from rich.table import Table
 
 from sql_databricks_bridge import __version__
 from sql_databricks_bridge.core.config import get_settings
+from sql_databricks_bridge.core.delta_writer import DeltaTableWriter
 from sql_databricks_bridge.core.extractor import Extractor
 from sql_databricks_bridge.core.param_resolver import ParamResolver
 from sql_databricks_bridge.core.query_loader import QueryLoader
-from sql_databricks_bridge.core.uploader import Uploader
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 
@@ -74,9 +74,9 @@ def extract(
         typer.Option(
             "--destination",
             "-d",
-            help="Databricks volume path for output files",
+            help="catalog.schema override for output tables (optional, uses config defaults)",
         ),
-    ],
+    ] = None,
     queries: Annotated[
         list[str],
         typer.Option(
@@ -123,14 +123,20 @@ def extract(
         ),
     ] = False,
 ) -> None:
-    """Extract data from SQL Server to Databricks.
+    """Extract data from SQL Server to Databricks Delta tables.
 
     Example:
         sql-databricks-bridge extract \\
             --queries-path ./queries \\
             --config-path ./config \\
-            --country Colombia \\
-            --destination /Volumes/catalog/schema/volume/
+            --country CL
+
+        # Override catalog.schema:
+        sql-databricks-bridge extract \\
+            --queries-path ./queries \\
+            --config-path ./config \\
+            --country CL \\
+            --destination kpi_dev_01.bronze
     """
     setup_logging(verbose)
 
@@ -148,16 +154,24 @@ def extract(
                 key, value = param.split("=", 1)
                 extra_params[key.strip()] = value.strip()
 
+        # Parse catalog.schema from --destination if provided
+        target_catalog: str | None = None
+        target_schema: str | None = None
+        if destination and "." in destination:
+            parts = destination.split(".", 1)
+            target_catalog = parts[0]
+            target_schema = parts[1]
+
         # Initialize components
         sql_client = SQLServerClient(country=country)
         databricks_client = DatabricksClient()
         extractor = Extractor(queries_path, config_path, sql_client)
-        uploader = Uploader(databricks_client)
+        writer = DeltaTableWriter(databricks_client)
 
         # Create job
         job = extractor.create_job(
             country=country,
-            destination=destination,
+            destination=destination or "",
             queries=queries if queries else None,
             chunk_size=chunk_size,
         )
@@ -165,7 +179,7 @@ def extract(
         console.print(f"[bold green]Starting extraction job:[/bold green] {job.job_id}")
         console.print(f"  Country: {country}")
         console.print(f"  Queries: {len(job.queries)}")
-        console.print(f"  Destination: {destination}")
+        console.print(f"  Target: Delta tables ({target_catalog or 'default catalog'}.{target_schema or 'default schema'})")
         if limit:
             console.print(f"  [yellow]Row limit: {limit:,} rows per query (testing mode)[/yellow]")
         if extra_params:
@@ -184,11 +198,13 @@ def extract(
                 task = progress.add_task(f"Extracting {query_name}...", total=None)
 
                 try:
-                    # Check if file exists
-                    output_path = f"{destination}/{country}/{query_name}/{query_name}.parquet"
-                    if not overwrite and uploader.file_exists(output_path):
+                    # Check if table exists
+                    table_name = writer.resolve_table_name(
+                        query_name, country, target_catalog, target_schema
+                    )
+                    if not overwrite and writer.table_exists(table_name):
                         progress.update(
-                            task, description=f"[yellow]Skipped {query_name} (exists)[/yellow]"
+                            task, description=f"[yellow]Skipped {query_name} (table {table_name} exists)[/yellow]"
                         )
                         continue
 
@@ -207,18 +223,17 @@ def extract(
 
                     if chunks:
                         combined = pl.concat(chunks)
-                        results = uploader.upload_query_result(
+                        result = writer.write_dataframe(
                             combined,
-                            destination,
                             query_name,
                             country,
-                            chunk_size=chunk_size,
+                            catalog=target_catalog,
+                            schema=target_schema,
                         )
 
-                        total_rows = sum(r.rows for r in results)
                         progress.update(
                             task,
-                            description=f"[green]✓ {query_name}: {total_rows:,} rows[/green]",
+                            description=f"[green]✓ {query_name}: {result.rows:,} rows → {result.table_name}[/green]",
                         )
                     else:
                         progress.update(

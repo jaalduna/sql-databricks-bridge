@@ -10,8 +10,8 @@ from sql_databricks_bridge.api.schemas import (
     ExtractionResponse,
     JobStatus,
 )
+from sql_databricks_bridge.core.delta_writer import DeltaTableWriter
 from sql_databricks_bridge.core.extractor import Extractor, ExtractionJob
-from sql_databricks_bridge.core.uploader import Uploader
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 
@@ -36,22 +36,25 @@ def get_extractor(request: ExtractionRequest) -> Extractor:
 async def run_extraction_job(
     extractor: Extractor,
     job: ExtractionJob,
-    uploader: Uploader,
+    writer: DeltaTableWriter,
     overwrite: bool,
+    target_catalog: str | None = None,
+    target_schema: str | None = None,
 ) -> None:
     """Background task to run extraction."""
     try:
         job.status = JobStatus.RUNNING
 
         for query_name in job.queries:
-            # Check if file exists and skip if not overwriting
-            output_path = f"{job.destination}/{job.country}/{query_name}"
+            table_name = writer.resolve_table_name(
+                query_name, job.country, target_catalog, target_schema
+            )
 
-            if not overwrite and uploader.file_exists(f"{output_path}/{query_name}.parquet"):
-                logger.info(f"Skipping {query_name} - file exists and overwrite=False")
+            if not overwrite and writer.table_exists(table_name):
+                logger.info(f"Skipping {query_name} - table {table_name} exists and overwrite=False")
                 continue
 
-            # Execute query and upload
+            # Execute query and write to Delta table
             chunks = list(
                 extractor.execute_query(
                     query_name,
@@ -64,12 +67,12 @@ async def run_extraction_job(
                 import polars as pl
 
                 combined = pl.concat(chunks)
-                uploader.upload_query_result(
+                writer.write_dataframe(
                     combined,
-                    job.destination,
                     query_name,
                     job.country,
-                    chunk_size=job.chunk_size,
+                    catalog=target_catalog,
+                    schema=target_schema,
                 )
 
         job.status = JobStatus.COMPLETED
@@ -97,7 +100,7 @@ async def start_extraction(
 
         job = extractor.create_job(
             country=request.country,
-            destination=request.destination,
+            destination=request.destination or "",
             queries=request.queries,
             chunk_size=request.chunk_size,
         )
@@ -105,16 +108,18 @@ async def start_extraction(
         # Store extractor for job lookup
         _extractors[job.job_id] = extractor
 
-        # Create uploader
-        uploader = Uploader(DatabricksClient())
+        # Create Delta table writer
+        writer = DeltaTableWriter(DatabricksClient())
 
         # Run extraction in background
         background_tasks.add_task(
             run_extraction_job,
             extractor,
             job,
-            uploader,
+            writer,
             request.overwrite,
+            request.target_catalog,
+            request.target_schema,
         )
 
         return ExtractionResponse(
