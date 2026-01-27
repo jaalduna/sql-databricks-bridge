@@ -7,7 +7,7 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import Progress, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
 from sql_databricks_bridge import __version__
@@ -179,7 +179,9 @@ def extract(
         console.print(f"[bold green]Starting extraction job:[/bold green] {job.job_id}")
         console.print(f"  Country: {country}")
         console.print(f"  Queries: {len(job.queries)}")
-        console.print(f"  Target: Delta tables ({target_catalog or 'default catalog'}.{target_schema or 'default schema'})")
+        console.print(
+            f"  Target: Delta tables ({target_catalog or 'default catalog'}.{target_schema or 'default schema'})"
+        )
         if limit:
             console.print(f"  [yellow]Row limit: {limit:,} rows per query (testing mode)[/yellow]")
         if extra_params:
@@ -190,8 +192,8 @@ def extract(
 
         # Run extraction with progress
         with Progress(
-            SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
+            TimeElapsedColumn(),
             console=console,
         ) as progress:
             for query_name in job.queries:
@@ -204,7 +206,8 @@ def extract(
                     )
                     if not overwrite and writer.table_exists(table_name):
                         progress.update(
-                            task, description=f"[yellow]Skipped {query_name} (table {table_name} exists)[/yellow]"
+                            task,
+                            description=f"[yellow]Skipped {query_name} (table {table_name} exists)[/yellow]",
                         )
                         continue
 
@@ -233,18 +236,18 @@ def extract(
 
                         progress.update(
                             task,
-                            description=f"[green]✓ {query_name}: {result.rows:,} rows → {result.table_name}[/green]",
+                            description=f"[green]OK {query_name}: {result.rows:,} rows -> {result.table_name}[/green]",
                         )
                     else:
                         progress.update(
                             task,
-                            description=f"[yellow]✓ {query_name}: 0 rows[/yellow]",
+                            description=f"[yellow]OK {query_name}: 0 rows[/yellow]",
                         )
 
                 except Exception as e:
                     progress.update(
                         task,
-                        description=f"[red]✗ {query_name}: {e}[/red]",
+                        description=f"[red]FAIL {query_name}: {e}[/red]",
                     )
 
         console.print()
@@ -355,14 +358,14 @@ def test_connection(
 
                 params = get_country_params(country)
                 console.print(
-                    f"  [green]✓ Connected to {params['server']}/{params['database']}[/green]"
+                    f"  [green]OK Connected to {params['server']}/{params['database']}[/green]"
                 )
             except:
-                console.print(f"  [green]✓ Connection successful[/green]")
+                console.print(f"  [green]OK Connection successful[/green]")
         else:
-            console.print(f"  [green]✓ Connected to {settings.sql_server.host}[/green]")
+            console.print(f"  [green]OK Connected to {settings.sql_server.host}[/green]")
     else:
-        console.print(f"  [red]✗ Failed to connect[/red]")
+        console.print(f"  [red]FAIL Failed to connect[/red]")
 
     sql_client.close()
 
@@ -370,11 +373,10 @@ def test_connection(
     console.print("[bold]Testing Databricks connection...[/bold]")
     databricks_client = DatabricksClient()
     db_ok = databricks_client.test_connection()
-
     if db_ok:
-        console.print(f"  [green]✓ Connected to {settings.databricks.host}[/green]")
+        console.print(f"  [green]OK Connected to {settings.databricks.host}[/green]")
     else:
-        console.print(f"  [red]✗ Failed to connect to {settings.databricks.host}[/red]")
+        console.print(f"  [red]FAIL Failed to connect to {settings.databricks.host}[/red]")
 
     if not (sql_ok and db_ok):
         raise typer.Exit(code=1)
