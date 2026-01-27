@@ -54,33 +54,40 @@ users:
 
 ### CLI Extraction
 
-Extract data from SQL Server to Databricks:
+Extract data from SQL Server to Databricks Delta tables:
 
 ```bash
-# Extract all queries for Colombia
+# Extract all queries for Chile (uses DATABRICKS_CATALOG/SCHEMA from .env)
 sql-databricks-bridge extract \
   --queries-path /path/to/queries \
   --config-path /path/to/config \
-  --country Colombia \
-  --destination /Volumes/catalog/schema/volume/raw
+  --country CL
+
+# Override catalog.schema for output tables
+sql-databricks-bridge extract \
+  --queries-path ./queries \
+  --config-path ./config \
+  --country BR \
+  --destination kpi_dev_01.bronze
 
 # Extract specific queries
 sql-databricks-bridge extract \
   --queries-path ./queries \
   --config-path ./config \
-  --country Brasil \
-  --destination /Volumes/my_catalog/my_schema/my_volume \
+  --country BR \
   --query j_atoscompra_new \
   --query vw_artigoz
 
-# Overwrite existing files
+# Overwrite existing tables
 sql-databricks-bridge extract \
   --queries-path ./queries \
   --config-path ./config \
-  --country Mexico \
-  --destination /Volumes/catalog/schema/volume \
+  --country MX \
   --overwrite
 ```
+
+Output tables follow the naming convention `{catalog}.{schema}.{country}_{query_name}`.
+See [DELTA_TABLES.md](DELTA_TABLES.md) for full details.
 
 ### API Server
 
@@ -105,8 +112,9 @@ curl -X POST http://localhost:8000/extract \
   -d '{
     "queries_path": "/path/to/queries",
     "config_path": "/path/to/config",
-    "country": "Colombia",
-    "destination": "/Volumes/catalog/schema/volume"
+    "country": "CL",
+    "target_catalog": "kpi_prd_01",
+    "target_schema": "bronze"
   }'
 ```
 
