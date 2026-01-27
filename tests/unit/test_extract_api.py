@@ -57,7 +57,6 @@ class TestGetExtractor:
 
             request = ExtractionRequest(
                 country="CL",
-                destination="/volumes/test",
                 queries_path=sample_queries_dir,
                 config_path=sample_config_dir,
             )
@@ -88,7 +87,6 @@ class TestStartExtraction:
                     "/extract",
                     json={
                         "country": "CL",
-                        "destination": "/volumes/test",
                         "queries_path": sample_queries_dir,
                         "config_path": sample_config_dir,
                         "queries": ["query1"],
@@ -113,7 +111,6 @@ class TestStartExtraction:
                 "/extract",
                 json={
                     "country": "CL",
-                    "destination": "/volumes/test",
                     "queries_path": sample_queries_dir,
                     "config_path": sample_config_dir,
                     "queries": ["nonexistent"],
@@ -128,7 +125,6 @@ class TestStartExtraction:
             "/extract",
             json={
                 "country": "CL",
-                "destination": "/volumes/test",
                 "queries_path": "/nonexistent/path",
                 "config_path": "/nonexistent/config",
             },
@@ -145,6 +141,7 @@ class TestRunExtractionJob:
         """Run extraction job to completion."""
         from sql_databricks_bridge.api.routes.extract import run_extraction_job
         from sql_databricks_bridge.api.schemas import JobStatus
+        from sql_databricks_bridge.core.delta_writer import WriteResult
         from sql_databricks_bridge.core.extractor import ExtractionJob
 
         # Create mock extractor
@@ -152,15 +149,18 @@ class TestRunExtractionJob:
         chunk = pl.DataFrame({"id": [1], "name": ["test"]})
         mock_extractor.execute_query.return_value = iter([chunk])
 
-        # Create mock uploader
-        mock_uploader = MagicMock()
-        mock_uploader.file_exists.return_value = False
+        # Create mock writer
+        mock_writer = MagicMock()
+        mock_writer.resolve_table_name.return_value = "main.default.cl_query1"
+        mock_writer.table_exists.return_value = False
+        mock_writer.write_dataframe.return_value = WriteResult(
+            table_name="main.default.cl_query1", rows=1, duration_seconds=0.5
+        )
 
         # Create job
         job = ExtractionJob(
             job_id="test-123",
             country="CL",
-            destination="/volumes/test",
             queries=["query1"],
             chunk_size=1000,
         )
@@ -168,27 +168,28 @@ class TestRunExtractionJob:
         await run_extraction_job(
             mock_extractor,
             job,
-            mock_uploader,
+            mock_writer,
             overwrite=True,
         )
 
         assert job.status == JobStatus.COMPLETED
+        mock_writer.write_dataframe.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_run_extraction_skips_existing(self):
-        """Skip existing files when not overwriting."""
+        """Skip existing tables when not overwriting."""
         from sql_databricks_bridge.api.routes.extract import run_extraction_job
         from sql_databricks_bridge.api.schemas import JobStatus
         from sql_databricks_bridge.core.extractor import ExtractionJob
 
         mock_extractor = MagicMock()
-        mock_uploader = MagicMock()
-        mock_uploader.file_exists.return_value = True  # File exists
+        mock_writer = MagicMock()
+        mock_writer.resolve_table_name.return_value = "main.default.cl_query1"
+        mock_writer.table_exists.return_value = True  # Table exists
 
         job = ExtractionJob(
             job_id="test-123",
             country="CL",
-            destination="/volumes/test",
             queries=["query1"],
             chunk_size=1000,
         )
@@ -196,7 +197,7 @@ class TestRunExtractionJob:
         await run_extraction_job(
             mock_extractor,
             job,
-            mock_uploader,
+            mock_writer,
             overwrite=False,  # Don't overwrite
         )
 
@@ -214,13 +215,13 @@ class TestRunExtractionJob:
         mock_extractor = MagicMock()
         mock_extractor.execute_query.side_effect = Exception("Query failed")
 
-        mock_uploader = MagicMock()
-        mock_uploader.file_exists.return_value = False
+        mock_writer = MagicMock()
+        mock_writer.resolve_table_name.return_value = "main.default.cl_query1"
+        mock_writer.table_exists.return_value = False
 
         job = ExtractionJob(
             job_id="test-123",
             country="CL",
-            destination="/volumes/test",
             queries=["query1"],
             chunk_size=1000,
         )
@@ -228,7 +229,7 @@ class TestRunExtractionJob:
         await run_extraction_job(
             mock_extractor,
             job,
-            mock_uploader,
+            mock_writer,
             overwrite=True,
         )
 
