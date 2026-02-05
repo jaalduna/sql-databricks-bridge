@@ -14,8 +14,6 @@ from sql_databricks_bridge import __version__
 from sql_databricks_bridge.core.config import get_settings
 from sql_databricks_bridge.core.delta_writer import DeltaTableWriter
 from sql_databricks_bridge.core.extractor import Extractor
-from sql_databricks_bridge.core.param_resolver import ParamResolver
-from sql_databricks_bridge.core.query_loader import QueryLoader
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 
@@ -54,19 +52,11 @@ def extract(
             help="Path to directory containing SQL query files",
         ),
     ],
-    config_path: Annotated[
-        str,
-        typer.Option(
-            "--config-path",
-            "-c",
-            help="Path to directory containing YAML config files",
-        ),
-    ],
     country: Annotated[
         str,
         typer.Option(
             "--country",
-            help="Country name for parameter resolution",
+            help="Country name for query resolution",
         ),
     ],
     destination: Annotated[
@@ -99,14 +89,13 @@ def extract(
             help="Limit rows per query (for testing). Wraps queries with SELECT TOP N",
         ),
     ] = None,
-    params: Annotated[
-        list[str],
+    lookback_months: Annotated[
+        int,
         typer.Option(
-            "--param",
-            "-p",
-            help="Extra parameters as key=value (can specify multiple). Example: --param precios.mes_ini=20250101",
+            "--lookback-months",
+            help="Number of months to look back for fact queries (default: 24)",
         ),
-    ] = None,
+    ] = 24,
     overwrite: Annotated[
         bool,
         typer.Option(
@@ -128,31 +117,19 @@ def extract(
     Example:
         sql-databricks-bridge extract \\
             --queries-path ./queries \\
-            --config-path ./config \\
-            --country CL
+            --country bolivia \\
+            --lookback-months 24
 
         # Override catalog.schema:
         sql-databricks-bridge extract \\
             --queries-path ./queries \\
-            --config-path ./config \\
-            --country CL \\
-            --destination kpi_dev_01.bronze
+            --country bolivia \\
+            --destination kpi_dev_01.bronze \\
+            --lookback-months 12
     """
     setup_logging(verbose)
 
     try:
-        # Parse extra parameters from --param options
-        extra_params: dict[str, str] = {}
-        if params:
-            for param in params:
-                if "=" not in param:
-                    console.print(f"[bold red]Error:[/bold red] Invalid parameter format: {param}")
-                    console.print(
-                        "  Expected format: key=value (e.g., --param precios.mes_ini=20250101)"
-                    )
-                    raise typer.Exit(code=1)
-                key, value = param.split("=", 1)
-                extra_params[key.strip()] = value.strip()
 
         # Parse catalog.schema from --destination if provided
         target_catalog: str | None = None
@@ -165,7 +142,7 @@ def extract(
         # Initialize components
         sql_client = SQLServerClient(country=country)
         databricks_client = DatabricksClient()
-        extractor = Extractor(queries_path, config_path, sql_client)
+        extractor = Extractor(queries_path, sql_client)
         writer = DeltaTableWriter(databricks_client)
 
         # Create job
@@ -179,15 +156,12 @@ def extract(
         console.print(f"[bold green]Starting extraction job:[/bold green] {job.job_id}")
         console.print(f"  Country: {country}")
         console.print(f"  Queries: {len(job.queries)}")
+        console.print(f"  Lookback: {lookback_months} months")
         console.print(
             f"  Target: Delta tables ({target_catalog or 'default catalog'}.{target_schema or 'default schema'})"
         )
         if limit:
             console.print(f"  [yellow]Row limit: {limit:,} rows per query (testing mode)[/yellow]")
-        if extra_params:
-            console.print(f"  Extra params: {len(extra_params)}")
-            for k, v in extra_params.items():
-                console.print(f"    {k}={v}")
         console.print()
 
         # Run extraction with progress
@@ -220,7 +194,7 @@ def extract(
                             country,
                             chunk_size,
                             limit=limit,
-                            extra_params=extra_params if extra_params else None,
+                            lookback_months=lookback_months,
                         )
                     )
 
@@ -268,37 +242,6 @@ def list_queries(
             help="Path to directory containing SQL query files",
         ),
     ],
-) -> None:
-    """List available SQL queries."""
-    try:
-        loader = QueryLoader(queries_path)
-        queries = loader.discover_queries()
-
-        table = Table(title="Available Queries")
-        table.add_column("Query Name", style="cyan")
-        table.add_column("Parameters", style="green")
-
-        for name, sql in sorted(queries.items()):
-            params = loader.get_query_parameters(sql)
-            table.add_row(name, ", ".join(params) if params else "-")
-
-        console.print(table)
-
-    except Exception as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(code=1)
-
-
-@app.command()
-def show_params(
-    config_path: Annotated[
-        str,
-        typer.Option(
-            "--config-path",
-            "-c",
-            help="Path to directory containing YAML config files",
-        ),
-    ],
     country: Annotated[
         str,
         typer.Option(
@@ -307,23 +250,30 @@ def show_params(
         ),
     ],
 ) -> None:
-    """Show resolved parameters for a country."""
+    """List available SQL queries for a country."""
     try:
-        resolver = ParamResolver(config_path)
-        params = resolver.resolve_params(country)
+        from sql_databricks_bridge.core.country_query_loader import CountryAwareQueryLoader
 
-        table = Table(title=f"Parameters for {country}")
-        table.add_column("Parameter", style="cyan")
-        table.add_column("Value", style="green")
+        loader = CountryAwareQueryLoader(queries_path)
+        queries = loader.list_queries(country)
 
-        for key, value in sorted(params.items()):
-            table.add_row(key, value)
+        table = Table(title=f"Available Queries for {country}")
+        table.add_column("Query Name", style="cyan")
+        table.add_column("Source", style="green")
+
+        for name in queries:
+            source = loader.get_query_source(name, country)
+            table.add_row(name, source)
 
         console.print(table)
+        console.print(f"\n[bold]Total:[/bold] {len(queries)} queries")
 
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(code=1)
+
+
+# Removed show_params command - no longer using YAML parameter configuration
 
 
 @app.command()

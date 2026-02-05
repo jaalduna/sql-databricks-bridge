@@ -2,11 +2,10 @@
 
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import polars as pl
 import pytest
-import yaml
 
 from sql_databricks_bridge.api.schemas import JobStatus
 from sql_databricks_bridge.core.extractor import ExtractionJob, Extractor
@@ -14,36 +13,31 @@ from sql_databricks_bridge.core.extractor import ExtractionJob, Extractor
 
 @pytest.fixture
 def sample_queries_dir():
-    """Create temp directory with sample SQL queries."""
+    """Create temp directory with country-aware query structure."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Create sample query files
-        query1 = Path(tmpdir) / "query1.sql"
-        query1.write_text("SELECT * FROM {table1} WHERE country = '{country}'")
+        # Create directory structure: queries/countries/{country}/
+        base_path = Path(tmpdir)
 
-        query2 = Path(tmpdir) / "query2.sql"
-        query2.write_text("SELECT id, name FROM {table2}")
+        # Create common queries directory (can be empty for now)
+        common_dir = base_path / "common"
+        common_dir.mkdir(parents=True)
 
-        yield tmpdir
+        # Create Chile-specific queries
+        cl_dir = base_path / "countries" / "CL"
+        cl_dir.mkdir(parents=True)
 
+        query1 = cl_dir / "query1.sql"
+        query1.write_text("SELECT * FROM dbo.users WHERE country = 'CL'")
 
-@pytest.fixture
-def sample_config_dir():
-    """Create temp directory with sample config."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Create common config (must be named common_params.yaml)
-        common_config = Path(tmpdir) / "common_params.yaml"
-        common_config.write_text(
-            yaml.dump(
-                {
-                    "table1": "dbo.users",
-                    "table2": "dbo.orders",
-                }
-            )
-        )
+        query2 = cl_dir / "query2.sql"
+        query2.write_text("SELECT id, name FROM dbo.orders")
 
-        # Create country config (must be named CL.yaml)
-        cl_config = Path(tmpdir) / "CL.yaml"
-        cl_config.write_text(yaml.dump({"country": "CL"}))
+        # Create Bolivia-specific queries
+        bo_dir = base_path / "countries" / "BO"
+        bo_dir.mkdir(parents=True)
+
+        query1_bo = bo_dir / "query1.sql"
+        query1_bo.write_text("SELECT * FROM dbo.users WHERE country = 'BO'")
 
         yield tmpdir
 
@@ -93,23 +87,20 @@ class TestExtractionJob:
 class TestExtractor:
     """Tests for Extractor class."""
 
-    def test_extractor_init(self, sample_queries_dir, sample_config_dir, mock_sql_client):
+    def test_extractor_init(self, sample_queries_dir, mock_sql_client):
         """Initialize extractor with paths."""
         extractor = Extractor(
             queries_path=sample_queries_dir,
-            config_path=sample_config_dir,
             sql_client=mock_sql_client,
         )
 
         assert extractor.sql_client is mock_sql_client
         assert extractor.query_loader is not None
-        assert extractor.param_resolver is not None
 
-    def test_create_job(self, sample_queries_dir, sample_config_dir, mock_sql_client):
+    def test_create_job(self, sample_queries_dir, mock_sql_client):
         """Create extraction job."""
         extractor = Extractor(
             queries_path=sample_queries_dir,
-            config_path=sample_config_dir,
             sql_client=mock_sql_client,
         )
 
@@ -126,13 +117,10 @@ class TestExtractor:
         assert job.queries == ["query1"]
         assert job.chunk_size == 5000
 
-    def test_create_job_all_queries(
-        self, sample_queries_dir, sample_config_dir, mock_sql_client
-    ):
+    def test_create_job_all_queries(self, sample_queries_dir, mock_sql_client):
         """Create job with all available queries."""
         extractor = Extractor(
             queries_path=sample_queries_dir,
-            config_path=sample_config_dir,
             sql_client=mock_sql_client,
         )
 
@@ -146,13 +134,10 @@ class TestExtractor:
         assert "query1" in job.queries
         assert "query2" in job.queries
 
-    def test_create_job_invalid_query(
-        self, sample_queries_dir, sample_config_dir, mock_sql_client
-    ):
+    def test_create_job_invalid_query(self, sample_queries_dir, mock_sql_client):
         """Raise error for unknown queries."""
         extractor = Extractor(
             queries_path=sample_queries_dir,
-            config_path=sample_config_dir,
             sql_client=mock_sql_client,
         )
 
@@ -163,13 +148,12 @@ class TestExtractor:
                 queries=["nonexistent_query"],
             )
 
-        assert "Unknown queries" in str(exc_info.value)
+        assert "not available for" in str(exc_info.value)
 
-    def test_get_job(self, sample_queries_dir, sample_config_dir, mock_sql_client):
+    def test_get_job(self, sample_queries_dir, mock_sql_client):
         """Get job by ID."""
         extractor = Extractor(
             queries_path=sample_queries_dir,
-            config_path=sample_config_dir,
             sql_client=mock_sql_client,
         )
 
@@ -181,21 +165,16 @@ class TestExtractor:
         retrieved = extractor.get_job(job.job_id)
         assert retrieved is job
 
-    def test_get_job_not_found(
-        self, sample_queries_dir, sample_config_dir, mock_sql_client
-    ):
+    def test_get_job_not_found(self, sample_queries_dir, mock_sql_client):
         """Return None for unknown job ID."""
         extractor = Extractor(
             queries_path=sample_queries_dir,
-            config_path=sample_config_dir,
             sql_client=mock_sql_client,
         )
 
         assert extractor.get_job("nonexistent") is None
 
-    def test_execute_query(
-        self, sample_queries_dir, sample_config_dir, mock_sql_client
-    ):
+    def test_execute_query(self, sample_queries_dir, mock_sql_client):
         """Execute single query and get chunks."""
         # Setup mock to return chunks
         chunk1 = pl.DataFrame({"id": [1, 2], "name": ["a", "b"]})
@@ -204,7 +183,6 @@ class TestExtractor:
 
         extractor = Extractor(
             queries_path=sample_queries_dir,
-            config_path=sample_config_dir,
             sql_client=mock_sql_client,
         )
 
@@ -220,9 +198,7 @@ class TestExtractor:
         assert len(chunks[0]) == 2
         assert len(chunks[1]) == 2
 
-    def test_run_extraction_success(
-        self, sample_queries_dir, sample_config_dir, mock_sql_client
-    ):
+    def test_run_extraction_success(self, sample_queries_dir, mock_sql_client):
         """Run extraction job successfully."""
         # Setup mock to return data
         chunk = pl.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
@@ -230,7 +206,6 @@ class TestExtractor:
 
         extractor = Extractor(
             queries_path=sample_queries_dir,
-            config_path=sample_config_dir,
             sql_client=mock_sql_client,
         )
 
@@ -248,15 +223,12 @@ class TestExtractor:
         assert len(result.results) == 1
         assert result.results[0].rows_extracted == 3
 
-    def test_run_extraction_empty_result(
-        self, sample_queries_dir, sample_config_dir, mock_sql_client
-    ):
+    def test_run_extraction_empty_result(self, sample_queries_dir, mock_sql_client):
         """Handle empty query results."""
         mock_sql_client.execute_query_chunked.return_value = iter([])
 
         extractor = Extractor(
             queries_path=sample_queries_dir,
-            config_path=sample_config_dir,
             sql_client=mock_sql_client,
         )
 
@@ -271,15 +243,12 @@ class TestExtractor:
         assert result.status == JobStatus.COMPLETED
         assert result.results[0].rows_extracted == 0
 
-    def test_run_extraction_with_error(
-        self, sample_queries_dir, sample_config_dir, mock_sql_client
-    ):
+    def test_run_extraction_with_error(self, sample_queries_dir, mock_sql_client):
         """Handle query execution errors."""
         mock_sql_client.execute_query_chunked.side_effect = Exception("DB error")
 
         extractor = Extractor(
             queries_path=sample_queries_dir,
-            config_path=sample_config_dir,
             sql_client=mock_sql_client,
         )
 
@@ -295,9 +264,7 @@ class TestExtractor:
         assert result.results[0].status == JobStatus.FAILED
         assert "DB error" in result.results[0].error
 
-    def test_run_extraction_partial_success(
-        self, sample_queries_dir, sample_config_dir, mock_sql_client
-    ):
+    def test_run_extraction_partial_success(self, sample_queries_dir, mock_sql_client):
         """Handle partial success (some queries fail)."""
         # First query succeeds, second fails
         chunk = pl.DataFrame({"id": [1], "name": ["a"]})
@@ -314,7 +281,6 @@ class TestExtractor:
 
         extractor = Extractor(
             queries_path=sample_queries_dir,
-            config_path=sample_config_dir,
             sql_client=mock_sql_client,
         )
 

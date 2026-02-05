@@ -15,4 +15,4 @@ select
     origen_dom,
     seqdom
 from rg_panelis
-where ano >= {start_year} and ano <= {end_year}
+where ano >= YEAR(DATEADD(MONTH, -{lookback_months}, GETDATE()))

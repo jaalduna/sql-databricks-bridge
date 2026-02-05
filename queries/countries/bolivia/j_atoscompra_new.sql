@@ -30,4 +30,4 @@ select
     unidades_packs,
     value_pm
 from j_atoscompra_new
-where periodo >= {start_period} and periodo <= {end_period}
+where periodo >= FORMAT(DATEADD(MONTH, -{lookback_months}, GETDATE()), 'yyyyMMdd')

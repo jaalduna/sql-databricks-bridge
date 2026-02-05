@@ -9,8 +9,7 @@ from uuid import uuid4
 import polars as pl
 
 from sql_databricks_bridge.api.schemas import JobStatus, QueryResult
-from sql_databricks_bridge.core.param_resolver import ParamResolver
-from sql_databricks_bridge.core.query_loader import QueryLoader
+from sql_databricks_bridge.core.country_query_loader import CountryAwareQueryLoader
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 
 logger = logging.getLogger(__name__)
@@ -44,23 +43,20 @@ class ExtractionJob:
 
 
 class Extractor:
-    """Extracts data from SQL Server using configured queries."""
+    """Extracts data from SQL Server using country-aware queries."""
 
     def __init__(
         self,
         queries_path: str,
-        config_path: str,
         sql_client: SQLServerClient | None = None,
     ) -> None:
         """Initialize extractor.
 
         Args:
-            queries_path: Path to SQL query files.
-            config_path: Path to YAML config files.
+            queries_path: Root path containing 'common/' and 'countries/' query directories.
             sql_client: SQL Server client (creates new one if not provided).
         """
-        self.query_loader = QueryLoader(queries_path)
-        self.param_resolver = ParamResolver(config_path)
+        self.query_loader = CountryAwareQueryLoader(queries_path)
         self.sql_client = sql_client or SQLServerClient()
         self._jobs: dict[str, ExtractionJob] = {}
 
@@ -74,9 +70,9 @@ class Extractor:
         """Create a new extraction job.
 
         Args:
-            country: Country name for parameter resolution.
-            destination: Databricks volume path for output.
-            queries: Specific queries to run (None = all).
+            country: Country name for query discovery.
+            destination: Databricks destination (e.g., catalog.schema).
+            queries: Specific queries to run (None = all available for country).
             chunk_size: Rows per extraction chunk.
 
         Returns:
@@ -84,16 +80,20 @@ class Extractor:
         """
         job_id = str(uuid4())
 
-        # Get available queries
-        available_queries = self.query_loader.list_queries()
+        # Get available queries for this country
+        available_queries = self.query_loader.list_queries(country)
 
         if queries:
-            # Validate requested queries exist
+            # Validate requested queries exist for this country
             missing = [q for q in queries if q not in available_queries]
             if missing:
-                raise ValueError(f"Unknown queries: {missing}")
+                raise ValueError(
+                    f"Queries not available for {country}: {missing}. "
+                    f"Available: {available_queries}"
+                )
             selected_queries = queries
         else:
+            # Use all available queries for this country
             selected_queries = available_queries
 
         job = ExtractionJob(
@@ -105,7 +105,10 @@ class Extractor:
         )
 
         self._jobs[job_id] = job
-        logger.info(f"Created extraction job {job_id} with {len(selected_queries)} queries")
+        logger.info(
+            f"Created extraction job {job_id} for {country} "
+            f"with {len(selected_queries)} queries"
+        )
 
         return job
 
@@ -119,53 +122,51 @@ class Extractor:
         country: str,
         chunk_size: int = 100_000,
         limit: int | None = None,
-        extra_params: dict[str, str] | None = None,
+        lookback_months: int = 24,
     ) -> Iterator[pl.DataFrame]:
         """Execute a single query and yield result chunks.
 
         Args:
             query_name: Name of query to execute.
-            country: Country for parameter resolution.
+            country: Country for query resolution.
             chunk_size: Rows per chunk.
             limit: Optional row limit (for testing). Wraps query with SELECT TOP N.
-            extra_params: Additional parameters to merge (override YAML params).
+            lookback_months: Number of months to look back for fact queries (default: 24).
 
         Yields:
             DataFrame chunks with query results.
         """
-        # Resolve parameters from YAML
-        params = self.param_resolver.resolve_params(country)
+        # Get pre-resolved query for this country
+        query_sql = self.query_loader.get_query(query_name, country)
 
-        # Merge extra parameters (override YAML values)
-        if extra_params:
-            params.update(extra_params)
-
-        # Format query with parameters
-        formatted_query = self.query_loader.format_query(query_name, params)
+        # Substitute lookback_months placeholder
+        query_sql = query_sql.replace("{lookback_months}", str(lookback_months))
 
         # Apply row limit if specified (SQL Server TOP syntax)
         if limit is not None and limit > 0:
-            formatted_query = f"SELECT TOP {limit} * FROM ({formatted_query}) AS _limited_subquery"
-            logger.info(f"Executing query: {query_name} (limited to {limit} rows)")
+            query_sql = f"SELECT TOP {limit} * FROM ({query_sql}) AS _limited_subquery"
+            logger.info(f"Executing query: {query_name} for {country} (limited to {limit} rows)")
         else:
-            logger.info(f"Executing query: {query_name}")
+            logger.info(f"Executing query: {query_name} for {country}")
 
-        logger.debug(f"Formatted query: {formatted_query[:200]}...")
+        logger.debug(f"Query SQL: {query_sql[:200]}...")
 
         # Execute and yield chunks
         yield from self.sql_client.execute_query_chunked(
-            formatted_query,
+            query_sql,
             chunk_size=chunk_size,
         )
 
     def run_extraction(
         self,
         job: ExtractionJob,
+        lookback_months: int = 24,
     ) -> ExtractionJob:
         """Run extraction for all queries in a job.
 
         Args:
             job: Extraction job to run.
+            lookback_months: Number of months to look back for fact queries.
 
         Returns:
             Updated job with results.
@@ -191,6 +192,7 @@ class Extractor:
                     query_name,
                     job.country,
                     job.chunk_size,
+                    lookback_months=lookback_months,
                 ):
                     chunks.append(chunk)
                     total_rows += len(chunk)

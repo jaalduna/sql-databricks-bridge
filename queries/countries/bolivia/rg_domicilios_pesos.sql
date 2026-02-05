@@ -8,4 +8,4 @@ select
     seqdom,
     valor
 from rg_domicilios_pesos
-where ano >= {start_year} and ano <= {end_year}
+where ano >= YEAR(DATEADD(MONTH, -{lookback_months}, GETDATE()))
