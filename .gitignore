@@ -53,6 +53,10 @@ Thumbs.db
 # AI Agent files
 AGENTS.md
 
+# Temporary fix/investigation documentation
+FIX_*.md
+INVESTIGATION_*.md
+
 # Debug/temporary files
 debug_*.py
 debug_*.txt
