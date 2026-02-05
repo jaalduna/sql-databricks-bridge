@@ -36,12 +36,16 @@ class DatabricksClient:
                     if self.settings.client_secret
                     else None,
                 )
-            else:
-                # Token authentication
+            elif self.settings.host and self.settings.token.get_secret_value():
+                # Token authentication (explicit)
                 self._client = WorkspaceClient(
                     host=self.settings.host,
                     token=self.settings.token.get_secret_value(),
                 )
+            else:
+                # Default Databricks SDK authentication chain (env / ~/.databrickscfg / etc.)
+                # This avoids requiring DATABRICKS_HOST/TOKEN to be set in the shell.
+                self._client = WorkspaceClient()
         return self._client
 
     def test_connection(self) -> bool:
