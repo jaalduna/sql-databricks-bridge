@@ -28,7 +28,7 @@ Data teams face several challenges when working with hybrid SQL Server + Databri
 
 **SQL-Databricks Bridge** provides a unified service that solves these challenges:
 
-- **Bi-directional Sync**: Extract from SQL Server → Databricks AND sync from Databricks → SQL Server
+- **Bi-directional Sync**: Extract from SQL Server -> Databricks AND sync from Databricks -> SQL Server
 - **REST API + CLI**: Flexible interfaces for different use cases (automation, manual operations)
 - **Event-Driven Architecture**: Databricks jobs can trigger SQL operations via an events table
 - **Token-Based Security**: Per-table permissions with operation limits (e.g., max delete rows)
@@ -50,16 +50,16 @@ Data teams face several challenges when working with hybrid SQL Server + Databri
 │                     │                                           │                     │
 │  ┌───────────────┐  │                                           │  ┌───────────────┐  │
 │  │  Operational  │  │                                           │  │   Volumes     │  │
-│  │    Tables     │  │        SQL → Databricks                   │  │   (Parquet)   │  │
-│  │               │  │  ◄──────────────────────────────────────► │  │               │  │
+│  │    Tables     │  │        SQL -> Databricks                   │  │   (Parquet)   │  │
+│  │               │  │  <-----------------------------------> │  │               │  │
 │  │  dbo.Sales    │  │        Extraction + Upload                │  │  /extract/    │  │
 │  │  dbo.Products │  │                                           │  │    sales.pq   │  │
 │  │  dbo.Customers│  │                                           │  │    prods.pq   │  │
 │  └───────────────┘  │                                           │  └───────────────┘  │
 │                     │                                           │                     │
 │  ┌───────────────┐  │                                           │  ┌───────────────┐  │
-│  │   Target      │  │        Databricks → SQL                   │  │   Events      │  │
-│  │   Tables      │  │  ◄──────────────────────────────────────► │  │   Table       │  │
+│  │   Target      │  │        Databricks -> SQL                   │  │   Events      │  │
+│  │   Tables      │  │  <-----------------------------------> │  │   Table       │  │
 │  │               │  │        Event-Driven Sync                  │  │               │  │
 │  │  dbo.Results  │  │        (INSERT/UPDATE/DELETE)             │  │ bridge_events │  │
 │  └───────────────┘  │                                           │  └───────────────┘  │
@@ -119,10 +119,10 @@ Data teams face several challenges when working with hybrid SQL Server + Databri
 
 ## Data Flow
 
-### Flow 1: SQL Server → Databricks (Extraction)
+### Flow 1: SQL Server -> Databricks (Extraction)
 
 ```
-SQL Server  ──(query)──►  Bridge  ──(parquet)──►  Databricks Volume
+SQL Server  --(query)-->  Bridge  --(parquet)-->  Databricks Volume
 ```
 
 1. Client requests extraction via CLI or API
@@ -130,10 +130,10 @@ SQL Server  ──(query)──►  Bridge  ──(parquet)──►  Databricks
 3. Results converted to Parquet using Polars
 4. Files uploaded to Databricks Volumes via SDK
 
-### Flow 2: Databricks → SQL Server (Event-Driven Sync)
+### Flow 2: Databricks -> SQL Server (Event-Driven Sync)
 
 ```
-Databricks Job  ──(insert event)──►  Events Table  ──(poll)──►  Bridge  ──(sync)──►  SQL Server
+Databricks Job  --(insert event)-->  Events Table  --(poll)-->  Bridge  --(sync)-->  SQL Server
 ```
 
 1. Databricks job inserts event into `bridge_events` table
@@ -178,7 +178,7 @@ sql-databricks-bridge/
 │       │   ├── sql_server.py            # SQL Server connection
 │       │   └── databricks.py            # Databricks SDK wrapper
 │       │
-│       ├── sync/                        # Databricks → SQL sync
+│       ├── sync/                        # Databricks -> SQL sync
 │       │   ├── poller.py                # Event table poller
 │       │   ├── operations.py            # INSERT/UPDATE/DELETE ops
 │       │   ├── validators.py            # Data validation
@@ -240,9 +240,9 @@ sql-databricks-bridge/
 
 ## Features
 
-- **SQL → Databricks Extraction**: CLI and REST API for extracting data from SQL Server and creating Delta tables
+- **SQL -> Databricks Extraction**: CLI and REST API for extracting data from SQL Server and creating Delta tables
 - **Country-Aware Queries**: Automatic query resolution with country-specific overrides
-- **Databricks → SQL Sync**: Event-driven synchronization with INSERT/UPDATE/DELETE support
+- **Databricks -> SQL Sync**: Event-driven synchronization with INSERT/UPDATE/DELETE support
 - **Time-based Filtering**: Single `lookback_months` parameter for fact queries
 - **Token-based Auth**: Per-table permissions with delete limits
 - **Retry Logic**: Exponential backoff for transient failures
@@ -450,7 +450,7 @@ sql-databricks-bridge extract \
 ```
 
 **Special characters:** The bridge automatically adds backticks for names with hyphens:
-- `` `002-mwp`.`bolivia`.`sales` `` ✓ (handled automatically)
+- `` `002-mwp`.`bolivia`.`sales` `` [OK] (handled automatically)
 - Unity Catalog allows hyphens: `dev-workspace`, `002-mwp`, etc.
 
 #### Windows Console Compatibility
@@ -486,7 +486,7 @@ The bridge uses a two-phase approach for creating Delta tables:
 
 The staging path automatically uses the same catalog/schema as the target table, ensuring proper namespace alignment.
 
-## Databricks → SQL Sync
+## Databricks -> SQL Sync
 
 Insert events into `bridge.events.bridge_events`:
 
@@ -563,7 +563,7 @@ job = client.extract(
     lookback_months=24
 )
 
-# Submit sync event (Databricks → SQL Server)
+# Submit sync event (Databricks -> SQL Server)
 event = client.submit_sync_event(
     operation="INSERT",
     source_table="catalog.schema.source_table",
@@ -709,7 +709,7 @@ See [Build Documentation](docs/BUILD_EXECUTABLE.md) for detailed instructions.
 - [Architecture](docs/ARCHITECTURE.md)
 - [Epics and User Stories](docs/EPICS_AND_USER_STORIES.md)
 - [Guía de Usuario (Español)](docs/GUIA_USUARIO.md) - Guía completa en español con ejemplos de configuración
-- [Guía de Sincronización Databricks → SQL](docs/GUIA_SINCRONIZACION_DATABRICKS_SQL.md) - Cómo usar la tabla de eventos desde jobs de Databricks
+- [Guía de Sincronización Databricks -> SQL](docs/GUIA_SINCRONIZACION_DATABRICKS_SQL.md) - Cómo usar la tabla de eventos desde jobs de Databricks
 - [SDK User Guide (Español)](docs/SDK_USER_GUIDE.md) - Guía completa del SDK de Python
 - [Build Executable](docs/BUILD_EXECUTABLE.md) - Compilar ejecutable con Nuitka
 
