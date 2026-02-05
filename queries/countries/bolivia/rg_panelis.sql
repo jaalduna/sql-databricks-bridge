@@ -1,18 +1,6 @@
 -- bolivia: rg_panelis
--- columns: 12
+-- note: using select * - schema may have changed
 
-select
-    ano,
-    autos,
-    ciudad,
-    cv,
-    edac,
-    edpsh,
-    iddomicilio,
-    ime,
-    ni,
-    nse_loc,
-    origen_dom,
-    seqdom
+select *
 from rg_panelis
 where ano >= YEAR(DATEADD(MONTH, -{lookback_months}, GETDATE()))

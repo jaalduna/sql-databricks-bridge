@@ -1,11 +1,6 @@
 -- bolivia: pre_mordom
--- columns: 5
+-- note: using select * - schema may have changed
 
-select
-    ano,
-    iddomicilio,
-    idpainel,
-    mes,
-    origen_dom
+select *
 from pre_mordom
 where ano >= YEAR(DATEADD(MONTH, -{lookback_months}, GETDATE()))
