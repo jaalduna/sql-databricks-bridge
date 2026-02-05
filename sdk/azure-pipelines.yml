@@ -1,0 +1,181 @@
+# Azure DevOps Pipeline for SQL-Databricks Bridge SDK
+# Builds, tests, and publishes the Python SDK to Azure Artifacts
+
+trigger:
+  branches:
+    include:
+      - main
+      - master
+      - develop
+  paths:
+    include:
+      - sdk/**
+
+pr:
+  branches:
+    include:
+      - main
+      - master
+  paths:
+    include:
+      - sdk/**
+
+variables:
+  pythonVersion: '3.11'
+  sdkDir: 'sdk'
+  feedName: 'kwp-pypi'  # Azure Artifacts feed name
+
+stages:
+  - stage: Test
+    displayName: 'Test SDK'
+    jobs:
+      - job: TestSDK
+        displayName: 'Run Tests'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '$(pythonVersion)'
+              addToPath: true
+            displayName: 'Use Python $(pythonVersion)'
+
+          - script: |
+              cd $(sdkDir)
+              python -m pip install --upgrade pip
+              pip install -e .[dev]
+            displayName: 'Install dependencies'
+
+          - script: |
+              cd $(sdkDir)
+              python -m pytest tests/ \
+                --cov=sql_databricks_bridge_sdk \
+                --cov-report=xml:coverage.xml \
+                --cov-report=html:htmlcov \
+                --cov-fail-under=80 \
+                --junitxml=test-results.xml \
+                -v
+            displayName: 'Run tests with coverage'
+
+          - task: PublishTestResults@2
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: '$(sdkDir)/test-results.xml'
+              testRunTitle: 'SDK Tests'
+            displayName: 'Publish test results'
+
+          - task: PublishCodeCoverageResults@1
+            condition: succeededOrFailed()
+            inputs:
+              codeCoverageTool: 'Cobertura'
+              summaryFileLocation: '$(sdkDir)/coverage.xml'
+              reportDirectory: '$(sdkDir)/htmlcov'
+            displayName: 'Publish coverage results'
+
+  - stage: Lint
+    displayName: 'Lint SDK'
+    dependsOn: []  # Run in parallel with Test
+    jobs:
+      - job: LintSDK
+        displayName: 'Run Linting'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '$(pythonVersion)'
+              addToPath: true
+            displayName: 'Use Python $(pythonVersion)'
+
+          - script: |
+              cd $(sdkDir)
+              python -m pip install --upgrade pip
+              pip install ruff mypy types-requests
+            displayName: 'Install linting tools'
+
+          - script: |
+              cd $(sdkDir)
+              python -m ruff check sql_databricks_bridge_sdk/
+            displayName: 'Run ruff linter'
+            continueOnError: true
+
+          - script: |
+              cd $(sdkDir)
+              python -m mypy sql_databricks_bridge_sdk/ --ignore-missing-imports
+            displayName: 'Run mypy type checker'
+            continueOnError: true
+
+  - stage: Build
+    displayName: 'Build SDK'
+    dependsOn:
+      - Test
+    condition: succeeded()
+    jobs:
+      - job: BuildSDK
+        displayName: 'Build Package'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '$(pythonVersion)'
+              addToPath: true
+            displayName: 'Use Python $(pythonVersion)'
+
+          - script: |
+              cd $(sdkDir)
+              python -m pip install --upgrade pip build
+            displayName: 'Install build tools'
+
+          - script: |
+              cd $(sdkDir)
+              python -m build
+            displayName: 'Build wheel and sdist'
+
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: '$(sdkDir)/dist'
+              artifact: 'sdk-dist'
+              publishLocation: 'pipeline'
+            displayName: 'Publish build artifacts'
+
+  - stage: Publish
+    displayName: 'Publish to Artifacts'
+    dependsOn:
+      - Build
+    condition: and(succeeded(), or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), eq(variables['Build.SourceBranch'], 'refs/heads/master')))
+    jobs:
+      - job: PublishSDK
+        displayName: 'Publish to Azure Artifacts'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '$(pythonVersion)'
+              addToPath: true
+            displayName: 'Use Python $(pythonVersion)'
+
+          - task: DownloadPipelineArtifact@2
+            inputs:
+              buildType: 'current'
+              artifactName: 'sdk-dist'
+              targetPath: '$(Pipeline.Workspace)/dist'
+            displayName: 'Download build artifacts'
+
+          - script: |
+              python -m pip install --upgrade pip twine
+            displayName: 'Install twine'
+
+          - task: TwineAuthenticate@1
+            inputs:
+              artifactFeed: '$(feedName)'
+            displayName: 'Authenticate with Azure Artifacts'
+
+          - script: |
+              python -m twine upload \
+                -r $(feedName) \
+                --config-file $(PYPIRC_PATH) \
+                $(Pipeline.Workspace)/dist/*
+            displayName: 'Upload to Azure Artifacts'

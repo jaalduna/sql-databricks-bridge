@@ -49,3 +49,25 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# AI Agent files
+AGENTS.md
+
+# Debug/temporary files
+debug_*.py
+debug_*.txt
+test_*.py
+test_*.txt
+*_output/
+*_output.txt
+*.txt
+nul
+output/
+claude-*-cwd
+
+# Scripts (keep only in scripts/ dir)
+/check_*.py
+/find_*.py
+/inspect_*.py
+/run_*.py
+/verify_*.py
