@@ -45,12 +45,14 @@ class DeltaTableWriter:
     ) -> str:
         """Build fully-qualified Delta table name.
 
+        If schema is not provided, uses country as schema name.
+
         Returns:
-            "`{catalog}`.`{schema}`.`{country}_{query_name}`"
+            "`{catalog}`.`{schema}`.`{query_name}`"
         """
         cat = catalog or self._settings.catalog
-        sch = schema or self._settings.schema_name
-        return f"`{cat}`.`{sch}`.`{country}_{query_name}`"
+        sch = schema or country  # Use country as schema if not provided
+        return f"`{cat}`.`{sch}`.`{query_name}`"
 
     def write_dataframe(
         self,
@@ -80,9 +82,9 @@ class DeltaTableWriter:
 
         # Build staging path using target catalog/schema (not defaults from env)
         target_catalog = catalog or self._settings.catalog
-        target_schema = schema or self._settings.schema_name
+        target_schema = schema or country  # Use country as schema if not provided
         staging_volume_path = f"/Volumes/{target_catalog}/{target_schema}/{self._settings.volume}"
-        staging_path = f"{staging_volume_path}/_staging/{country}_{query_name}.parquet"
+        staging_path = f"{staging_volume_path}/_staging/{query_name}.parquet"
 
         # Ensure target schema exists (Unity Catalog)
         self._ensure_schema(target_catalog, target_schema)
