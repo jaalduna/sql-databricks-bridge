@@ -1,8 +1,5 @@
 -- bolivia: paineis
--- columns: 3
+-- note: using select * - schema may have changed
 
-select
-    descricao,
-    flgativo,
-    idpainel
+select *
 from paineis
