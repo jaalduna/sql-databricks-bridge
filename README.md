@@ -170,8 +170,8 @@ sql-databricks-bridge/
 │       ├── core/                        # Core business logic
 │       │   ├── config.py                # Configuration management
 │       │   ├── extractor.py             # Data extraction logic
-│       │   ├── param_resolver.py        # Country parameter resolution
-│       │   ├── query_loader.py          # SQL file loading
+│       │   ├── country_query_loader.py  # Country-aware query loader
+│       │   ├── delta_writer.py          # Delta table writer
 │       │   └── uploader.py              # Databricks upload logic
 │       │
 │       ├── db/                          # Database clients
@@ -202,8 +202,15 @@ sql-databricks-bridge/
 │   └── permissions.yaml                 # Token permissions
 │
 ├── queries/                             # SQL query templates
-│   └── {country}/                       # Country-specific queries
-│       └── *.sql
+│   ├── common/                          # Shared queries (all countries)
+│   │   └── *.sql
+│   └── countries/                       # Country-specific queries
+│       ├── bolivia/                     # Bolivia-specific or overrides
+│       │   └── *.sql
+│       ├── chile/
+│       │   └── *.sql
+│       └── colombia/
+│           └── *.sql
 │
 ├── build/                               # Build scripts
 │   ├── build_nuitka.py                  # Nuitka compilation
@@ -233,11 +240,53 @@ sql-databricks-bridge/
 
 ## Features
 
-- **SQL → Databricks Extraction**: CLI and REST API for extracting data from SQL Server and uploading to Databricks Volumes as Parquet files
+- **SQL → Databricks Extraction**: CLI and REST API for extracting data from SQL Server and creating Delta tables
+- **Country-Aware Queries**: Automatic query resolution with country-specific overrides
 - **Databricks → SQL Sync**: Event-driven synchronization with INSERT/UPDATE/DELETE support
+- **Time-based Filtering**: Single `lookback_months` parameter for fact queries
 - **Token-based Auth**: Per-table permissions with delete limits
 - **Retry Logic**: Exponential backoff for transient failures
 - **Audit Logging**: Security event tracking
+
+### Country-Aware Query System
+
+The bridge uses a **hierarchical query resolution** system:
+
+```
+queries/
+├── common/                  # Shared queries (all countries)
+│   ├── products.sql         # Used by all countries
+│   └── customers.sql
+└── countries/               # Country-specific queries
+    ├── bolivia/
+    │   ├── j_atoscompra_new.sql   # Bolivia-only query
+    │   └── customers.sql          # Overrides common/customers.sql
+    ├── chile/
+    │   └── ventas.sql       # Chile-only query
+    └── colombia/
+        └── tax_report.sql   # Colombia-only query
+```
+
+**Resolution priority:**
+1. Check `countries/{country}/{query}.sql` (country-specific)
+2. Fallback to `common/{query}.sql` (shared)
+3. Error if neither exists
+
+**Time-based filtering:**
+- Fact queries use `{lookback_months}` placeholder
+- Dimension queries extract all data (no time filter)
+
+**Example fact query** (`j_atoscompra_new.sql`):
+```sql
+SELECT * FROM j_atoscompra_new
+WHERE periodo >= FORMAT(DATEADD(MONTH, -{lookback_months}, GETDATE()), 'yyyyMMdd')
+```
+
+**Example dimension query** (`dolar.sql`):
+```sql
+SELECT * FROM dolar
+-- Extract all historical exchange rates
+```
 
 ---
 
@@ -249,12 +298,18 @@ poetry install
 cp .env.example .env
 # Edit .env with your credentials
 
-# Extract data
+# Extract data (last 24 months by default)
 sql-databricks-bridge extract \
   --queries-path ./queries \
-  --config-path ./config \
-  --country Colombia \
-  --destination /Volumes/catalog/schema/volume
+  --country bolivia \
+  --lookback-months 24
+
+# Extract with custom catalog/schema
+sql-databricks-bridge extract \
+  --queries-path ./queries \
+  --country bolivia \
+  --destination kpi_prd_01.bolivia \
+  --lookback-months 12
 
 # Start API server
 sql-databricks-bridge serve
@@ -264,13 +319,27 @@ sql-databricks-bridge serve
 
 | Command | Description |
 |---------|-------------|
-| `extract` | Extract data from SQL Server to Databricks |
-| `list-queries` | List available SQL query files |
-| `show-params` | Show resolved parameters for a country |
+| `extract` | Extract data from SQL Server to Databricks Delta tables |
+| `list-queries --country {name}` | List available SQL queries for a country |
 | `list-countries` | List available countries and their SQL Server configs |
 | `test-connection` | Test SQL Server and Databricks connectivity |
 | `serve` | Start the REST API server |
 | `version` | Show version information |
+
+### Extract Command
+
+```bash
+sql-databricks-bridge extract \
+  --queries-path ./queries \          # Path to queries directory
+  --country bolivia \                  # Country name (used as schema if no --destination)
+  --lookback-months 24 \              # Time window for fact queries (default: 24)
+  --destination kpi_prd_01.bolivia \  # Optional: catalog.schema override
+  --limit 1000                        # Optional: row limit for testing
+```
+
+**Output structure:**
+- Tables created as: `` `catalog`.`{country}`.`{query_name}` ``
+- Example: `` `kpi_prd_01`.`bolivia`.`j_atoscompra_new` ``
 
 ## API Endpoints
 
@@ -304,19 +373,18 @@ sql-databricks-bridge list-countries
 **Example usage:**
 
 ```bash
-# Extract data from Chile
+# Extract data from Chile (tables created in `catalog`.`chile`.*)
 sql-databricks-bridge extract \
-  --country Chile \
+  --country chile \
   --queries-path ./queries \
-  --config-path ./config \
-  --destination /Volumes/catalog/schema/volume
+  --lookback-months 24
 
 # Extract data from Argentina (connects to different server automatically)
 sql-databricks-bridge extract \
-  --country Argentina \
+  --country argentina \
   --queries-path ./queries \
-  --config-path ./config \
-  --destination /Volumes/catalog/schema/volume
+  --destination kpi_prd_01.argentina \
+  --lookback-months 12
 ```
 
 **Installation:**
@@ -359,23 +427,31 @@ users:
 
 ### Important Technical Notes
 
-#### Catalog and Schema Names with Special Characters
+#### Table Naming Convention
 
-When using Unity Catalog, catalog and schema names containing special characters (like hyphens) must be enclosed in backticks. The bridge automatically handles this for you:
+**Schema = Country:** The country name becomes the schema name, eliminating the need for country prefixes in table names.
 
 ```bash
-# Correct - the bridge adds backticks internally
 sql-databricks-bridge extract \
-  --destination 002-mwp.bronze \
-  --country Bolivia
+  --country bolivia \
+  --queries-path ./queries
 
-# This creates tables in: `002-mwp`.`bronze`.`Bolivia_table_name`
+# Creates tables: `kpi_prd_01`.`bolivia`.`j_atoscompra_new`
+#                 `kpi_prd_01`.`bolivia`.`dolar`
 ```
 
-**Why this matters:**
-- Unity Catalog allows hyphens in names: `002-mwp`, `dev-workspace`, etc.
-- SQL requires backticks for identifiers with special characters
-- The bridge handles this automatically in table creation and staging paths
+**With custom catalog:**
+```bash
+sql-databricks-bridge extract \
+  --country chile \
+  --destination kpi_dev_01.chile
+
+# Creates tables: `kpi_dev_01`.`chile`.`ventas`
+```
+
+**Special characters:** The bridge automatically adds backticks for names with hyphens:
+- `` `002-mwp`.`bolivia`.`sales` `` ✓ (handled automatically)
+- Unity Catalog allows hyphens: `dev-workspace`, `002-mwp`, etc.
 
 #### Windows Console Compatibility
 
@@ -483,9 +559,8 @@ client = BridgeClient(
 # Extract data from SQL Server to Databricks
 job = client.extract(
     queries_path="./queries",
-    config_path="./config",
-    country="Colombia",
-    destination="/Volumes/catalog/schema/volume"
+    country="colombia",
+    lookback_months=24
 )
 
 # Submit sync event (Databricks → SQL Server)
