@@ -8,4 +8,4 @@ select
     tipo,
     valor
 from dolar
-where periodo >= {start_period} and periodo <= {end_period}
+-- Dimension table: extract all historical data (no date filter)
