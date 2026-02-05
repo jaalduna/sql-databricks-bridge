@@ -9,4 +9,4 @@ select
     lasttransactiondate,
     lasttransactionuser,
     unidad
-from [kitpack].[dbo].[tblproductosinternos] KPTPI
+from [kitpack].[tblproductosinternos] KPTPI
