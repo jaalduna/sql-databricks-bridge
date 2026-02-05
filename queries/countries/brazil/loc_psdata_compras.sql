@@ -1,16 +1,30 @@
 -- brazil: loc_psdata_compras
--- columns: 11
+-- columns: 24
+-- Source: PS_LATAM database (cross-database query)
 
 select
-    entryid_ato,
-    entryid_viagem,
-    feviaje,
-    flg_duplicado,
-    formacompra,
-    granel,
-    idcountry,
-    itemprice,
-    itemqty,
-    vol,
-    wt
-from loc_psdata_compras
+    codbarraext,
+    codbarraint,
+    coef01,
+    coef02,
+    coef03,
+    datacoleta,
+    estado,
+    frmcompra,
+    idartigo,
+    idato,
+    iddomicilio,
+    idvenuebarcode,
+    mes,
+    numpack,
+    preco,
+    quantidade,
+    regiao,
+    unipack,
+    ventasuelta,
+    volume,
+    vsfrmcompra,
+    ano,
+    mes_ano,
+    pais
+from PS_LATAM.dbo.loc_psdata_compras

@@ -1,5 +1,6 @@
 -- brazil: nac_ato
 -- columns: 14
+-- Source: BR_NAC database (cross-database query)
 
 select
     coef01,
@@ -16,4 +17,4 @@ select
     ventasuelta,
     volume,
     vsfrmcompra
-from nac_ato
+from BR_NAC.dbo.nac_ato

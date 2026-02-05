@@ -1,6 +1,9 @@
 -- brazil: ps_latam
--- note: using select * - column list to be added after schema inspection
+-- STATUS: TABLE DOES NOT EXIST
+-- Alternative: Use PS_LATAM database tables (psData, psDataBolivia, etc.)
+-- See PS_LATAM_TABLE_INVESTIGATION.md for replacement options
 
-select
-    *
-from ps_latam
+-- COMMENTED OUT - Table does not exist
+-- select
+--     *
+-- from ps_latam

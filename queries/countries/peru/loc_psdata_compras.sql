@@ -1,5 +1,6 @@
 -- peru: loc_psdata_compras
 -- columns: 11
+-- Source: PS_LATAM database (cross-database query)
 
 select
     entryid_ato,
@@ -13,4 +14,4 @@ select
     itemqty,
     vol,
     wt
-from loc_psdata_compras
+from PS_LATAM.dbo.loc_psdata_compras
