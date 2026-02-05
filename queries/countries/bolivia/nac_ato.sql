@@ -1,5 +1,6 @@
 -- bolivia: nac_ato
 -- columns: 14
+-- database: BO_NAC (already have access)
 
 select
     coef01,
@@ -16,4 +17,4 @@ select
     ventasuelta,
     volume,
     vsfrmcompra
-from nac_ato
+from BO_NAC.dbo.nac_ato

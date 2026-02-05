@@ -1,5 +1,6 @@
 -- bolivia: loc_psdata_compras
 -- columns: 11
+-- database: PS_LATAM (requires db_datareader access)
 
 select
     entryid_ato,
@@ -13,4 +14,4 @@ select
     itemqty,
     vol,
     wt
-from loc_psdata_compras
+from PS_LATAM.dbo.loc_psdata_compras
