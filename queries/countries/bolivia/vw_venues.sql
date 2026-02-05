@@ -1,20 +1,15 @@
 -- bolivia: vw_venues
--- columns: 15
+-- columns: 9
+-- Note: Only selecting columns that exist in the actual view
 
 select
-    app,
-    descricao,
-    flgativo,
-    format_group,
-    idcanal,
-    idtipo,
-    internet,
-    isretailer,
-    presencial,
-    regalo,
-    rsocial,
-    sector,
-    sempreco,
-    telefono,
-    whatsapp
+    App,
+    FORMAT_GROUP,
+    FlgAtivo,
+    IdCanal,
+    IdTipo,
+    IsRetailer,
+    SECTOR,
+    IdVenue,
+    IdVenuePrism
 from vw_venues
