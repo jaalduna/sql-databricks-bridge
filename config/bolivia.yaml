@@ -1,0 +1,25 @@
+# =============================================================================
+# Bolivia Configuration
+# Country: Bolivia
+# Database: BO_KWP
+# Server: KTCLSQL002.KT.group.local
+# =============================================================================
+
+# Database connection (specific to Bolivia)
+server: "KTCLSQL002.KT.group.local"
+database: "BO_KWP"
+
+# Query parameters for Bolivia
+parameters:
+  schema: "dbo"
+  start_period: 202501
+  end_period: 202512
+  lookback_months: 24
+  country: "bolivia"
+  country_code: "BO"
+
+# Databricks destination (Unity Catalog)
+destination:
+  catalog: "000-sql-databricks-bridge"
+  schema: "bolivia"
+  volume: "files"
