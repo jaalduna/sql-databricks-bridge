@@ -1,11 +1,5 @@
 -- mexico: pre_mordom
--- columns: 5
 
-select
-    ano,
-    iddomicilio,
-    idpainel,
-    mes,
-    origen_dom
+select *
 from pre_mordom
-where ano >= {start_year} and ano <= {end_year}
+where ano >= YEAR(DATEADD(MONTH, -{lookback_months}, GETDATE()))

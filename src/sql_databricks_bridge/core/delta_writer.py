@@ -78,6 +78,9 @@ class DeltaTableWriter:
         """
         start_time = datetime.utcnow()
 
+        # Convert all column names to lowercase for Databricks consistency
+        df = df.rename({col: col.lower() for col in df.columns})
+
         table_name = self.resolve_table_name(query_name, country, catalog, schema)
 
         # Build staging path using target catalog/schema (not defaults from env)

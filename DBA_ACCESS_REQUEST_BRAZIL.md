@@ -1,29 +1,33 @@
 # 🇧🇷 DBA Access Request - Brazil Data Extraction
 
 **Date:** February 5, 2026  
+**Updated:** February 5, 2026  
 **Requestor:** Joaquin Aldunate (jaalduna@gmail.com)  
 **Team:** Kantar Analytics  
-**Purpose:** Data extraction for analytics and reporting
+**Purpose:** Data extraction for analytics and reporting  
+**Status:** ✅ **APPROVED AND GRANTED**
 
 ---
 
 ## 📋 Request Summary
 
-Requesting READ access to Brazil transaction and purchase data tables for data pipeline extraction to Databricks.
+~~Requesting~~ READ access to Brazil transaction and purchase data tables for data pipeline extraction to Databricks.
 
 **Similar Access Already Granted:**
 - ✅ Bolivia: User has access to BO_NAC and PS_LATAM (approved and working)
 - ✅ Mexico: User has access to MX_KWP (nac_ato exists in main database)
+- ✅ Brazil: User has access to BR_NAC and PS_LATAM (**GRANTED**)
 
 ---
 
-## 🔐 Required Permissions
+## 🔐 Required Permissions ✅ GRANTED
 
-### **1. BR_NAC Database - Transaction Details**
+### **1. BR_NAC Database - Transaction Details** ✅ GRANTED
 
 **Database:** BR_NAC  
 **Server:** KTCLSQL003.KT.group.local  
 **Permission Requested:** `db_datareader` role  
+**Status:** ✅ **GRANTED**
 
 **Justification:**
 - Need access to `nac_ato` table (transaction-level purchase data)
@@ -36,11 +40,12 @@ Requesting READ access to Brazil transaction and purchase data tables for data p
 
 ---
 
-### **2. PS_LATAM Database - Purchase Journey Data**
+### **2. PS_LATAM Database - Purchase Journey Data** ✅ GRANTED
 
 **Database:** PS_LATAM  
 **Server:** KTCLSQL003.KT.group.local  
 **Permission Requested:** SELECT permission on `loc_psdata_compras` table  
+**Status:** ✅ **GRANTED**
 
 **Justification:**
 - Need access to purchase trip/journey data
@@ -51,6 +56,7 @@ Requesting READ access to Brazil transaction and purchase data tables for data p
 
 **Tables Needed:**
 - `loc_psdata_compras` - Purchase trip data (LATAM-wide table)
+- `loc_psdata_procesado` - Processed purchase data
 
 ---
 

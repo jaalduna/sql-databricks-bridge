@@ -8,4 +8,4 @@ select
     lasttransactiondate,
     lasttransactionuser,
     unidad
-from tblproductosinternos
+from [kitpack].[tblproductosinternos]

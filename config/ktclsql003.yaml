@@ -1,0 +1,23 @@
+# =============================================================================
+# KTCLSQL003 Server Configuration
+# Server: KTCLSQL003.KT.group.local (Brazil server)
+# Database: PS_LATAM (server-wide shared database)
+# =============================================================================
+
+# Database connection (server-level PS_LATAM)
+server: "KTCLSQL003.KT.group.local"
+database: "PS_LATAM"
+
+# Query parameters
+parameters:
+  schema: "dbo"
+  start_period: 202501
+  end_period: 202512
+  lookback_months: 24
+  server_id: "KTCLSQL003"
+
+# Databricks destination (Unity Catalog)
+destination:
+  catalog: "000-sql-databricks-bridge"
+  schema: "KTCLSQL003"
+  volume: "files"

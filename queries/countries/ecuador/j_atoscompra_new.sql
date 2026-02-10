@@ -1,5 +1,5 @@
 -- ecuador: j_atoscompra_new
--- columns: 27
+-- columns: 30
 
 select
     coef_01,
@@ -28,6 +28,9 @@ select
     preco,
     quantidade,
     unidades_packs,
-    value_pm
+    value_pm,
+    FACTOR_RW1,
+    Acceso_canal,
+    IdApp
 from j_atoscompra_new
 where periodo >= {start_period} and periodo <= {end_period}

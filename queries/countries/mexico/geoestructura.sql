@@ -1,6 +1,7 @@
 -- mexico: geoestructura
--- columns: 1
+-- columns: 2
 
-select
+select distinct
+    idregion,
     region
 from geoestructura
