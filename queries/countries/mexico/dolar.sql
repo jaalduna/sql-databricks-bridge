@@ -8,4 +8,4 @@ select
     tipo,
     valor
 from dolar
-where periodo >= {start_period} and periodo <= {end_period}
+where periodo >= CONVERT(INT, FORMAT(DATEADD(MONTH, -{lookback_months}, GETDATE()), 'yyyyMM'))
