@@ -17,6 +17,7 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -46,10 +47,10 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          pip install --upgrade pip
-          pip install pyinstaller
-          pip install ../kantar_db_handler
-          pip install .
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+          python -m pip install ../kantar_db_handler
+          python -m pip install .
 
       - name: Build executable
         shell: bash
