@@ -38,7 +38,7 @@ ordered-set = "^4.1.0"
 zstandard = "^0.22.0"
 
 [tool.poetry.scripts]
-sql-databricks-bridge = "sql_databricks_bridge.cli.commands:app"
+bridge = "sql_databricks_bridge.cli.commands:app"
 sql-databricks-bridge-server = "sql_databricks_bridge.server:main"
 
 [build-system]

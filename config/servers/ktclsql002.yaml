@@ -1,0 +1,21 @@
+# =============================================================================
+# KTCLSQL002 Server Configuration
+# Server: KTCLSQL002.KT.group.local
+# Database: PS_LATAM (server-wide shared database)
+# =============================================================================
+
+# Database connection
+server: "KTCLSQL002.KT.group.local"
+database: "PS_LATAM"
+
+# Query parameters
+parameters:
+  schema: "dbo"
+  lookback_months: 24
+  server_id: "KTCLSQL002"
+
+# Databricks destination (Unity Catalog)
+destination:
+  catalog: "000-sql-databricks-bridge"
+  schema: "KTCLSQL002"
+  volume: "files"
