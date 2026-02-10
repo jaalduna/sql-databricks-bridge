@@ -1,9 +1,10 @@
 -- argentina: rg_domicilios_pesos
--- columns: 5
+-- columns: 6
 
 select
     ano,
     iddomicilio,
+    idpeso,
     messem,
     seqdom,
     valor
