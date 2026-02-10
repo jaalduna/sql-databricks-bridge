@@ -389,12 +389,23 @@ def serve(
     import uvicorn
 
     console.print(f"[bold green]Starting API server on {host}:{port}[/bold green]")
-    uvicorn.run(
-        "sql_databricks_bridge.main:app",
-        host=host,
-        port=port,
-        reload=reload,
-    )
+
+    if getattr(sys, "frozen", False):
+        # Compiled mode: use direct app import (string-based import won't work)
+        from sql_databricks_bridge.main import app as fastapi_app
+
+        if reload:
+            console.print("[yellow]Warning: --reload is not supported in compiled mode[/yellow]")
+        config = uvicorn.Config(app=fastapi_app, host=host, port=port, log_level="info")
+        server = uvicorn.Server(config)
+        server.run()
+    else:
+        uvicorn.run(
+            "sql_databricks_bridge.main:app",
+            host=host,
+            port=port,
+            reload=reload,
+        )
 
 
 if __name__ == "__main__":
