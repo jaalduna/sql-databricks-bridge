@@ -1,0 +1,147 @@
+"""
+Extract PS_LATAM Tables from All KTCLSQL Servers
+
+This script extracts loc_psdata_compras and loc_psdata_procesado from
+each KTCLSQL server to Databricks Unity Catalog.
+
+Usage:
+    python extract_ps_latam_servers.py               # Extract from all servers
+    python extract_ps_latam_servers.py --server 2    # Extract from KTCLSQL002 only
+"""
+
+import sys
+import argparse
+from pathlib import Path
+from sql_databricks_bridge.db.sql_server import SQLServerClient
+from sql_databricks_bridge.db.databricks import DatabricksClient
+from sql_databricks_bridge.core.config import get_settings
+
+# Configuration
+CATALOG = "000-sql-databricks-bridge"
+QUERIES_BASE = Path("queries/servers")
+DATABASE = "PS_LATAM"
+
+# Server configurations
+SERVERS = {
+    1: "KTCLSQL001.KT.group.local",
+    2: "KTCLSQL002.KT.group.local",
+    3: "KTCLSQL003.KT.group.local",
+    4: "KTCLSQL004.KT.group.local",
+}
+
+# Tables to extract
+TABLES = ["loc_psdata_compras", "loc_psdata_procesado"]
+
+
+def extract_table(server_num: int, table_name: str) -> bool:
+    """Extract a single table from a server."""
+    server_name = SERVERS[server_num]
+    schema = f"KTCLSQL00{server_num}"
+    queries_path = QUERIES_BASE / f"KTCLSQL00{server_num}"
+    query_file = queries_path / f"{table_name}.sql"
+
+    print(f"\n{'=' * 72}")
+    print(f"Extracting: {table_name}")
+    print(f"  Server:   {server_name}")
+    print(f"  Database: {DATABASE}")
+    print(f"  Target:   {CATALOG}.{schema}.{table_name}")
+    print(f"{'=' * 72}")
+
+    # Check if query file exists
+    if not query_file.exists():
+        print(f"ERROR: Query file not found: {query_file}")
+        return False
+
+    # Read query
+    query = query_file.read_text()
+
+    # Create SQL Server client
+    sql_client = SQLServerClient(server=server_name, database=DATABASE)
+
+    # Test connection
+    if not sql_client.test_connection():
+        print(f"ERROR: Cannot connect to {server_name}/{DATABASE}")
+        sql_client.close()
+        return False
+
+    print(f"Connected to {server_name}/{DATABASE}")
+
+    try:
+        # Execute query in chunks
+        print(f"Executing query...")
+        chunk_count = 0
+        total_rows = 0
+
+        for chunk_df in sql_client.execute_query_chunked(query, chunk_size=100_000):
+            chunk_count += 1
+            rows_in_chunk = len(chunk_df)
+            total_rows += rows_in_chunk
+            print(f"  Chunk {chunk_count}: {rows_in_chunk:,} rows (Total: {total_rows:,})")
+
+            # Upload to Databricks
+            # TODO: Implement Databricks upload using DatabricksClient
+            # For now, just count rows
+
+        print(f"SUCCESS: Extracted {total_rows:,} rows from {table_name}")
+        sql_client.close()
+        return True
+
+    except Exception as e:
+        print(f"ERROR: Failed to extract {table_name}")
+        print(f"  {type(e).__name__}: {e}")
+        sql_client.close()
+        return False
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Extract PS_LATAM tables from KTCLSQL servers")
+    parser.add_argument(
+        "--server", type=int, choices=[1, 2, 3, 4], help="Specific server to extract from (1-4)"
+    )
+    args = parser.parse_args()
+
+    # Determine which servers to process
+    if args.server:
+        servers_to_process = [args.server]
+        print(f"Single server mode: KTCLSQL00{args.server}")
+    else:
+        servers_to_process = list(SERVERS.keys())
+        print(f"Multi-server mode: KTCLSQL001-004")
+
+    print(f"\n{'=' * 72}")
+    print(f"       Starting PS_LATAM Multi-Server Extraction")
+    print(f"{'=' * 72}")
+
+    total_success = 0
+    total_failed = 0
+
+    for server_num in servers_to_process:
+        print(f"\n{'=' * 72}")
+        print(f"   Server: {SERVERS[server_num]}")
+        print(f"{'=' * 72}")
+
+        for table in TABLES:
+            if extract_table(server_num, table):
+                total_success += 1
+            else:
+                total_failed += 1
+                print("Continuing with next table...")
+
+    # Summary
+    print(f"\n{'=' * 72}")
+    print(f"                    EXTRACTION SUMMARY")
+    print(f"{'=' * 72}")
+    print(f"  Successful extractions: {total_success}")
+    print(f"  Failed extractions:     {total_failed}")
+    print()
+
+    if total_failed == 0:
+        print("All extractions completed successfully!")
+        return 0
+    else:
+        print("Some extractions failed. Check logs for details.")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

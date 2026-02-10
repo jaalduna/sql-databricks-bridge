@@ -187,7 +187,9 @@ def extract(
 
                     # Execute query
                     import polars as pl
+                    from datetime import datetime as _dt
 
+                    _dl_start = _dt.utcnow()
                     chunks = list(
                         extractor.execute_query(
                             query_name,
@@ -197,9 +199,15 @@ def extract(
                             lookback_months=lookback_months,
                         )
                     )
+                    _dl_secs = (_dt.utcnow() - _dl_start).total_seconds()
 
                     if chunks:
                         combined = pl.concat(chunks)
+                        logging.getLogger(__name__).info(
+                            f"SQL download complete: {query_name} - "
+                            f"{len(combined):,} rows in {_dl_secs:.1f}s"
+                        )
+                        _ul_start = _dt.utcnow()
                         result = writer.write_dataframe(
                             combined,
                             query_name,
@@ -207,10 +215,15 @@ def extract(
                             catalog=target_catalog,
                             schema=target_schema,
                         )
+                        _ul_secs = (_dt.utcnow() - _ul_start).total_seconds()
+                        logging.getLogger(__name__).info(
+                            f"Databricks upload complete: {query_name} - "
+                            f"{_ul_secs:.1f}s"
+                        )
 
                         progress.update(
                             task,
-                            description=f"[green]OK {query_name}: {result.rows:,} rows -> {result.table_name}[/green]",
+                            description=f"[green]OK {query_name}: {result.rows:,} rows in {_dl_secs:.1f}s dl + {_ul_secs:.1f}s ul -> {result.table_name}[/green]",
                         )
                     else:
                         progress.update(
