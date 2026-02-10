@@ -41,7 +41,7 @@ jobs:
       - name: Clone kantar_db_handler
         shell: bash
         run: |
-          git clone "https://${{ secrets.AZURE_DEVOPS_PAT }}@dev.azure.com/kantarware/KWP-TechnologySolutionsLATAM/_git/kantar_db_handler" ../kantar_db_handler
+          git clone "https://${{ secrets.AZURE_DEVOPS_PATH }}@dev.azure.com/kantarware/KWP-TechnologySolutionsLATAM/_git/kantar_db_handler" ../kantar_db_handler
 
       - name: Install dependencies
         shell: bash
