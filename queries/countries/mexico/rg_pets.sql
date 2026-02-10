@@ -1,11 +1,5 @@
 -- mexico: rg_pets
--- columns: 5
 
-select
-    cao_qtd,
-    gato_qtd,
-    iddomicilio,
-    periodo,
-    qtdanimais
+select *
 from rg_pets
-where periodo >= {start_period} and periodo <= {end_period}
+where periodo >= FORMAT(DATEADD(MONTH, -{lookback_months}, GETDATE()), 'yyyyMM')
