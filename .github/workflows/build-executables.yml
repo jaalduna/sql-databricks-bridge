@@ -86,6 +86,27 @@ jobs:
             --hidden-import=starlette.routing \
             --hidden-import=starlette.middleware \
             --hidden-import=starlette.middleware.cors \
+            --hidden-import=httpx \
+            --hidden-import=jwt \
+            --hidden-import=yaml \
+            --hidden-import=sql_databricks_bridge.api.routes.auth \
+            --hidden-import=sql_databricks_bridge.api.routes.metadata \
+            --hidden-import=sql_databricks_bridge.api.routes.trigger \
+            --hidden-import=sql_databricks_bridge.api.routes.extract \
+            --hidden-import=sql_databricks_bridge.api.routes.health \
+            --hidden-import=sql_databricks_bridge.api.routes.jobs \
+            --hidden-import=sql_databricks_bridge.api.routes.sync \
+            --hidden-import=sql_databricks_bridge.api.dependencies \
+            --hidden-import=sql_databricks_bridge.auth.azure_ad \
+            --hidden-import=sql_databricks_bridge.auth.authorized_users \
+            --hidden-import=sql_databricks_bridge.auth.audit \
+            --hidden-import=sql_databricks_bridge.auth.loader \
+            --hidden-import=sql_databricks_bridge.auth.permissions \
+            --hidden-import=sql_databricks_bridge.core.stages \
+            --hidden-import=sql_databricks_bridge.db.jobs_table \
+            --hidden-import=sql_databricks_bridge.sync.poller \
+            --hidden-import=sql_databricks_bridge.sync.operations \
+            --hidden-import=sql_databricks_bridge.sync.retry \
             packaging/entry_point.py
 
       - name: Verify executable
