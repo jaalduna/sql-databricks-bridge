@@ -25,6 +25,7 @@
   "bundle": {
     "active": true,
     "targets": ["appimage", "nsis"],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -34,6 +35,14 @@
       "nsis": {
         "installMode": "currentUser"
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIwMTlCOTFDNUNBQzdGQzgKUldUSWY2eGNITGtaSUZWTEtVa2VPaXFvVVo0QVJlQlA2WE04dG5WRVowTDVsbTBWbGpzOHZNNzQK",
+      "endpoints": [
+        "https://github.com/jaalduna/sql-databricks-bridge/releases/latest/download/latest.json"
+      ]
     }
   }
 }
