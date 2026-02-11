@@ -1,7 +1,13 @@
 """CLI commands for SQL-Databricks Bridge."""
 
+import json
 import logging
+import os
+import shutil
+import stat
 import sys
+import tempfile
+import urllib.request
 from pathlib import Path
 from typing import Annotated
 
@@ -17,6 +23,10 @@ from sql_databricks_bridge.core.extractor import Extractor
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 
+GITHUB_RELEASES_URL = (
+    "https://api.github.com/repos/jaalduna/sql-databricks-bridge/releases/latest"
+)
+
 app = typer.Typer(
     name="sql-databricks-bridge",
     help="Bidirectional SQL Server ↔ Databricks data sync",
@@ -24,6 +34,26 @@ app = typer.Typer(
 )
 
 console = Console()
+
+
+def _cleanup_old_binary() -> None:
+    """Remove leftover .old binary from a previous self-update (Windows rename trick)."""
+    if not getattr(sys, "frozen", False):
+        return
+    old_path = Path(sys.executable).with_suffix(
+        ".old.exe" if sys.platform == "win32" else ".old"
+    )
+    if old_path.exists():
+        try:
+            old_path.unlink()
+        except OSError:
+            pass
+
+
+@app.callback()
+def _main_callback() -> None:
+    """Entry callback — runs before every command."""
+    _cleanup_old_binary()
 
 
 def setup_logging(verbose: bool) -> None:
@@ -406,6 +436,190 @@ def serve(
             port=port,
             reload=reload,
         )
+
+
+def _parse_version(tag: str) -> tuple[int, ...]:
+    """Parse a version tag like 'v0.1.2' into a comparable tuple."""
+    return tuple(int(x) for x in tag.lstrip("v").split("."))
+
+
+def _fetch_latest_release() -> dict:
+    """Fetch the latest release metadata from GitHub.
+
+    Tries `gh` CLI first (handles private repos automatically), then falls
+    back to urllib with an optional GITHUB_TOKEN env var.
+    """
+    # 1. Try gh CLI (works for private repos without extra config)
+    try:
+        import subprocess
+
+        result = subprocess.run(
+            ["gh", "api", "repos/jaalduna/sql-databricks-bridge/releases/latest"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.returncode == 0:
+            return json.loads(result.stdout)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # 2. Fall back to urllib (public repos or with GITHUB_TOKEN)
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "sql-databricks-bridge",
+    }
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    req = urllib.request.Request(GITHUB_RELEASES_URL, headers=headers)
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read())
+
+
+def _find_asset(assets: list[dict], platform: str) -> dict | None:
+    """Find the correct binary asset for the given platform."""
+    if platform == "win32":
+        target_name = "sql-databricks-bridge.exe"
+    else:
+        target_name = "sql-databricks-bridge"
+
+    for asset in assets:
+        if asset["name"] == target_name:
+            return asset
+    return None
+
+
+def _download_asset(url: str, dest: Path) -> None:
+    """Download a release asset to a local path.
+
+    Uses `gh` CLI when available (handles private repo auth), otherwise
+    falls back to urllib with optional GITHUB_TOKEN.
+    """
+    # 1. Try gh CLI for download (handles private repos)
+    try:
+        import subprocess
+
+        result = subprocess.run(
+            ["gh", "api", url, "--header", "Accept: application/octet-stream", "--output", str(dest)],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if result.returncode == 0 and dest.stat().st_size > 0:
+            return
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+
+    # 2. Fall back to urllib
+    headers = {
+        "Accept": "application/octet-stream",
+        "User-Agent": "sql-databricks-bridge",
+    }
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        with open(dest, "wb") as f:
+            shutil.copyfileobj(resp, f)
+
+
+@app.command()
+def self_update(
+    check: Annotated[
+        bool,
+        typer.Option("--check", help="Only check for updates, don't download"),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Update even if already on the latest version"),
+    ] = False,
+) -> None:
+    """Check for updates and replace the running binary with the latest release."""
+    console.print(f"[bold]Current version:[/bold] v{__version__}")
+
+    # 1. Fetch latest release
+    try:
+        release = _fetch_latest_release()
+    except Exception as e:
+        console.print(f"[bold red]Error fetching latest release:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+    tag = release["tag_name"]
+    console.print(f"[bold]Latest release:[/bold]  {tag}")
+
+    # 2. Compare versions
+    try:
+        current = _parse_version(__version__)
+        latest = _parse_version(tag)
+    except ValueError:
+        console.print(f"[yellow]Could not parse versions for comparison[/yellow]")
+        if not force:
+            raise typer.Exit(code=1)
+        current, latest = (0,), (1,)  # force will proceed anyway
+
+    if current >= latest and not force:
+        console.print("[green]Already up to date.[/green]")
+        return
+
+    if check:
+        console.print(f"[cyan]Update available: v{__version__} -> {tag}[/cyan]")
+        return
+
+    # 3. Verify we're running as a compiled binary
+    if not getattr(sys, "frozen", False):
+        console.print(
+            "[yellow]self-update is only supported for compiled (PyInstaller) binaries.[/yellow]"
+        )
+        console.print("When running from source, use git pull or pip install instead.")
+        raise typer.Exit(code=1)
+
+    # 4. Find the matching asset
+    asset = _find_asset(release.get("assets", []), sys.platform)
+    if asset is None:
+        console.print(f"[bold red]No binary asset found for platform {sys.platform!r}[/bold red]")
+        raise typer.Exit(code=1)
+
+    console.print(f"[bold]Downloading:[/bold] {asset['name']} ({asset['size'] / 1_048_576:.1f} MB)")
+
+    # 5. Download to a temp file in the same directory (ensures same filesystem for rename)
+    current_binary = Path(sys.executable)
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        dir=current_binary.parent,
+        prefix=".update-",
+        suffix=current_binary.suffix,
+    )
+    os.close(tmp_fd)
+    tmp_path = Path(tmp_path)
+
+    try:
+        _download_asset(asset["browser_download_url"], tmp_path)
+    except Exception as e:
+        tmp_path.unlink(missing_ok=True)
+        console.print(f"[bold red]Download failed:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+    # 6. Replace the running binary
+    try:
+        if sys.platform == "win32":
+            # Windows: can't delete a running exe, but can rename it
+            old_path = current_binary.with_suffix(".old.exe")
+            old_path.unlink(missing_ok=True)
+            current_binary.rename(old_path)
+            tmp_path.rename(current_binary)
+        else:
+            # Linux/macOS: atomic replace via rename
+            tmp_path.chmod(tmp_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            tmp_path.rename(current_binary)
+    except Exception as e:
+        tmp_path.unlink(missing_ok=True)
+        console.print(f"[bold red]Failed to replace binary:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+    console.print(f"[bold green]Updated to {tag} — please restart.[/bold green]")
 
 
 if __name__ == "__main__":
