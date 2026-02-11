@@ -1,0 +1,13 @@
+stages:
+  - code: inicio
+    name: Inicio
+  - code: precios
+    name: Precios
+  - code: elegibilidad
+    name: Elegibilidad
+  - code: pesaje
+    name: Pesaje
+  - code: calibracion
+    name: Calibracion
+  - code: mtr
+    name: MTR
