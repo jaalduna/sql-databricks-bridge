@@ -72,6 +72,10 @@ claude-*-cwd
 # Tauri
 frontend/src-tauri/target/
 
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+
 # Scripts (keep only in scripts/ dir)
 /check_*.py
 /find_*.py
