@@ -1,0 +1,16 @@
+# Authorized users for the bridge frontend.
+# Users are matched by email (case-insensitive) after Azure AD JWT validation.
+#
+# Roles:
+#   - admin: can see all events, manage all countries
+#   - operator: can trigger syncs for assigned countries, sees own events only
+#
+# Countries:
+#   - ["*"] means all countries
+#   - List specific country codes to restrict access
+
+users:
+  - email: "joaquin.aldunate@wp.numerator.com"
+    name: "Joaquin Aldunate"
+    roles: ["admin"]
+    countries: ["*"]
