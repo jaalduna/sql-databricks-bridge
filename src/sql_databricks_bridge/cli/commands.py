@@ -7,6 +7,7 @@ import shutil
 import stat
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Annotated
@@ -544,6 +545,17 @@ def self_update(
     # 1. Fetch latest release
     try:
         release = _fetch_latest_release()
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            console.print(
+                "[bold red]Error:[/bold red] Could not access releases (HTTP 404).\n\n"
+                "This is a private repository. To use self-update you need one of:\n"
+                "  1. Install the [bold]gh[/bold] CLI and authenticate: [cyan]gh auth login[/cyan]\n"
+                "  2. Set [bold]GITHUB_TOKEN[/bold] env var with a personal access token (repo scope)"
+            )
+        else:
+            console.print(f"[bold red]Error fetching latest release:[/bold red] {e}")
+        raise typer.Exit(code=1)
     except Exception as e:
         console.print(f"[bold red]Error fetching latest release:[/bold red] {e}")
         raise typer.Exit(code=1)
@@ -596,7 +608,7 @@ def self_update(
     tmp_path = Path(tmp_path)
 
     try:
-        _download_asset(asset["browser_download_url"], tmp_path)
+        _download_asset(asset["url"], tmp_path)
     except Exception as e:
         tmp_path.unlink(missing_ok=True)
         console.print(f"[bold red]Download failed:[/bold red] {e}")
