@@ -44,6 +44,17 @@ function renderEventDetail(jobId = "job-123") {
   )
 }
 
+const baseEvent = {
+  job_id: "job-123",
+  country: "bolivia",
+  stage: "calibracion",
+  tag: "bolivia-calibracion-2026-02-09",
+  created_at: "2026-02-09T14:30:00Z",
+  started_at: "2026-02-09T14:30:01Z",
+  triggered_by: "test@test.com",
+  current_query: null,
+}
+
 describe("EventDetailPage", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -57,16 +68,12 @@ describe("EventDetailPage", () => {
 
   it("shows event metadata when loaded", async () => {
     mockGetEvent.mockResolvedValue({
-      job_id: "job-123",
+      ...baseEvent,
       status: "completed",
-      country: "bolivia",
       queries_total: 3,
       queries_completed: 3,
       queries_failed: 0,
-      created_at: "2026-02-09T14:30:00Z",
-      started_at: "2026-02-09T14:30:01Z",
       completed_at: "2026-02-09T14:45:23Z",
-      triggered_by: "detail-user@test.com",
       error: null,
       results: [],
     })
@@ -75,23 +82,19 @@ describe("EventDetailPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Bolivia")).toBeInTheDocument()
-      expect(screen.getByText("detail-user@test.com")).toBeInTheDocument()
+      expect(screen.getByText("test@test.com")).toBeInTheDocument()
       expect(screen.getByText(/3\/3 queries/)).toBeInTheDocument()
     })
   })
 
   it("shows query results table", async () => {
     mockGetEvent.mockResolvedValue({
-      job_id: "job-123",
+      ...baseEvent,
       status: "completed",
-      country: "bolivia",
       queries_total: 2,
       queries_completed: 2,
       queries_failed: 0,
-      created_at: "2026-02-09T14:30:00Z",
-      started_at: "2026-02-09T14:30:01Z",
       completed_at: "2026-02-09T14:45:23Z",
-      triggered_by: "test@test.com",
       error: null,
       results: [
         {
@@ -126,16 +129,13 @@ describe("EventDetailPage", () => {
 
   it("shows progress bar", async () => {
     mockGetEvent.mockResolvedValue({
-      job_id: "job-123",
+      ...baseEvent,
       status: "running",
       country: "chile",
       queries_total: 10,
       queries_completed: 3,
       queries_failed: 0,
-      created_at: "2026-02-09T14:30:00Z",
-      started_at: "2026-02-09T14:30:01Z",
       completed_at: null,
-      triggered_by: "test@test.com",
       error: null,
       results: [],
     })
@@ -150,16 +150,13 @@ describe("EventDetailPage", () => {
 
   it("shows error when job has error field", async () => {
     mockGetEvent.mockResolvedValue({
-      job_id: "job-123",
+      ...baseEvent,
       status: "failed",
       country: "brazil",
       queries_total: 5,
       queries_completed: 2,
       queries_failed: 1,
-      created_at: "2026-02-09T14:30:00Z",
-      started_at: "2026-02-09T14:30:01Z",
       completed_at: "2026-02-09T14:31:00Z",
-      triggered_by: "test@test.com",
       error: "Connection timeout to SQL Server",
       results: [],
     })
@@ -169,5 +166,47 @@ describe("EventDetailPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Connection timeout to SQL Server")).toBeInTheDocument()
     })
+  })
+
+  it("shows current query indicator when syncing", async () => {
+    mockGetEvent.mockResolvedValue({
+      ...baseEvent,
+      status: "running",
+      queries_total: 10,
+      queries_completed: 3,
+      queries_failed: 0,
+      completed_at: null,
+      error: null,
+      current_query: "j_atoscompra_new",
+      results: [],
+    })
+
+    renderEventDetail()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Syncing:/)).toBeInTheDocument()
+      expect(screen.getByText("j_atoscompra_new")).toBeInTheDocument()
+    })
+  })
+
+  it("hides current query indicator when completed", async () => {
+    mockGetEvent.mockResolvedValue({
+      ...baseEvent,
+      status: "completed",
+      queries_total: 10,
+      queries_completed: 10,
+      queries_failed: 0,
+      completed_at: "2026-02-09T14:45:23Z",
+      error: null,
+      current_query: null,
+      results: [],
+    })
+
+    renderEventDetail()
+
+    await waitFor(() => {
+      expect(screen.getByText("100%")).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/Syncing:/)).not.toBeInTheDocument()
   })
 })
