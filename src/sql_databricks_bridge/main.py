@@ -5,13 +5,14 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from sql_databricks_bridge import __version__
-from sql_databricks_bridge.api.routes import extract, health, jobs, sync
+from sql_databricks_bridge.api.routes import auth, extract, health, jobs, metadata, sync, trigger
 from sql_databricks_bridge.core.config import get_settings
 from sql_databricks_bridge.db.databricks import DatabricksClient
+from sql_databricks_bridge.db.jobs_table import ensure_jobs_table
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 from sql_databricks_bridge.sync.poller import EventPoller
 
@@ -41,6 +42,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             databricks_client = DatabricksClient()
             sql_client = SQLServerClient()
+
+            # Ensure the jobs Delta table exists
+            ensure_jobs_table(databricks_client, settings.jobs_table)
+
+            # Store client on app.state for route access
+            app.state.databricks_client = databricks_client
 
             _event_poller = EventPoller(
                 databricks_client=databricks_client,
@@ -91,19 +98,31 @@ def create_app() -> FastAPI:
     )
 
     # CORS middleware
+    if settings.cors_allowed_origins:
+        origins = [o.strip() for o in settings.cors_allowed_origins.split(",")]
+    elif settings.debug:
+        origins = ["*"]
+    else:
+        origins = ["https://kantar-org.github.io"]
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"] if settings.debug else [],
+        allow_origins=origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
     )
 
-    # Include routers
-    app.include_router(health.router)
-    app.include_router(extract.router)
-    app.include_router(jobs.router)
-    app.include_router(sync.router)
+    # Include routers under /api/v1 prefix
+    api_v1 = APIRouter(prefix="/api/v1")
+    api_v1.include_router(health.router)
+    api_v1.include_router(auth.router)
+    api_v1.include_router(metadata.router)
+    api_v1.include_router(extract.router)
+    api_v1.include_router(jobs.router)
+    api_v1.include_router(sync.router)
+    api_v1.include_router(trigger.router)
+    app.include_router(api_v1)
 
     # Root endpoint
     @app.get("/", tags=["Root"])
