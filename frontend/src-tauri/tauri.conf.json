@@ -1,6 +1,6 @@
 {
   "productName": "SQL Databricks Bridge",
-  "version": "0.1.5",
+  "version": "0.1.7",
   "identifier": "com.kantar.sqldatabricksbridge",
   "build": {
     "beforeBuildCommand": "npm run build",
