@@ -1,48 +1,5 @@
--- =============================================================================
--- extraction: product catalog (vw_artigoz)
--- source table: pe_kwp.dbo.vw_artigoz
--- target table: 003-precios.bronze-data.dim_artigos
--- parameters: none (full dimension extract)
--- =============================================================================
+-- source: peru/queries.py::get_mf
+-- description: retrieve the mf table exactly matching power bi's structure and transformations
+-- note: this is the base query; columns cdc06, clas06, cdc07, clas07, cdc08, clas08, cdc09, clas09, minprice, maxprice, nroactosmat, nrobuyers, nrobuyersmat are removed in post-processing
 
-select
-    vw.idartigo,
-    vw.idproduto,
-    vw.produto,
-    vw.idsub,
-    vw.sub,
-    vw.idconteudo,
-    vw.conteudo,
-    vw.mwp_idpl,
-    vw.mwp_pl,
-    vw.idfabricante,
-    vw.fabricante,
-    vw.idmarca,
-    vw.marca,
-    vw.cdc01,
-    vw.clas01,
-    vw.cdc02,
-    vw.clas02,
-    vw.cdc03,
-    vw.clas03,
-    vw.cdc04,
-    vw.clas04,
-    vw.cdc05,
-    vw.clas05,
-    vw.flggranel,
-    vw.coef1,
-    vw.unicoef1,
-    vw.coef2,
-    vw.unicoef2,
-    vw.coef3,
-    vw.unicoef3,
-    vw.flgativo,
-    vw.codbar,
-    vw.codbar2,
-    vw.codbar3,
-    vw.flgpack,
-    vw.unidadespack,
-    vw.idartigoind,
-    vw.dtcriacao
-
-from vw_artigoz vw
+select * from vw_artigoz
