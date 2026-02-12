@@ -1,5 +1,5 @@
 -- peru: vw_artigoz
--- columns: 38
+-- columns: 40
 
 select
     cdc01,
@@ -30,11 +30,13 @@ select
     idfabricante,
     idmarca,
     idproduto,
+    idsector,
     idsub,
     marca,
     mwp_idpl,
     mwp_pl,
     produto,
+    sector,
     sub,
     unicoef1,
     unicoef2,
