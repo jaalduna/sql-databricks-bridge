@@ -1,5 +1,6 @@
 -- chile: vw_artigoz
--- columns: 58
+-- columns: 56
+-- Note: flgdesativacao and idcategoria do not exist in this database
 
 select
     avgprice,
@@ -25,14 +26,12 @@ select
     dtcriacao,
     fabricante,
     flgativo,
-    flgdesativacao,
     flggranel,
     flgpack,
     fonteinfo,
     granel,
     idartigo,
     idartigoind,
-    idcategoria,
     idconteudo,
     idfabricante,
     idmarca,

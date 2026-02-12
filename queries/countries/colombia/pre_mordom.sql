@@ -6,6 +6,6 @@ select
     iddomicilio,
     idpainel,
     mes,
-    origen_dom
+    situacao
 from pre_mordom
 where ano >= {start_year} and ano <= {end_year}

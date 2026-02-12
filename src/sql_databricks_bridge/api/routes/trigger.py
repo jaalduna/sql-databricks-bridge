@@ -1,13 +1,11 @@
 """Trigger API endpoints -- frontend-facing sync trigger and event views."""
 
 import logging
+import os
 from datetime import datetime
-from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-
-from fastapi import Request
 
 from sql_databricks_bridge.api.dependencies import CurrentAzureADUser
 from sql_databricks_bridge.api.schemas import JobStatus, QueryResult
@@ -27,8 +25,6 @@ from sql_databricks_bridge.db.sql_server import SQLServerClient
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Trigger"])
-
-QUERIES_BASE_PATH = Path(__file__).resolve().parents[3] / "queries"
 
 
 # --- Schemas ---
@@ -69,6 +65,7 @@ class EventSummary(BaseModel):
     completed_at: datetime | None = None
     triggered_by: str
     error: str | None = None
+    current_query: str | None = None
 
 
 class EventDetail(EventSummary):
@@ -93,10 +90,14 @@ class _TriggerJobRecord:
         extractor: Extractor,
         job: ExtractionJob,
         triggered_by: str,
+        stage: str = "",
+        tag: str = "",
     ) -> None:
         self.extractor = extractor
         self.job = job
         self.triggered_by = triggered_by
+        self.stage = stage
+        self.tag = tag
 
 
 # Fix forward reference for module-level dict
@@ -114,7 +115,7 @@ def _get_databricks_client(request: Request) -> DatabricksClient:
     return DatabricksClient()
 
 
-async def _run_trigger_extraction(
+def _run_trigger_extraction(
     extractor: Extractor,
     job: ExtractionJob,
     writer: DeltaTableWriter,
@@ -130,12 +131,14 @@ async def _run_trigger_extraction(
         update_job_status(client, table, job.job_id, "running", started_at=job.started_at)
 
         for query_name in job.queries:
+            job.current_query = query_name
             result = QueryResult(query_name=query_name, status=JobStatus.RUNNING)
             start_time = datetime.utcnow()
 
             try:
+                row_limit = int(os.environ.get("QUERY_ROW_LIMIT", "0")) or None
                 chunks = list(
-                    extractor.execute_query(query_name, job.country, job.chunk_size)
+                    extractor.execute_query(query_name, job.country, job.chunk_size, limit=row_limit)
                 )
 
                 if chunks:
@@ -160,6 +163,7 @@ async def _run_trigger_extraction(
             ).total_seconds()
             job.results.append(result)
 
+        job.current_query = None
         job.status = (
             JobStatus.FAILED
             if job.queries_failed > 0 and job.queries_completed == 0
@@ -175,6 +179,7 @@ async def _run_trigger_extraction(
         )
 
     except Exception as e:
+        job.current_query = None
         job.status = JobStatus.FAILED
         job.error = str(e)
         logger.error(f"Trigger job {job.job_id} failed: {e}")
@@ -221,7 +226,7 @@ async def trigger_extraction(
     try:
         sql_client = SQLServerClient(country=request.country)
         extractor = Extractor(
-            queries_path=str(QUERIES_BASE_PATH),
+            queries_path=get_settings().queries_path,
             sql_client=sql_client,
         )
 
@@ -267,6 +272,8 @@ async def trigger_extraction(
         extractor=extractor,
         job=job,
         triggered_by=user.email,
+        stage=request.stage,
+        tag=tag,
     )
     _trigger_jobs[job.job_id] = record
 
@@ -318,7 +325,9 @@ async def list_events(
     )
 
     items: list[EventSummary] = []
+    db_job_ids = set()
     for row in db_jobs:
+        db_job_ids.add(row["job_id"])
         # If there's an in-flight record, use live progress data
         record = _trigger_jobs.get(row["job_id"])
         if record:
@@ -329,6 +338,7 @@ async def list_events(
             started_at = job.started_at
             completed_at = job.completed_at
             error = job.error
+            current_query = job.current_query
         else:
             queries_completed = 0
             queries_failed = 0
@@ -336,6 +346,7 @@ async def list_events(
             started_at = row.get("started_at")
             completed_at = row.get("completed_at")
             error = row.get("error")
+            current_query = None
 
         items.append(
             EventSummary(
@@ -352,8 +363,42 @@ async def list_events(
                 completed_at=completed_at,
                 triggered_by=row["triggered_by"],
                 error=error,
+                current_query=current_query,
             )
         )
+
+    # Include in-flight jobs not yet visible in the Delta table
+    for job_id, record in _trigger_jobs.items():
+        if job_id in db_job_ids:
+            continue
+        job = record.job
+        # Apply filters
+        if country and job.country != country:
+            continue
+        if status_filter and job.status != status_filter:
+            continue
+        if not user.is_admin and record.triggered_by != user.email:
+            continue
+        items.insert(
+            0,
+            EventSummary(
+                job_id=job.job_id,
+                status=job.status,
+                country=job.country,
+                stage=record.stage,
+                tag=record.tag,
+                queries_total=len(job.queries),
+                queries_completed=job.queries_completed,
+                queries_failed=job.queries_failed,
+                created_at=job.created_at,
+                started_at=job.started_at,
+                completed_at=job.completed_at,
+                triggered_by=record.triggered_by,
+                error=job.error,
+                current_query=job.current_query,
+            ),
+        )
+        total += 1
 
     return EventListResponse(
         items=items,
@@ -378,30 +423,37 @@ async def get_event_detail(
     db_client = _get_databricks_client(raw_request)
     jobs_tbl = get_settings().jobs_table
 
+    # Check in-flight record first (avoids Delta table read-after-write lag)
+    record = _trigger_jobs.get(job_id)
+
     db_row = get_job(db_client, jobs_tbl, job_id)
-    if not db_row:
+
+    if not db_row and not record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "not_found", "message": f"Job not found: {job_id}"},
         )
 
     # Non-admin users can only see their own jobs
-    if not user.is_admin and db_row["triggered_by"] != user.email:
+    triggered_by = record.triggered_by if record else db_row["triggered_by"]
+    if not user.is_admin and triggered_by != user.email:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "not_found", "message": f"Job not found: {job_id}"},
         )
 
     # If there's an in-flight record, use live progress
-    record = _trigger_jobs.get(job_id)
     if record:
         job = record.job
+        # Prefer db_row for stage/tag if available, fallback to in-flight data
+        stage = db_row["stage"] if db_row else record.stage
+        tag = db_row["tag"] if db_row else record.tag
         return EventDetail(
             job_id=job.job_id,
             status=job.status,
             country=job.country,
-            stage=db_row["stage"],
-            tag=db_row["tag"],
+            stage=stage,
+            tag=tag,
             queries_total=len(job.queries),
             queries_completed=job.queries_completed,
             queries_failed=job.queries_failed,
@@ -410,6 +462,7 @@ async def get_event_detail(
             completed_at=job.completed_at,
             triggered_by=record.triggered_by,
             error=job.error,
+            current_query=job.current_query,
             results=job.results,
         )
 

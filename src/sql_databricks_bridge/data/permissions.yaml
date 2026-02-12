@@ -1,0 +1,49 @@
+# SQL-Databricks Bridge Permissions Configuration
+#
+# This file defines API tokens and their table-level permissions.
+# Each user has a token and a list of table permissions.
+#
+# Access levels:
+#   - read: Can extract data from the table
+#   - write: Can sync data to the table
+#   - read_write: Can both extract and sync
+#
+# max_delete_rows: Optional limit on DELETE operations
+
+users:
+  - token: "proyecto-precios-abc123"
+    name: "proyecto-precios"
+    permissions:
+      - table: "dbo.J_AtosCompra_New"
+        access: "read"
+      - table: "dbo.VW_ArtigoZ"
+        access: "read"
+      - table: "dbo.NAC_Ato"
+        access: "read"
+      - table: "dbo.PS_Latam"
+        access: "read"
+      - table: "dbo.Resultados"
+        access: "read_write"
+        max_delete_rows: 10000
+
+  - token: "data-engineering-xyz789"
+    name: "data-engineering"
+    permissions:
+      - table: "dbo.J_AtosCompra_New"
+        access: "read"
+      - table: "dbo.VW_ArtigoZ"
+        access: "read"
+      - table: "dbo.RG_Panelis"
+        access: "read"
+      - table: "dbo.A_Canal"
+        access: "read"
+      - table: "dbo.Pipeline_Metadata"
+        access: "read_write"
+        max_delete_rows: 1000
+
+  - token: "admin-full-access-secret"
+    name: "admin"
+    permissions:
+      - table: "*"
+        access: "read_write"
+        max_delete_rows: 100000

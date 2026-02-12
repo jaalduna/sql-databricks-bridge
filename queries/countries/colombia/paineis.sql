@@ -1,8 +1,7 @@
 -- colombia: paineis
--- columns: 3
+-- columns: 2
 
 select
     descricao,
-    flgativo,
     idpainel
 from paineis

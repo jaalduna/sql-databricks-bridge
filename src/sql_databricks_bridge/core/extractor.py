@@ -6,6 +6,8 @@ from datetime import datetime
 from typing import Iterator
 from uuid import uuid4
 
+from dateutil.relativedelta import relativedelta
+
 import polars as pl
 
 from sql_databricks_bridge.api.schemas import JobStatus, QueryResult
@@ -30,6 +32,7 @@ class ExtractionJob:
     completed_at: datetime | None = None
     results: list[QueryResult] = field(default_factory=list)
     error: str | None = None
+    current_query: str | None = None
 
     @property
     def queries_completed(self) -> int:
@@ -139,8 +142,17 @@ class Extractor:
         # Get pre-resolved query for this country
         query_sql = self.query_loader.get_query(query_name, country)
 
-        # Substitute lookback_months placeholder
+        # Substitute time-filter placeholders based on lookback_months
         query_sql = query_sql.replace("{lookback_months}", str(lookback_months))
+
+        now = datetime.utcnow()
+        start = now - relativedelta(months=lookback_months)
+        query_sql = query_sql.replace("{start_period}", start.strftime("%Y%m"))
+        query_sql = query_sql.replace("{end_period}", now.strftime("%Y%m"))
+        query_sql = query_sql.replace("{start_year}", str(start.year))
+        query_sql = query_sql.replace("{end_year}", str(now.year))
+        query_sql = query_sql.replace("{start_date}", f"'{start.strftime('%Y-%m-01')}'")
+        query_sql = query_sql.replace("{end_date}", f"'{now.strftime('%Y-%m-%d')}'")
 
         # Apply row limit if specified (SQL Server TOP syntax)
         if limit is not None and limit > 0:

@@ -1,11 +1,12 @@
 -- chile: individuo
--- columns: 6
+-- columns: 5
+-- Note: flgativo column does not exist in this database
+-- Note: column is idParentesco (not parentesco)
 
 select
-    flgativo,
     idade,
     iddomicilio,
     idindividuo,
-    parentesco,
+    idparentesco,
     sexo
 from individuo

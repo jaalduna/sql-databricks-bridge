@@ -5,6 +5,7 @@ description = "Bidirectional SQL Server ↔ Databricks bridge service"
 authors = ["Joaquin Aldunate <joaquin.aldunate@wp.numerator.com>"]
 readme = "README.md"
 packages = [{include = "sql_databricks_bridge", from = "src"}]
+include = ["src/sql_databricks_bridge/data/*.yaml"]
 
 [tool.poetry.dependencies]
 python = "^3.11"

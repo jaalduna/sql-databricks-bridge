@@ -1,5 +1,6 @@
 -- chile: tblproductosinternos
 -- columns: 6
+-- Source: kitpack database
 
 select
     codbarraext,
@@ -8,4 +9,4 @@ select
     lasttransactiondate,
     lasttransactionuser,
     unidad
-from tblproductosinternos
+from [Kitpack].[tblproductosinternos] KPTPI

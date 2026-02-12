@@ -131,19 +131,22 @@ class BridgeSettings(BaseSettings):
     max_retries: int = Field(default=3, description="Max retry attempts")
     retry_delay_seconds: int = Field(default=5, description="Initial retry delay")
 
+    # Queries path (configurable via .env)
+    queries_path: str = Field(default="queries", description="Path to directory containing SQL query files")
+
     # Stages & jobs table
-    stages_file: str = Field(default="config/stages.yaml", description="Path to stages YAML config")
+    stages_file: str = Field(default="", description="Override path to stages YAML (empty = bundled default)")
     jobs_table: str = Field(default="bridge.events.trigger_jobs", description="Databricks Delta table for job history")
 
     # Auth settings
     auth_enabled: bool = Field(default=True, description="Enable token authentication")
-    permissions_file: str = Field(default="config/permissions.yaml")
+    permissions_file: str = Field(default="", description="Override path to permissions YAML (empty = bundled default)")
     permissions_hot_reload: bool = Field(default=True)
 
     # Azure AD settings
     azure_ad_tenant_id: str = Field(default="", description="Azure AD tenant ID")
     azure_ad_client_id: str = Field(default="", description="Azure AD app client ID (audience)")
-    authorized_users_file: str = Field(default="config/authorized_users.yaml")
+    authorized_users_file: str = Field(default="", description="Override path to authorized users YAML (empty = bundled default)")
 
     # CORS settings
     cors_allowed_origins: str = Field(

@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils"
 export function AuthenticatedLayout() {
   const { user, logout } = useAuth()
   const { available, version: updateVersion, downloading, progress, downloadAndInstall } = useUpdater()
-  const [appVersion, setAppVersion] = useState<string | null>(null)
+  const [appVersion, setAppVersion] = useState<string>(APP_VERSION)
 
   useEffect(() => {
     (async () => {
@@ -16,7 +16,7 @@ export function AuthenticatedLayout() {
         const { getVersion } = await import("@tauri-apps/api/app")
         setAppVersion(await getVersion())
       } catch {
-        // Not running in Tauri
+        // Not running in Tauri — keep package.json version
       }
     })()
   }, [])
@@ -48,11 +48,9 @@ export function AuthenticatedLayout() {
           <div className="flex items-center gap-6">
             <span className="text-lg font-semibold">
               Bridge
-              {appVersion && (
-                <span className="ml-2 text-xs font-normal text-muted-foreground">
-                  v{appVersion}
-                </span>
-              )}
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                v{appVersion}
+              </span>
             </span>
             <nav className="flex gap-1">
               <NavLink
