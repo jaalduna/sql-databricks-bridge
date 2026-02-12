@@ -54,6 +54,7 @@ export interface EventSummary {
   completed_at: string | null
   triggered_by: string
   error: string | null
+  current_query: string | null
 }
 
 /** Detailed job info including per-query results */

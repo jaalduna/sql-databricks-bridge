@@ -27,11 +27,13 @@ vi.mock("sonner", () => ({
 
 // Mock API (named exports used by TanStack Query)
 const mockGetCountries = vi.fn()
+const mockGetStages = vi.fn()
 const mockGetEvents = vi.fn()
 const mockTriggerSync = vi.fn()
 
 vi.mock("@/lib/api", () => ({
   getCountries: (...args: unknown[]) => mockGetCountries(...args),
+  getStages: (...args: unknown[]) => mockGetStages(...args),
   getEvents: (...args: unknown[]) => mockGetEvents(...args),
   triggerSync: (...args: unknown[]) => mockTriggerSync(...args),
   setTokenProvider: vi.fn(),
@@ -48,12 +50,22 @@ const DEFAULT_COUNTRIES = {
   ],
 }
 
+const DEFAULT_STAGES = {
+  stages: [
+    { code: "calibracion", name: "Calibracion" },
+    { code: "mtr", name: "MTR" },
+    { code: "inicio", name: "Inicio" },
+  ],
+}
+
 const DEFAULT_EVENTS = {
   items: [
     {
       job_id: "job-1",
       status: "completed",
       country: "bolivia",
+      stage: "calibracion",
+      tag: "bolivia-calibracion-2026-02-12",
       queries_total: 2,
       queries_completed: 2,
       queries_failed: 0,
@@ -62,6 +74,7 @@ const DEFAULT_EVENTS = {
       completed_at: new Date().toISOString(),
       triggered_by: "test@test.com",
       error: null,
+      current_query: null,
     },
   ],
   total: 1,
@@ -117,11 +130,14 @@ describe("DashboardPage", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetCountries.mockResolvedValue(DEFAULT_COUNTRIES)
+    mockGetStages.mockResolvedValue(DEFAULT_STAGES)
     mockGetEvents.mockResolvedValue(DEFAULT_EVENTS)
     mockTriggerSync.mockResolvedValue({
       job_id: "job-new",
       status: "pending",
       country: "bolivia",
+      stage: "calibracion",
+      tag: "bolivia-calibracion-2026-02-12",
       queries: ["q1", "q2"],
       queries_count: 2,
       created_at: new Date().toISOString(),
@@ -141,10 +157,10 @@ describe("DashboardPage", () => {
     })
   })
 
-  it("renders the tag input", async () => {
+  it("renders the stage selector after loading", async () => {
     renderDashboard()
     await waitFor(() => {
-      expect(screen.getByPlaceholderText(/calibracion/i)).toBeInTheDocument()
+      expect(screen.getByText("Select stage")).toBeInTheDocument()
     })
   })
 
@@ -171,9 +187,8 @@ describe("DashboardPage", () => {
     })
   })
 
-  it("has a disabled trigger button that requires country and tag", async () => {
+  it("has a disabled trigger button that requires country and stage", async () => {
     renderDashboard()
-    const user = userEvent.setup()
 
     await waitFor(() => {
       expect(screen.getByText("Select country")).toBeInTheDocument()
@@ -182,8 +197,8 @@ describe("DashboardPage", () => {
     const triggerBtn = screen.getByRole("button", { name: /trigger sync/i })
     expect(triggerBtn).toBeDisabled()
 
-    const tagInput = screen.getByPlaceholderText(/calibracion/i)
-    await user.type(tagInput, "Test Tag")
+    // Select only country — button should still be disabled
+    await selectOption("Select country", "Bolivia")
     expect(triggerBtn).toBeDisabled()
   })
 
@@ -196,9 +211,7 @@ describe("DashboardPage", () => {
     })
 
     await selectOption("Select country", "Bolivia")
-
-    const tagInput = screen.getByPlaceholderText(/calibracion/i)
-    await user.type(tagInput, "Test Tag")
+    await selectOption("Select stage", "Calibracion")
 
     const triggerBtn = screen.getByRole("button", { name: /trigger sync/i })
     expect(triggerBtn).toBeEnabled()
@@ -219,9 +232,7 @@ describe("DashboardPage", () => {
     })
 
     await selectOption("Select country", "Bolivia")
-
-    const tagInput = screen.getByPlaceholderText(/calibracion/i)
-    await user.type(tagInput, "Test Tag")
+    await selectOption("Select stage", "Calibracion")
 
     await user.click(screen.getByRole("button", { name: /trigger sync/i }))
 
@@ -246,9 +257,7 @@ describe("DashboardPage", () => {
     })
 
     await selectOption("Select country", "Bolivia")
-
-    const tagInput = screen.getByPlaceholderText(/calibracion/i)
-    await user.type(tagInput, "Test Tag")
+    await selectOption("Select stage", "Calibracion")
 
     await user.click(screen.getByRole("button", { name: /trigger sync/i }))
 
@@ -260,7 +269,10 @@ describe("DashboardPage", () => {
 
     await waitFor(() => {
       expect(mockTriggerSync).toHaveBeenCalled()
-      expect(mockTriggerSync.mock.calls[0][0]).toEqual({ country: "bolivia" })
+      expect(mockTriggerSync.mock.calls[0][0]).toEqual({
+        country: "bolivia",
+        stage: "calibracion",
+      })
     })
 
     await waitFor(() => {
@@ -283,9 +295,7 @@ describe("DashboardPage", () => {
     })
 
     await selectOption("Select country", "Bolivia")
-
-    const tagInput = screen.getByPlaceholderText(/calibracion/i)
-    await user.type(tagInput, "Test Tag")
+    await selectOption("Select stage", "Calibracion")
 
     await user.click(screen.getByRole("button", { name: /trigger sync/i }))
 
@@ -312,9 +322,7 @@ describe("DashboardPage", () => {
     })
 
     await selectOption("Select country", "Bolivia")
-
-    const tagInput = screen.getByPlaceholderText(/calibracion/i)
-    await user.type(tagInput, "Test Tag")
+    await selectOption("Select stage", "Calibracion")
 
     await user.click(screen.getByRole("button", { name: /trigger sync/i }))
 

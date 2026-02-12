@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusBadge } from "@/components/StatusBadge"
 import { DataTable } from "@/components/DataTable"
+import { Loader2 } from "lucide-react"
 
 function formatRows(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -18,11 +19,14 @@ function formatRows(n: number): string {
 }
 
 function formatDuration(seconds: number): string {
+  if (seconds < 0) seconds = 0
   if (seconds < 1) return `${(seconds * 1000).toFixed(0)}ms`
   if (seconds < 60) return `${seconds.toFixed(1)}s`
-  const mins = Math.floor(seconds / 60)
-  const secs = Math.round(seconds % 60)
-  return `${mins}m ${secs}s`
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.round(seconds % 60)
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`
+  return `${m}m ${String(s).padStart(2, "0")}s`
 }
 
 function formatTimestamp(dateStr: string | null): string {
@@ -98,7 +102,7 @@ export default function EventDetailPage() {
     },
   })
 
-  const results = useMemo(() => event?.results ?? [], [event])
+  const results = useMemo(() => [...(event?.results ?? [])].reverse(), [event])
 
   if (isLoading) {
     return (
@@ -123,9 +127,10 @@ export default function EventDetailPage() {
     )
   }
 
+  const queriesDone = event.queries_completed + (event.queries_failed ?? 0)
   const progressPct =
     event.queries_total > 0
-      ? Math.round((event.queries_completed / event.queries_total) * 100)
+      ? Math.round((queriesDone / event.queries_total) * 100)
       : 0
 
   return (
@@ -163,11 +168,19 @@ export default function EventDetailPage() {
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span>
-                Progress: {event.queries_completed}/{event.queries_total} queries
+                Progress: {queriesDone}/{event.queries_total} queries
               </span>
               <span className="text-muted-foreground">{progressPct}%</span>
             </div>
             <Progress value={progressPct} />
+            {event.status === "running" && event.current_query && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>
+                  Syncing: <span className="font-mono">{event.current_query}</span>
+                </span>
+              </div>
+            )}
           </div>
 
           {event.error && (
