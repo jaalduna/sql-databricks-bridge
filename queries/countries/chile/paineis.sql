@@ -1,8 +1,8 @@
 -- chile: paineis
--- columns: 3
+-- columns: 2
+-- Note: flgativo column does not exist in this database
 
 select
     descricao,
-    flgativo,
     idpainel
 from paineis
