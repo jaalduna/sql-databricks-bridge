@@ -1,11 +1,10 @@
 -- colombia: individuo
--- columns: 6
+-- columns: 5
 
 select
-    flgativo,
     idade,
     iddomicilio,
     idindividuo,
-    parentesco,
+    idparentesco,
     sexo
 from individuo

@@ -1,9 +1,6 @@
 -- chile: ps_latam
--- STATUS: TABLE DOES NOT EXIST
+-- STATUS: TABLE DOES NOT EXIST in CL_KWP database
 -- Alternative: Use PS_LATAM database tables (psData, psDataCountry, etc.)
--- See PS_LATAM_TABLE_INVESTIGATION.md for replacement options
 
--- COMMENTED OUT - Table does not exist
--- select
---     *
--- from ps_latam
+-- Placeholder to prevent extraction error
+SELECT 'TABLE_DOES_NOT_EXIST' as error_message WHERE 1=0
