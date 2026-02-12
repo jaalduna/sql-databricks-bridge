@@ -1,10 +1,11 @@
 -- ecuador: rg_panelis
--- columns: 12
+-- columns: 13
 
 select
     ano,
     autos,
     ciudad,
+    ciudad as region_id,
     cv,
     edac,
     edpsh,

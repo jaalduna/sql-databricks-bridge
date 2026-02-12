@@ -1,5 +1,5 @@
 -- bolivia: hato_cabecalho
--- columns: 21
+-- columns: 22
 
 select
     acceso_canal,
@@ -16,6 +16,7 @@ select
     idcanal,
     iddomicilio,
     idhato_cabecalho,
+    idmarca,
     idpromocao,
     numpack,
     preco_total,

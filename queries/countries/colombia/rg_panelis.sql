@@ -1,5 +1,5 @@
 -- colombia: rg_panelis
--- columns: 9
+-- columns: 10
 
 select
     ano,
@@ -10,6 +10,7 @@ select
     iddomicilio,
     ime,
     ni,
-    nse_loc
+    nse_loc,
+    REGIONew
 from rg_panelis
 where ano >= {start_year} and ano <= {end_year}

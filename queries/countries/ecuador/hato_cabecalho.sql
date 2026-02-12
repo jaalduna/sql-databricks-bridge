@@ -1,10 +1,11 @@
 -- ecuador: hato_cabecalho
--- columns: 20
+-- columns: 22
 
 select
     acceso_canal,
     codbarr,
     data_compra,
+    data_compra_utilizada,
     flg_scanner,
     forma_compra,
     forma_pagto,
@@ -15,6 +16,7 @@ select
     idcanal,
     iddomicilio,
     idhato_cabecalho,
+    idmarca,
     idpromocao,
     numpack,
     preco_total,
