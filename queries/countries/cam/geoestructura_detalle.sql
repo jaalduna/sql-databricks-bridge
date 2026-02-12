@@ -1,7 +1,8 @@
 -- cam: geoestructura_detalle
--- columns: 3
+-- columns: 4
 
 select
+    idpais,
     idregion,
     pais,
     region

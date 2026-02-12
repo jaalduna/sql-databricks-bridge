@@ -1,5 +1,5 @@
 -- colombia: j_atoscompra_new
--- columns: 30
+-- columns: 31
 
 select
     coef_01,
@@ -22,6 +22,7 @@ select
     idmarca,
     idpainel,
     idproduto,
+    idsub,
     idpromocao,
     pack_comprado,
     periodo,
