@@ -14,8 +14,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/metadata", tags=["Metadata"])
 
-QUERIES_BASE_PATH = Path(__file__).resolve().parents[4] / "queries"
-
 
 class CountryInfo(BaseModel):
     code: str
@@ -44,12 +42,13 @@ class StagesResponse(BaseModel):
 )
 async def list_countries() -> CountriesResponse:
     """List all available countries and their queries."""
-    countries_path = QUERIES_BASE_PATH / "countries"
+    queries_base = Path(get_settings().queries_path)
+    countries_path = queries_base / "countries"
 
     if not countries_path.exists():
         return CountriesResponse(countries=[])
 
-    loader = CountryAwareQueryLoader(QUERIES_BASE_PATH)
+    loader = CountryAwareQueryLoader(queries_base)
     result = []
 
     for country_dir in sorted(countries_path.iterdir()):

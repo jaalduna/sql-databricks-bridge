@@ -13,6 +13,7 @@ from sql_databricks_bridge.auth.azure_ad import AzureADTokenValidator, InvalidTo
 from sql_databricks_bridge.auth.loader import PermissionLoader
 from sql_databricks_bridge.auth.permissions import PermissionManager
 from sql_databricks_bridge.core.config import get_settings
+from sql_databricks_bridge.core.paths import get_config_file
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +41,14 @@ def get_permission_manager() -> PermissionManager:
             _permission_manager = new_manager
             logger.info("Permissions reloaded")
 
+        permissions_path = (
+            settings.permissions_file
+            if settings.permissions_file
+            else str(get_config_file("permissions.yaml"))
+        )
+
         _permission_loader = PermissionLoader(
-            permissions_file=settings.permissions_file,
+            permissions_file=permissions_path,
             hot_reload=settings.permissions_hot_reload,
             on_reload=on_reload,
         )
@@ -50,7 +57,7 @@ def get_permission_manager() -> PermissionManager:
             _permission_manager = _permission_loader.load()
         except FileNotFoundError:
             logger.warning(
-                f"Permissions file not found: {settings.permissions_file}. "
+                f"Permissions file not found: {permissions_path}. "
                 "Using empty permissions (all requests will be denied)."
             )
             _permission_manager = PermissionManager([])
@@ -199,12 +206,17 @@ def get_authorized_users_store() -> AuthorizedUsersStore:
 
     if _authorized_users_store is None:
         settings = get_settings()
-        _authorized_users_store = AuthorizedUsersStore(settings.authorized_users_file)
+        users_path = (
+            settings.authorized_users_file
+            if settings.authorized_users_file
+            else str(get_config_file("authorized_users.yaml"))
+        )
+        _authorized_users_store = AuthorizedUsersStore(users_path)
         try:
             _authorized_users_store.load()
         except FileNotFoundError:
             logger.warning(
-                f"Authorized users file not found: {settings.authorized_users_file}. "
+                f"Authorized users file not found: {users_path}. "
                 "All Azure AD users will be denied."
             )
 
