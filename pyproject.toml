@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "sql-databricks-bridge"
-version = "0.1.5"
+version = "0.1.7"
 description = "Bidirectional SQL Server ↔ Databricks bridge service"
 authors = ["Joaquin Aldunate <joaquin.aldunate@wp.numerator.com>"]
 readme = "README.md"
