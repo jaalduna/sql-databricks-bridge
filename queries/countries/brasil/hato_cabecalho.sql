@@ -1,5 +1,5 @@
 -- brasil: hato_cabecalho
--- columns: 21
+-- columns: 22
 -- NOTE: Columns verified in SQL Server (2024-01-XX)
 --       - REMOVED data_compra (per user request - use data_compra_utilizada instead)
 --       - ADDED data_compra_utilizada
@@ -20,6 +20,7 @@ select
     idcanal,
     iddomicilio,
     idhato_cabecalho,
+    idmarca,
     idpromocao,
     numpack,
     preco_total,
