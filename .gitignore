@@ -71,10 +71,19 @@ claude-*-cwd
 
 # Tauri
 frontend/src-tauri/target/
+frontend/src-tauri/gen/
 
 # Frontend build artifacts
 frontend/node_modules/
 frontend/dist/
+
+# Root node_modules (slidev)
+/node_modules/
+
+# Screenshots and temp artifacts
+/*.png
+/dist-artifacts/
+.playwright-mcp/
 
 # Scripts (keep only in scripts/ dir)
 /check_*.py
