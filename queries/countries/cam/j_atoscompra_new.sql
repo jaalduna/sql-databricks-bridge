@@ -1,8 +1,9 @@
 -- cam: j_atoscompra_new
--- columns: 11
+-- columns: 12
 
 select
     data_compra,
+    factor_rw1,
     flg_scanner,
     flggranel,
     idartigo,
