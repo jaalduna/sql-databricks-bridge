@@ -1,0 +1,1 @@
+select  * from PS_LATAM..loc_psdata_compras where  idcountry =52 and feviaje >GETDATE()-60

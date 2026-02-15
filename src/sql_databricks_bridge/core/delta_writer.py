@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 
@@ -163,6 +164,33 @@ class DeltaTableWriter:
             return True
         except Exception:
             return False
+
+    def get_current_version(self, table_name: str) -> int:
+        """Get the latest version number of a Delta table.
+
+        Args:
+            table_name: Fully-qualified table name (catalog.schema.table).
+
+        Returns:
+            Latest version number.
+        """
+        rows = self.client.execute_sql(f"DESCRIBE HISTORY {table_name} LIMIT 1")
+        assert rows, f"No history found for table {table_name}"
+        return int(rows[0]["version"])
+
+    def get_history(self, table_name: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Get Delta table version history.
+
+        Args:
+            table_name: Fully-qualified table name (catalog.schema.table).
+            limit: Max history entries to return.
+
+        Returns:
+            List of history entries with version, timestamp, operation, etc.
+        """
+        return self.client.execute_sql(
+            f"DESCRIBE HISTORY {table_name} LIMIT {limit}"
+        )
 
     def _cleanup_staging(self, path: str) -> None:
         """Delete staging file, logging warnings on failure."""

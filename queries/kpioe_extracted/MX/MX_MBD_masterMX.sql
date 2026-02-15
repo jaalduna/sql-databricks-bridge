@@ -1,0 +1,1 @@
+select * from [KTCLSQL005.KT.group.local].[KPI].[DBO].MBD_masterMX

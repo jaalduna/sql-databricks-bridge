@@ -1,0 +1,1 @@
+select * from HATO_ruim_CABECALHO where data_criacao >= getdate()-90

@@ -1,5 +1,8 @@
 """Databricks connection and file operations."""
 
+from __future__ import annotations
+
+import logging
 from contextlib import asynccontextmanager
 from io import BytesIO
 from typing import Any, AsyncIterator
@@ -9,6 +12,8 @@ from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.files import FileInfo
 
 from sql_databricks_bridge.core.config import DatabricksSettings, get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class DatabricksClient:
@@ -167,6 +172,40 @@ class DatabricksClient:
             return [dict(zip(columns, row)) for row in statement.result.data_array]
 
         return []
+
+    # --- Jobs API ---
+
+    def find_job_by_name(self, name: str) -> int | None:
+        """Find a Databricks job ID by name (substring match).
+
+        Searches through all jobs and returns the first whose name contains
+        the given string.  Returns None if no match is found.
+        """
+        for job in self.client.jobs.list(name=name):
+            if job.settings and job.settings.name and name in job.settings.name:
+                return job.job_id
+        return None
+
+    def run_job(self, job_id: int, parameters: dict[str, str] | None = None) -> int:
+        """Trigger an existing Databricks job and return the run ID.
+
+        Args:
+            job_id: Numeric Databricks job ID.
+            parameters: Job parameters dict (maps to ``job_parameters``).
+
+        Returns:
+            The ``run_id`` of the triggered run.
+        """
+        response = self.client.jobs.run_now(
+            job_id=job_id,
+            job_parameters=parameters or {},
+        )
+        logger.info("Triggered Databricks job %d → run_id=%d", job_id, response.run_id)
+        return response.run_id
+
+    def get_run(self, run_id: int):
+        """Return the Databricks run object for *run_id*."""
+        return self.client.jobs.get_run(run_id)
 
 
 @asynccontextmanager
