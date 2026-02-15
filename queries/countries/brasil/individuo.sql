@@ -1,6 +1,6 @@
 -- brasil: individuo
 -- columns: 5
--- Source: br_spri database
+-- Source: BR_KWP database
 
 select
     Idade,
@@ -8,4 +8,4 @@ select
     idIndividuo,
     idParentesco,
     Sexo
-from br_spri.dbo.individuo
+from dbo.Individuo

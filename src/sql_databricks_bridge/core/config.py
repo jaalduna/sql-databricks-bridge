@@ -130,6 +130,10 @@ class BridgeSettings(BaseSettings):
     extraction_chunk_size: int = Field(default=100_000, description="Rows per extraction chunk")
     max_retries: int = Field(default=3, description="Max retry attempts")
     retry_delay_seconds: int = Field(default=5, description="Initial retry delay")
+    max_parallel_queries: int = Field(default=3, ge=1, le=20, description="Max parallel queries per extraction job")
+
+    # Local persistence
+    sqlite_db_path: str = Field(default=".bridge_data/jobs.db", description="Local SQLite database path")
 
     # Queries path (configurable via .env)
     queries_path: str = Field(default="queries", description="Path to directory containing SQL query files")

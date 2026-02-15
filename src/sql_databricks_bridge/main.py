@@ -13,6 +13,7 @@ from sql_databricks_bridge.api.routes import auth, extract, health, jobs, metada
 from sql_databricks_bridge.core.config import get_settings
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db.jobs_table import ensure_jobs_table
+from sql_databricks_bridge.db.local_store import init_db, mark_orphaned_jobs
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 from sql_databricks_bridge.sync.poller import EventPoller
 
@@ -36,6 +37,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     logger.info(f"Starting {settings.service_name} v{__version__}")
     logger.info(f"Environment: {settings.environment}")
+
+    # Initialize local SQLite store and recover orphaned jobs
+    db_path = init_db(settings.sqlite_db_path)
+    mark_orphaned_jobs(db_path)
+    app.state.sqlite_db_path = db_path
 
     # Start event poller if configured
     if settings.databricks.warehouse_id:
