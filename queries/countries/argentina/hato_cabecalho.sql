@@ -1,13 +1,10 @@
 -- argentina: hato_cabecalho
--- columns: 22
+-- columns: 17 (acceso_canal, flg_scanner, forma_compra, numpack, unipack do not exist in AR_KWP)
 
 select
-    acceso_canal,
     codbarr,
     data_compra,
     data_compra_utilizada,
-    flg_scanner,
-    forma_compra,
     forma_pagto,
     id_cabec,
     id_equipo,
@@ -18,11 +15,9 @@ select
     idhato_cabecalho,
     idmarca,
     idpromocao,
-    numpack,
     preco_total,
     preco_unitario,
     quantidade,
-    tipo_ato,
-    unipack
+    tipo_ato
 from hato_cabecalho
 where data_compra >= DATEADD(MONTH, -{lookback_months}, GETDATE())
