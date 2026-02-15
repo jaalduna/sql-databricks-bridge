@@ -21,8 +21,13 @@ from sql_databricks_bridge.db.jobs_table import (
     update_job_status,
 )
 from sql_databricks_bridge.db.sql_server import SQLServerClient
+from sql_databricks_bridge.db.version_tags_table import insert_version_tag
+from sql_databricks_bridge.core.calibration_tracker import calibration_tracker
 
 logger = logging.getLogger(__name__)
+
+# Module-level launcher reference, set by main.py at startup.
+_calibration_launcher = None
 
 router = APIRouter(tags=["Trigger"])
 
@@ -30,12 +35,25 @@ router = APIRouter(tags=["Trigger"])
 # --- Schemas ---
 
 
+class AggregationOptions(BaseModel):
+    region: bool = Field(default=False, description="Include region-level aggregation")
+    nivel_2: bool = Field(default=False, description="Include nivel_2 aggregation")
+
+
 class TriggerRequest(BaseModel):
     country: str = Field(..., description="Country code (e.g. 'bolivia', 'brazil')")
     stage: str = Field(..., description="Stage code (e.g. 'calibracion', 'mtr')")
+    period: str | None = Field(
+        default=None,
+        description="Period code (e.g. '202602'). Stored with the job for filtering.",
+    )
     queries: list[str] | None = Field(
         default=None,
         description="Specific queries to run. null = all queries for the country.",
+    )
+    aggregations: AggregationOptions | None = Field(
+        default=None,
+        description="Aggregation options for calibration (region, nivel_2).",
     )
 
 
@@ -44,6 +62,7 @@ class TriggerResponse(BaseModel):
     status: str
     country: str
     stage: str
+    period: str | None = None
     tag: str
     queries: list[str]
     queries_count: int
@@ -51,11 +70,22 @@ class TriggerResponse(BaseModel):
     triggered_by: str
 
 
+class CalibrationStepResponse(BaseModel):
+    """Calibration step as expected by the calibration frontend."""
+
+    name: str
+    status: str
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error: str | None = None
+
+
 class EventSummary(BaseModel):
     job_id: str
     status: JobStatus
     country: str
     stage: str
+    period: str | None = None
     tag: str
     queries_total: int
     queries_completed: int
@@ -66,6 +96,8 @@ class EventSummary(BaseModel):
     triggered_by: str
     error: str | None = None
     current_query: str | None = None
+    steps: list[CalibrationStepResponse] | None = None
+    current_step: str | None = None
 
 
 class EventDetail(EventSummary):
@@ -92,16 +124,41 @@ class _TriggerJobRecord:
         triggered_by: str,
         stage: str = "",
         tag: str = "",
+        period: str | None = None,
+        aggregations: AggregationOptions | None = None,
     ) -> None:
         self.extractor = extractor
         self.job = job
         self.triggered_by = triggered_by
         self.stage = stage
         self.tag = tag
+        self.period = period
+        self.aggregations = aggregations
 
 
 # Fix forward reference for module-level dict
 _trigger_jobs: dict[str, _TriggerJobRecord] = {}
+
+
+def _build_steps_for_job(job_id: str) -> tuple[list[CalibrationStepResponse] | None, str | None]:
+    """Get calibration steps and current_step for a job."""
+    steps_data = calibration_tracker.get_steps_for_response(job_id)
+    current = calibration_tracker.get_current_step(job_id)
+    if steps_data is None:
+        return None, None
+    steps = [CalibrationStepResponse(**s) for s in steps_data]
+    return steps, current
+
+
+def _launch_calibration_step(job_id: str, step_name: str, country: str) -> None:
+    """Launch a Databricks job for a calibration step if a launcher is available."""
+    if _calibration_launcher is None:
+        logger.debug("No calibration launcher configured; skipping launch for %s/%s", job_id, step_name)
+        return
+    try:
+        _calibration_launcher.launch_step(job_id, step_name, country)
+    except Exception as exc:
+        logger.error("Failed to launch step %s for job %s: %s", step_name, job_id, exc)
 
 
 # --- Background task ---
@@ -121,10 +178,15 @@ def _run_trigger_extraction(
     writer: DeltaTableWriter,
     client: DatabricksClient,
     table: str,
+    tag: str = "",
+    triggered_by: str = "",
 ) -> None:
     """Background task to run the extraction triggered by a user."""
     try:
         import polars as pl
+
+        settings = get_settings()
+        version_tags_tbl = settings.version_tags_table
 
         job.status = JobStatus.RUNNING
         job.started_at = datetime.utcnow()
@@ -148,6 +210,27 @@ def _run_trigger_extraction(
                     result.table_name = writer.resolve_table_name(
                         query_name, job.country
                     )
+
+                    # Tag the new version with the job tag
+                    if tag and result.table_name:
+                        try:
+                            version = writer.get_current_version(result.table_name)
+                            insert_version_tag(
+                                client,
+                                version_tags_tbl,
+                                table_name=result.table_name,
+                                version=version,
+                                tag=tag,
+                                created_by=triggered_by or "system",
+                                job_id=job.job_id,
+                            )
+                            logger.info(
+                                f"Tagged {result.table_name} v{version} as '{tag}'"
+                            )
+                        except Exception as tag_err:
+                            logger.warning(
+                                f"Failed to tag {result.table_name}: {tag_err}"
+                            )
                 else:
                     result.rows_extracted = 0
 
@@ -178,12 +261,29 @@ def _run_trigger_extraction(
             completed_at=job.completed_at,
         )
 
+        # Update calibration sync_data step
+        if job.queries_failed > 0 and job.queries_completed == 0:
+            calibration_tracker.complete_step(
+                job.job_id,
+                "sync_data",
+                error=f"{job.queries_failed} query(ies) failed during sync",
+            )
+        else:
+            calibration_tracker.complete_step(job.job_id, "sync_data")
+            # Auto-advance to copy_to_calibration
+            next_step = calibration_tracker.advance_after_sync(job.job_id)
+            # Launch the Databricks job for copy_to_calibration
+            if next_step:
+                _launch_calibration_step(job.job_id, next_step, job.country)
+
     except Exception as e:
         job.current_query = None
         job.status = JobStatus.FAILED
         job.error = str(e)
         logger.error(f"Trigger job {job.job_id} failed: {e}")
         update_job_status(client, table, job.job_id, "failed", error=str(e))
+        # Mark sync_data as failed
+        calibration_tracker.complete_step(job.job_id, "sync_data", error=str(e))
 
 
 # --- Endpoints ---
@@ -255,6 +355,7 @@ async def trigger_extraction(
     jobs_tbl = settings.jobs_table
 
     # Persist to Databricks Delta table
+    aggregations_dict = request.aggregations.model_dump() if request.aggregations else None
     insert_job(
         db_client,
         jobs_tbl,
@@ -265,7 +366,13 @@ async def trigger_extraction(
         queries=job.queries,
         triggered_by=user.email,
         created_at=job.created_at,
+        period=request.period,
+        aggregations=aggregations_dict,
     )
+
+    # Create calibration step tracking
+    calibration_tracker.create(job.job_id, country=request.country)
+    calibration_tracker.start_step(job.job_id, "sync_data")
 
     # Store in-flight record (needed for background task reference)
     record = _TriggerJobRecord(
@@ -274,18 +381,24 @@ async def trigger_extraction(
         triggered_by=user.email,
         stage=request.stage,
         tag=tag,
+        period=request.period,
+        aggregations=request.aggregations,
     )
     _trigger_jobs[job.job_id] = record
 
     # Launch background extraction
     writer = DeltaTableWriter(db_client)
-    background_tasks.add_task(_run_trigger_extraction, extractor, job, writer, db_client, jobs_tbl)
+    background_tasks.add_task(
+        _run_trigger_extraction, extractor, job, writer, db_client, jobs_tbl,
+        tag, user.email,
+    )
 
     return TriggerResponse(
         job_id=job.job_id,
         status="pending",
         country=job.country,
         stage=request.stage,
+        period=request.period,
         tag=tag,
         queries=job.queries,
         queries_count=len(job.queries),
@@ -307,6 +420,8 @@ async def list_events(
     status_filter: JobStatus | None = Query(
         default=None, alias="status", description="Filter by status"
     ),
+    stage: str | None = Query(default=None, description="Filter by stage"),
+    period: str | None = Query(default=None, description="Filter by period (e.g. '202602')"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> EventListResponse:
@@ -319,7 +434,9 @@ async def list_events(
         jobs_tbl,
         country=country,
         status=status_filter.value if status_filter else None,
+        stage=stage,
         triggered_by=None if user.is_admin else user.email,
+        period=period,
         limit=limit,
         offset=offset,
     )
@@ -348,12 +465,14 @@ async def list_events(
             error = row.get("error")
             current_query = None
 
+        steps, current_step = _build_steps_for_job(row["job_id"])
         items.append(
             EventSummary(
                 job_id=row["job_id"],
                 status=live_status,
                 country=row["country"],
                 stage=row["stage"],
+                period=row.get("period"),
                 tag=row["tag"],
                 queries_total=len(row["queries"]),
                 queries_completed=queries_completed,
@@ -364,6 +483,8 @@ async def list_events(
                 triggered_by=row["triggered_by"],
                 error=error,
                 current_query=current_query,
+                steps=steps,
+                current_step=current_step,
             )
         )
 
@@ -377,8 +498,13 @@ async def list_events(
             continue
         if status_filter and job.status != status_filter:
             continue
+        if stage and record.stage != stage:
+            continue
+        if period and record.period != period:
+            continue
         if not user.is_admin and record.triggered_by != user.email:
             continue
+        inflight_steps, inflight_current = _build_steps_for_job(job.job_id)
         items.insert(
             0,
             EventSummary(
@@ -386,6 +512,7 @@ async def list_events(
                 status=job.status,
                 country=job.country,
                 stage=record.stage,
+                period=record.period,
                 tag=record.tag,
                 queries_total=len(job.queries),
                 queries_completed=job.queries_completed,
@@ -396,6 +523,8 @@ async def list_events(
                 triggered_by=record.triggered_by,
                 error=job.error,
                 current_query=job.current_query,
+                steps=inflight_steps,
+                current_step=inflight_current,
             ),
         )
         total += 1
@@ -445,15 +574,18 @@ async def get_event_detail(
     # If there's an in-flight record, use live progress
     if record:
         job = record.job
-        # Prefer db_row for stage/tag if available, fallback to in-flight data
-        stage = db_row["stage"] if db_row else record.stage
-        tag = db_row["tag"] if db_row else record.tag
+        # Prefer db_row for stage/tag/period if available, fallback to in-flight data
+        detail_stage = db_row["stage"] if db_row else record.stage
+        detail_tag = db_row["tag"] if db_row else record.tag
+        detail_period = db_row.get("period") if db_row else record.period
+        detail_steps, detail_current = _build_steps_for_job(job.job_id)
         return EventDetail(
             job_id=job.job_id,
             status=job.status,
             country=job.country,
-            stage=stage,
-            tag=tag,
+            stage=detail_stage,
+            period=detail_period,
+            tag=detail_tag,
             queries_total=len(job.queries),
             queries_completed=job.queries_completed,
             queries_failed=job.queries_failed,
@@ -463,15 +595,19 @@ async def get_event_detail(
             triggered_by=record.triggered_by,
             error=job.error,
             current_query=job.current_query,
+            steps=detail_steps,
+            current_step=detail_current,
             results=job.results,
         )
 
     # Job completed and no longer in-flight -- return from Databricks
+    completed_steps, completed_current = _build_steps_for_job(db_row["job_id"])
     return EventDetail(
         job_id=db_row["job_id"],
         status=db_row["status"],
         country=db_row["country"],
         stage=db_row["stage"],
+        period=db_row.get("period"),
         tag=db_row["tag"],
         queries_total=len(db_row["queries"]),
         queries_completed=0,
@@ -481,5 +617,7 @@ async def get_event_detail(
         completed_at=db_row.get("completed_at"),
         triggered_by=db_row["triggered_by"],
         error=db_row.get("error"),
+        steps=completed_steps,
+        current_step=completed_current,
         results=[],
     )

@@ -1,0 +1,1 @@
+select * from J_Vista_Artigos

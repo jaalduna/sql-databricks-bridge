@@ -9,11 +9,14 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from sql_databricks_bridge import __version__
-from sql_databricks_bridge.api.routes import auth, extract, health, jobs, metadata, sync, trigger
+from sql_databricks_bridge.api.routes import auth, extract, health, jobs, metadata, pipeline, sync, tags, trigger
 from sql_databricks_bridge.core.config import get_settings
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db.jobs_table import ensure_jobs_table
+from sql_databricks_bridge.db.version_tags_table import ensure_version_tags_table
 from sql_databricks_bridge.db.sql_server import SQLServerClient
+from sql_databricks_bridge.core.calibration_launcher import CalibrationJobLauncher
+from sql_databricks_bridge.core.databricks_monitor import DatabricksJobMonitor
 from sql_databricks_bridge.sync.poller import EventPoller
 
 # Configure logging
@@ -26,12 +29,14 @@ logger = logging.getLogger(__name__)
 # Global poller instance
 _event_poller: EventPoller | None = None
 _poller_task: asyncio.Task | None = None
+_job_monitor: DatabricksJobMonitor | None = None
+_monitor_task: asyncio.Task | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan handler."""
-    global _event_poller, _poller_task
+    global _event_poller, _poller_task, _job_monitor, _monitor_task
 
     settings = get_settings()
     logger.info(f"Starting {settings.service_name} v{__version__}")
@@ -43,8 +48,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             databricks_client = DatabricksClient()
             sql_client = SQLServerClient()
 
-            # Ensure the jobs Delta table exists
+            # Ensure the jobs and version_tags Delta tables exist
             ensure_jobs_table(databricks_client, settings.jobs_table)
+            ensure_version_tags_table(databricks_client, settings.version_tags_table)
 
             # Store client on app.state for route access
             app.state.databricks_client = databricks_client
@@ -59,6 +65,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # Start poller in background task
             _poller_task = asyncio.create_task(_event_poller.start())
             logger.info("Event poller started")
+
+            # Create calibration job launcher and expose to trigger module
+            launcher = CalibrationJobLauncher(databricks_client)
+            from sql_databricks_bridge.api.routes import trigger as trigger_module
+            trigger_module._calibration_launcher = launcher
+
+            # Start calibration job monitor
+            _job_monitor = DatabricksJobMonitor(
+                databricks_client=databricks_client,
+                poll_interval=settings.polling_interval_seconds,
+                launcher=launcher,
+            )
+            _monitor_task = asyncio.create_task(_job_monitor.start())
+            logger.info("Calibration job monitor started")
 
         except Exception as e:
             logger.warning(f"Failed to start event poller: {e}")
@@ -79,6 +99,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _poller_task.cancel()
         try:
             await _poller_task
+        except asyncio.CancelledError:
+            pass
+
+    if _job_monitor:
+        _job_monitor.stop()
+
+    if _monitor_task:
+        _monitor_task.cancel()
+        try:
+            await _monitor_task
         except asyncio.CancelledError:
             pass
 
@@ -121,7 +151,9 @@ def create_app() -> FastAPI:
     api_v1.include_router(extract.router)
     api_v1.include_router(jobs.router)
     api_v1.include_router(sync.router)
+    api_v1.include_router(tags.router)
     api_v1.include_router(trigger.router)
+    api_v1.include_router(pipeline.router)
     app.include_router(api_v1)
 
     # Root endpoint

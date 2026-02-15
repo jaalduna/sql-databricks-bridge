@@ -96,3 +96,69 @@ export interface ApiError {
   error: string
   message: string
 }
+
+// --- Calibration Pipeline Types ---
+
+/** Step/substep status */
+export type StepStatus = "pending" | "running" | "completed" | "failed" | "skipped"
+
+/** A substep within a pipeline step */
+export interface SubStep {
+  name: string
+  status: StepStatus
+  started_at: string | null
+  completed_at: string | null
+  rows_affected: number | null
+  error: string | null
+  metadata: Record<string, unknown>
+}
+
+/** A top-level pipeline step */
+export interface PipelineStep {
+  step_id: string
+  name: string
+  order: number
+  status: StepStatus
+  started_at: string | null
+  completed_at: string | null
+  duration_seconds: number | null
+  error: string | null
+  substeps: SubStep[]
+  substeps_total: number
+  substeps_completed: number
+  substeps_failed: number
+  progress_pct: number
+  databricks_run_id: number | null
+}
+
+/** Full pipeline response from GET /pipeline/{id} */
+export interface PipelineResponse {
+  pipeline_id: string
+  country: string
+  period: string | null
+  status: StepStatus
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  triggered_by: string
+  steps: PipelineStep[]
+  error: string | null
+  steps_completed: number
+  progress_pct: number
+  current_step: string | null
+}
+
+/** Paginated pipeline list */
+export interface PipelineListResponse {
+  items: PipelineResponse[]
+  total: number
+  limit: number
+  offset: number
+}
+
+/** Request body for POST /pipeline */
+export interface CreatePipelineRequest {
+  country: string
+  period?: string | null
+  sync_queries?: string[] | null
+}
