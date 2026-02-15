@@ -1,0 +1,1 @@
+select * from A_Canal
