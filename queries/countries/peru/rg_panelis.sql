@@ -1,5 +1,5 @@
 -- peru: rg_panelis
--- columns: 12
+-- columns: 9 (edpsh, origen_dom, seqdom do not exist in PE_KWP)
 
 select
     ano,
@@ -7,12 +7,9 @@ select
     ciudad,
     cv,
     edac,
-    edpsh,
     iddomicilio,
     ime,
     ni,
-    nse_loc,
-    origen_dom,
-    seqdom
+    nse_loc
 from rg_panelis
 where ano >= {start_year} and ano <= {end_year}

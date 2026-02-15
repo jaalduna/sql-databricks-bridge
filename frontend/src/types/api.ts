@@ -37,6 +37,7 @@ export interface QueryResult {
   table_name: string | null
   duration_seconds: number
   error: string | null
+  started_at: string | null
 }
 
 /** Summary of a job (in event list) */
@@ -55,6 +56,10 @@ export interface EventSummary {
   triggered_by: string
   error: string | null
   current_query: string | null
+  failed_queries: string[]
+  running_queries: string[]
+  queries_running: number
+  total_rows_extracted: number
 }
 
 /** Detailed job info including per-query results */
