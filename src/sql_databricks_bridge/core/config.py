@@ -137,6 +137,7 @@ class BridgeSettings(BaseSettings):
     # Stages & jobs table
     stages_file: str = Field(default="", description="Override path to stages YAML (empty = bundled default)")
     jobs_table: str = Field(default="bridge.events.trigger_jobs", description="Databricks Delta table for job history")
+    version_tags_table: str = Field(default="bridge.events.version_tags", description="Databricks Delta table for version tags")
 
     # Auth settings
     auth_enabled: bool = Field(default=True, description="Enable token authentication")
