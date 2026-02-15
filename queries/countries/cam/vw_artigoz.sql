@@ -1,5 +1,7 @@
 -- cam: vw_artigoz
--- columns: 58
+-- columns: 69
+-- Note: flgdesativacao and idcategoria do not exist in CAM
+-- Extra columns vs chile/colombia: cdc06-09, clas06-09, minprice, maxprice, nroactosMat, nrobuyers, nrobuyersMat
 
 select
     avgprice,
@@ -8,11 +10,19 @@ select
     cdc03,
     cdc04,
     cdc05,
+    cdc06,
+    cdc07,
+    cdc08,
+    cdc09,
     clas01,
     clas02,
     clas03,
     clas04,
     clas05,
+    clas06,
+    clas07,
+    clas08,
+    clas09,
     codbar,
     codbar2,
     codbar3,
@@ -25,14 +35,12 @@ select
     dtcriacao,
     fabricante,
     flgativo,
-    flgdesativacao,
     flggranel,
     flgpack,
     fonteinfo,
     granel,
     idartigo,
     idartigoind,
-    idcategoria,
     idconteudo,
     idfabricante,
     idmarca,
@@ -41,6 +49,8 @@ select
     idsub,
     lastmonth,
     marca,
+    maxprice,
+    minprice,
     mwp_addedvalue,
     mwp_brand,
     mwp_company,
@@ -53,6 +63,9 @@ select
     mwp_ready,
     mwp_variety,
     nroactos,
+    nroactosMat,
+    nrobuyers,
+    nrobuyersMat,
     produto,
     sector,
     sub,

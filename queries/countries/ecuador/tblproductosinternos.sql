@@ -1,5 +1,6 @@
 -- ecuador: tblproductosinternos
 -- columns: 6
+-- Source: Kitpack schema
 
 select
     codbarraext,
@@ -8,4 +9,4 @@ select
     lasttransactiondate,
     lasttransactionuser,
     unidad
-from tblproductosinternos
+from [Kitpack].[TblProductosInternos]

@@ -29,7 +29,8 @@ def ensure_jobs_table(client: DatabricksClient, table: str) -> None:
             created_at TIMESTAMP,
             started_at TIMESTAMP,
             completed_at TIMESTAMP,
-            error STRING
+            error STRING,
+            failed_queries STRING
         ) USING DELTA
     """
     client.execute_sql(ddl)
@@ -47,11 +48,13 @@ def insert_job(
     queries: list[str],
     triggered_by: str,
     created_at: datetime,
+    failed_queries: list[str] | None = None,
 ) -> None:
     """Insert a new job record into the Delta table."""
     queries_json = _esc(json.dumps(queries))
+    failed_queries_json = _esc(json.dumps(failed_queries or []))
     sql = f"""
-        INSERT INTO {table} (job_id, country, stage, tag, status, queries, triggered_by, created_at)
+        INSERT INTO {table} (job_id, country, stage, tag, status, queries, triggered_by, created_at, failed_queries)
         VALUES (
             '{_esc(job_id)}',
             '{_esc(country)}',
@@ -60,7 +63,8 @@ def insert_job(
             'pending',
             '{queries_json}',
             '{_esc(triggered_by)}',
-            '{created_at.isoformat()}'
+            '{created_at.isoformat()}',
+            '{failed_queries_json}'
         )
     """
     client.execute_sql(sql)
@@ -75,6 +79,10 @@ def get_job(client: DatabricksClient, table: str, job_id: str) -> dict[str, Any]
     row = rows[0]
     if row.get("queries"):
         row["queries"] = json.loads(row["queries"])
+    if row.get("failed_queries"):
+        row["failed_queries"] = json.loads(row["failed_queries"])
+    else:
+        row["failed_queries"] = []
     return row
 
 
@@ -110,6 +118,10 @@ def list_jobs(
     for row in rows:
         if row.get("queries"):
             row["queries"] = json.loads(row["queries"])
+        if row.get("failed_queries"):
+            row["failed_queries"] = json.loads(row["failed_queries"])
+        else:
+            row["failed_queries"] = []
         items.append(row)
 
     return items, total
@@ -124,6 +136,7 @@ def update_job_status(
     started_at: datetime | None = None,
     completed_at: datetime | None = None,
     error: str | None = None,
+    failed_queries: list[str] | None = None,
 ) -> None:
     """Update a job's status and optional timestamps."""
     sets = [f"status = '{_esc(status)}'"]
@@ -134,6 +147,9 @@ def update_job_status(
         sets.append(f"completed_at = '{completed_at.isoformat()}'")
     if error is not None:
         sets.append(f"error = '{_esc(error)}'")
+    if failed_queries is not None:
+        failed_queries_json = _esc(json.dumps(failed_queries))
+        sets.append(f"failed_queries = '{failed_queries_json}'")
 
     sql = f"UPDATE {table} SET {', '.join(sets)} WHERE job_id = '{_esc(job_id)}'"
     client.execute_sql(sql)

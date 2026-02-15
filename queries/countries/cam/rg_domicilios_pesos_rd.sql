@@ -1,9 +1,10 @@
 -- cam: rg_domicilios_pesos_rd
 -- columns: 5
+-- Note: added alias 'periodo' for computed column
 
 select
     ano,
-    ano * 100 + messem,
+    ano * 100 + messem as periodo,
     iddomicilio,
     messem,
     valor

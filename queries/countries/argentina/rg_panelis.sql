@@ -1,18 +1,12 @@
 -- argentina: rg_panelis
--- columns: 12
+-- columns: 6 (ciudad, edpsh, ime, ni, nse_loc, origen_dom, seqdom do not exist in AR_KWP)
 
 select
     ano,
     autos,
-    ciudad,
     cv,
     edac,
-    edpsh,
     iddomicilio,
-    ime,
-    ni,
-    nse_loc,
-    origen_dom,
-    seqdom
+    nse_saimo
 from rg_panelis
 where ano >= {start_year} and ano <= {end_year}
