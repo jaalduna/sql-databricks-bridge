@@ -76,6 +76,7 @@ jobs:
             --hidden-import=kantar_db_handler.configs \
             --hidden-import=kantar_db_handler.db_handler \
             --hidden-import=kantar_db_handler.sql_alchemy_drv \
+            --hidden-import=pyodbc \
             --hidden-import=polars \
             --hidden-import=pyarrow \
             --hidden-import=multipart \
