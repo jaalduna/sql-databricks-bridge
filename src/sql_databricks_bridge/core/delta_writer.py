@@ -62,6 +62,7 @@ class DeltaTableWriter:
         catalog: str | None = None,
         schema: str | None = None,
         save_local: bool = False,
+        tag: str | None = None,
     ) -> WriteResult:
         """Write DataFrame to a Delta table using stage-then-CTAS.
 
@@ -109,6 +110,7 @@ class DeltaTableWriter:
                 f"AS SELECT * FROM read_files('{staging_path}', format => 'parquet') LIMIT 0"
             )
             self.client.execute_sql(ctas)
+            self._apply_tags(table_name, tag)
             self._cleanup_staging(staging_path)
             duration = (datetime.utcnow() - start_time).total_seconds()
             logger.info(f"Created empty table {table_name}")
@@ -128,7 +130,10 @@ class DeltaTableWriter:
         self.client.execute_sql(ctas)
         logger.info(f"Created table {table_name} with {rows} rows")
 
-        # 3. Cleanup staging (best-effort)
+        # 3. Apply tags (best-effort)
+        self._apply_tags(table_name, tag)
+
+        # 4. Cleanup staging (best-effort)
         self._cleanup_staging(staging_path)
 
         duration = (datetime.utcnow() - start_time).total_seconds()
@@ -163,6 +168,18 @@ class DeltaTableWriter:
             return True
         except Exception:
             return False
+
+    def _apply_tags(self, table_name: str, tag: str | None) -> None:
+        """Apply Unity Catalog tags to a Delta table (best-effort)."""
+        if not tag:
+            return
+        try:
+            self.client.execute_sql(
+                f"ALTER TABLE {table_name} SET TAGS ('sync_tag' = '{tag}')"
+            )
+            logger.info(f"Applied tag '{tag}' to {table_name}")
+        except Exception as e:
+            logger.warning(f"Failed to apply tags to {table_name}: {e}")
 
     def _cleanup_staging(self, path: str) -> None:
         """Delete staging file, logging warnings on failure."""

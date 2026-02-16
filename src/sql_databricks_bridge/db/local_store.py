@@ -41,7 +41,7 @@ _JSON_FIELDS = ("queries", "failed_queries", "results", "running_queries")
 
 def _connect(db_path: str) -> sqlite3.Connection:
     """Open a connection with WAL mode and row-factory."""
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     return conn

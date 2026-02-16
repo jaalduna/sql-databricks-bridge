@@ -2,7 +2,6 @@
 
 import json
 import logging
-import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -163,6 +162,7 @@ def _run_trigger_extraction(
     table: str,
     db_path: str,
     max_parallel: int,
+    tag: str = "",
 ) -> None:
     """Background task: run queries in parallel, persist progress to SQLite."""
     try:
@@ -210,13 +210,13 @@ def _run_trigger_extraction(
                 started_at=start_time,
             )
             try:
-                row_limit = int(os.environ.get("QUERY_ROW_LIMIT", "0")) or None
+                row_limit = get_settings().query_row_limit or None
                 chunks = list(
                     extractor.execute_query(query_name, job.country, job.chunk_size, limit=row_limit)
                 )
                 if chunks:
                     combined = pl.concat(chunks)
-                    writer.write_dataframe(combined, query_name, job.country)
+                    writer.write_dataframe(combined, query_name, job.country, tag=tag)
                     result.rows_extracted = len(combined)
                     result.table_name = writer.resolve_table_name(query_name, job.country)
                 else:
@@ -392,7 +392,7 @@ async def trigger_extraction(
     background_tasks.add_task(
         _run_trigger_extraction,
         extractor, job, writer, db_client, jobs_tbl,
-        db_path, settings.max_parallel_queries,
+        db_path, settings.max_parallel_queries, tag,
     )
 
     return TriggerResponse(
