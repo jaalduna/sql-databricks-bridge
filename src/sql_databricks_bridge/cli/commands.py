@@ -541,7 +541,7 @@ def _download_asset(url: str, dest: Path) -> None:
             shutil.copyfileobj(resp, f)
 
 
-@app.command()
+@app.command(hidden=True, deprecated=True)
 def self_update(
     check: Annotated[
         bool,
@@ -553,7 +553,11 @@ def self_update(
     ] = False,
 ) -> None:
     """Check for updates and replace the running binary with the latest release."""
-    console.print(f"[bold]Current version:[/bold] v{__version__}")
+    console.print(
+        "[bold red]self-update is disabled.[/bold red] "
+        "Please update manually by replacing the executable."
+    )
+    raise typer.Exit(code=1)
 
     # 1. Fetch latest release
     try:

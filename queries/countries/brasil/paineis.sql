@@ -1,5 +1,5 @@
 -- brasil: paineis
--- Source: br_spri database
+-- Source: BR_KWP database
 
 select *
-from br_spri.dbo.paineis
+from dbo.Paineis

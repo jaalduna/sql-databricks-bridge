@@ -130,6 +130,18 @@ class BridgeSettings(BaseSettings):
     extraction_chunk_size: int = Field(default=100_000, description="Rows per extraction chunk")
     max_retries: int = Field(default=3, description="Max retry attempts")
     retry_delay_seconds: int = Field(default=5, description="Initial retry delay")
+    max_parallel_queries: int = Field(default=4, ge=1, le=20, description="Max parallel queries per extraction job")
+    query_row_limit: int = Field(default=0, ge=0, description="Row limit per query (0 = no limit, use TOP N)")
+
+    # Local persistence
+    sqlite_db_path: str = Field(default=".bridge_data/jobs.db", description="Local SQLite database path")
+
+    # Queries path (configurable via .env)
+    queries_path: str = Field(default="queries", description="Path to directory containing SQL query files")
+
+    # Stages & jobs table
+    stages_file: str = Field(default="", description="Override path to stages YAML (empty = bundled default)")
+    jobs_table: str = Field(default="bridge.events.trigger_jobs", description="Databricks Delta table for job history")
 
     # Queries path (configurable via .env)
     queries_path: str = Field(default="queries", description="Path to directory containing SQL query files")

@@ -1,7 +1,9 @@
 """Trigger API endpoints -- frontend-facing sync trigger and event views."""
 
+import json
 import logging
-import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
@@ -13,21 +15,17 @@ from sql_databricks_bridge.core.config import get_settings
 from sql_databricks_bridge.core.delta_writer import DeltaTableWriter
 from sql_databricks_bridge.core.extractor import Extractor, ExtractionJob
 from sql_databricks_bridge.core.stages import build_tag
+from sql_databricks_bridge.db import local_store
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db.jobs_table import (
-    get_job,
-    insert_job,
-    list_jobs,
+    get_job as delta_get_job,
+    insert_job as delta_insert_job,
+    list_jobs as delta_list_jobs,
     update_job_status,
 )
 from sql_databricks_bridge.db.sql_server import SQLServerClient
-from sql_databricks_bridge.db.version_tags_table import insert_version_tag
-from sql_databricks_bridge.core.calibration_tracker import calibration_tracker
 
 logger = logging.getLogger(__name__)
-
-# Module-level launcher reference, set by main.py at startup.
-_calibration_launcher = None
 
 router = APIRouter(tags=["Trigger"])
 
@@ -35,25 +33,12 @@ router = APIRouter(tags=["Trigger"])
 # --- Schemas ---
 
 
-class AggregationOptions(BaseModel):
-    region: bool = Field(default=False, description="Include region-level aggregation")
-    nivel_2: bool = Field(default=False, description="Include nivel_2 aggregation")
-
-
 class TriggerRequest(BaseModel):
     country: str = Field(..., description="Country code (e.g. 'bolivia', 'brazil')")
     stage: str = Field(..., description="Stage code (e.g. 'calibracion', 'mtr')")
-    period: str | None = Field(
-        default=None,
-        description="Period code (e.g. '202602'). Stored with the job for filtering.",
-    )
     queries: list[str] | None = Field(
         default=None,
         description="Specific queries to run. null = all queries for the country.",
-    )
-    aggregations: AggregationOptions | None = Field(
-        default=None,
-        description="Aggregation options for calibration (region, nivel_2).",
     )
 
 
@@ -62,7 +47,6 @@ class TriggerResponse(BaseModel):
     status: str
     country: str
     stage: str
-    period: str | None = None
     tag: str
     queries: list[str]
     queries_count: int
@@ -70,22 +54,11 @@ class TriggerResponse(BaseModel):
     triggered_by: str
 
 
-class CalibrationStepResponse(BaseModel):
-    """Calibration step as expected by the calibration frontend."""
-
-    name: str
-    status: str
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-    error: str | None = None
-
-
 class EventSummary(BaseModel):
     job_id: str
     status: JobStatus
     country: str
     stage: str
-    period: str | None = None
     tag: str
     queries_total: int
     queries_completed: int
@@ -96,8 +69,10 @@ class EventSummary(BaseModel):
     triggered_by: str
     error: str | None = None
     current_query: str | None = None
-    steps: list[CalibrationStepResponse] | None = None
-    current_step: str | None = None
+    failed_queries: list[str] = Field(default_factory=list)
+    running_queries: list[str] = Field(default_factory=list)
+    queries_running: int = 0
+    total_rows_extracted: int = 0
 
 
 class EventDetail(EventSummary):
@@ -111,57 +86,7 @@ class EventListResponse(BaseModel):
     offset: int
 
 
-# --- Internal record ---
-
-
-class _TriggerJobRecord:
-    """Internal record linking a trigger to an extraction job."""
-
-    def __init__(
-        self,
-        extractor: Extractor,
-        job: ExtractionJob,
-        triggered_by: str,
-        stage: str = "",
-        tag: str = "",
-        period: str | None = None,
-        aggregations: AggregationOptions | None = None,
-    ) -> None:
-        self.extractor = extractor
-        self.job = job
-        self.triggered_by = triggered_by
-        self.stage = stage
-        self.tag = tag
-        self.period = period
-        self.aggregations = aggregations
-
-
-# Fix forward reference for module-level dict
-_trigger_jobs: dict[str, _TriggerJobRecord] = {}
-
-
-def _build_steps_for_job(job_id: str) -> tuple[list[CalibrationStepResponse] | None, str | None]:
-    """Get calibration steps and current_step for a job."""
-    steps_data = calibration_tracker.get_steps_for_response(job_id)
-    current = calibration_tracker.get_current_step(job_id)
-    if steps_data is None:
-        return None, None
-    steps = [CalibrationStepResponse(**s) for s in steps_data]
-    return steps, current
-
-
-def _launch_calibration_step(job_id: str, step_name: str, country: str) -> None:
-    """Launch a Databricks job for a calibration step if a launcher is available."""
-    if _calibration_launcher is None:
-        logger.debug("No calibration launcher configured; skipping launch for %s/%s", job_id, step_name)
-        return
-    try:
-        _calibration_launcher.launch_step(job_id, step_name, country)
-    except Exception as exc:
-        logger.error("Failed to launch step %s for job %s: %s", step_name, job_id, exc)
-
-
-# --- Background task ---
+# --- Helpers ---
 
 
 def _get_databricks_client(request: Request) -> DatabricksClient:
@@ -172,80 +97,155 @@ def _get_databricks_client(request: Request) -> DatabricksClient:
     return DatabricksClient()
 
 
+def _get_db_path(request: Request) -> str:
+    """Get the SQLite database path from app.state."""
+    return getattr(request.app.state, "sqlite_db_path", get_settings().sqlite_db_path)
+
+
+def _results_from_row(row: dict) -> list[QueryResult]:
+    """Deserialize results JSON from a SQLite row into QueryResult objects."""
+    raw = row.get("results", [])
+    if not raw:
+        return []
+    return [QueryResult(**r) for r in raw]
+
+
+def _compute_counts(results: list[QueryResult]) -> tuple[int, int]:
+    """Return (queries_completed, queries_failed) from a results list."""
+    completed = sum(1 for r in results if r.status == JobStatus.COMPLETED)
+    failed = sum(1 for r in results if r.status == JobStatus.FAILED)
+    return completed, failed
+
+
+def _total_rows(results: list[QueryResult]) -> int:
+    """Sum rows_extracted across all results."""
+    return sum(r.rows_extracted for r in results)
+
+
+def _build_event_summary(row: dict, results: list[QueryResult] | None = None) -> EventSummary:
+    """Build an EventSummary from a SQLite row, computing aggregates from results."""
+    if results is None:
+        results = _results_from_row(row)
+    q_completed, q_failed = _compute_counts(results)
+    running_queries = row.get("running_queries", [])
+
+    return EventSummary(
+        job_id=row["job_id"],
+        status=row["status"],
+        country=row["country"],
+        stage=row["stage"],
+        tag=row["tag"],
+        queries_total=len(row["queries"]),
+        queries_completed=q_completed,
+        queries_failed=q_failed,
+        created_at=row["created_at"],
+        started_at=row.get("started_at"),
+        completed_at=row.get("completed_at"),
+        triggered_by=row["triggered_by"],
+        error=row.get("error"),
+        current_query=row.get("current_query"),
+        failed_queries=row.get("failed_queries", []),
+        running_queries=running_queries,
+        queries_running=len(running_queries),
+        total_rows_extracted=_total_rows(results),
+    )
+
+
+# --- Background task ---
+
+
 def _run_trigger_extraction(
     extractor: Extractor,
     job: ExtractionJob,
     writer: DeltaTableWriter,
     client: DatabricksClient,
     table: str,
+    db_path: str,
+    max_parallel: int,
     tag: str = "",
-    triggered_by: str = "",
 ) -> None:
-    """Background task to run the extraction triggered by a user."""
+    """Background task: run queries in parallel, persist progress to SQLite."""
     try:
         import polars as pl
 
-        settings = get_settings()
-        version_tags_tbl = settings.version_tags_table
-
         job.status = JobStatus.RUNNING
         job.started_at = datetime.utcnow()
-        update_job_status(client, table, job.job_id, "running", started_at=job.started_at)
+        local_store.update_job(
+            db_path, job.job_id,
+            status="running",
+            started_at=job.started_at.isoformat(),
+        )
+        try:
+            update_job_status(client, table, job.job_id, "running", started_at=job.started_at)
+        except Exception:
+            logger.warning(f"Failed to update Delta table for job {job.job_id} (running)")
 
-        for query_name in job.queries:
-            job.current_query = query_name
-            result = QueryResult(query_name=query_name, status=JobStatus.RUNNING)
+        results_lock = threading.Lock()
+        running_set: set[str] = set()
+
+        def _persist_progress() -> None:
+            """Persist current progress to SQLite (call under results_lock)."""
+            local_store.update_job(
+                db_path, job.job_id,
+                current_query=next(iter(running_set), None),
+                running_queries=json.dumps(sorted(running_set)),
+                results=json.dumps([r.model_dump(mode="json") for r in job.results]),
+                failed_queries=json.dumps(
+                    [r.query_name for r in job.results if r.status == JobStatus.FAILED]
+                ),
+            )
+
+        def process_query(query_name: str) -> QueryResult:
+            """Run one query (SQL read -> Databricks write). Runs in thread."""
             start_time = datetime.utcnow()
 
+            # Mark query as running
+            with results_lock:
+                running_set.add(query_name)
+                _persist_progress()
+
+            result = QueryResult(
+                query_name=query_name,
+                status=JobStatus.RUNNING,
+                started_at=start_time,
+            )
             try:
-                row_limit = int(os.environ.get("QUERY_ROW_LIMIT", "0")) or None
+                row_limit = get_settings().query_row_limit or None
                 chunks = list(
                     extractor.execute_query(query_name, job.country, job.chunk_size, limit=row_limit)
                 )
-
                 if chunks:
                     combined = pl.concat(chunks)
-                    writer.write_dataframe(combined, query_name, job.country)
+                    writer.write_dataframe(combined, query_name, job.country, tag=tag)
                     result.rows_extracted = len(combined)
-                    result.table_name = writer.resolve_table_name(
-                        query_name, job.country
-                    )
-
-                    # Tag the new version with the job tag
-                    if tag and result.table_name:
-                        try:
-                            version = writer.get_current_version(result.table_name)
-                            insert_version_tag(
-                                client,
-                                version_tags_tbl,
-                                table_name=result.table_name,
-                                version=version,
-                                tag=tag,
-                                created_by=triggered_by or "system",
-                                job_id=job.job_id,
-                            )
-                            logger.info(
-                                f"Tagged {result.table_name} v{version} as '{tag}'"
-                            )
-                        except Exception as tag_err:
-                            logger.warning(
-                                f"Failed to tag {result.table_name}: {tag_err}"
-                            )
+                    result.table_name = writer.resolve_table_name(query_name, job.country)
                 else:
                     result.rows_extracted = 0
-
                 result.status = JobStatus.COMPLETED
-
             except Exception as e:
                 result.status = JobStatus.FAILED
                 result.error = str(e)
                 logger.error(f"Query {query_name} failed: {e}")
+            result.duration_seconds = (datetime.utcnow() - start_time).total_seconds()
 
-            result.duration_seconds = (
-                datetime.utcnow() - start_time
-            ).total_seconds()
-            job.results.append(result)
+            # Mark query as done, persist progress
+            with results_lock:
+                running_set.discard(query_name)
+                job.results.append(result)
+                _persist_progress()
 
+            return result
+
+        with ThreadPoolExecutor(max_workers=max_parallel) as pool:
+            futures = {pool.submit(process_query, q): q for q in job.queries}
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as exc:
+                    query_name = futures[future]
+                    logger.error(f"Unexpected thread error for query {query_name}: {exc}")
+
+        # Final status
         job.current_query = None
         job.status = (
             JobStatus.FAILED
@@ -253,37 +253,41 @@ def _run_trigger_extraction(
             else JobStatus.COMPLETED
         )
         job.completed_at = datetime.utcnow()
-        update_job_status(
-            client,
-            table,
-            job.job_id,
-            job.status.value,
-            completed_at=job.completed_at,
-        )
+        failed_query_names = [r.query_name for r in job.results if r.status == JobStatus.FAILED]
 
-        # Update calibration sync_data step
-        if job.queries_failed > 0 and job.queries_completed == 0:
-            calibration_tracker.complete_step(
-                job.job_id,
-                "sync_data",
-                error=f"{job.queries_failed} query(ies) failed during sync",
+        local_store.update_job(
+            db_path, job.job_id,
+            status=job.status.value,
+            completed_at=job.completed_at.isoformat(),
+            current_query=None,
+            running_queries=json.dumps([]),
+            failed_queries=json.dumps(failed_query_names),
+            results=json.dumps([r.model_dump(mode="json") for r in job.results]),
+        )
+        try:
+            update_job_status(
+                client, table, job.job_id, job.status.value,
+                completed_at=job.completed_at, failed_queries=failed_query_names,
             )
-        else:
-            calibration_tracker.complete_step(job.job_id, "sync_data")
-            # Auto-advance to copy_to_calibration
-            next_step = calibration_tracker.advance_after_sync(job.job_id)
-            # Launch the Databricks job for copy_to_calibration
-            if next_step:
-                _launch_calibration_step(job.job_id, next_step, job.country)
+        except Exception:
+            logger.warning(f"Failed to update Delta table for job {job.job_id} (final)")
 
     except Exception as e:
         job.current_query = None
         job.status = JobStatus.FAILED
         job.error = str(e)
         logger.error(f"Trigger job {job.job_id} failed: {e}")
-        update_job_status(client, table, job.job_id, "failed", error=str(e))
-        # Mark sync_data as failed
-        calibration_tracker.complete_step(job.job_id, "sync_data", error=str(e))
+        local_store.update_job(
+            db_path, job.job_id,
+            status="failed",
+            error=str(e),
+            completed_at=datetime.utcnow().isoformat(),
+            running_queries=json.dumps([]),
+        )
+        try:
+            update_job_status(client, table, job.job_id, "failed", error=str(e))
+        except Exception:
+            logger.warning(f"Failed to update Delta table for job {job.job_id} (error)")
 
 
 # --- Endpoints ---
@@ -353,44 +357,42 @@ async def trigger_extraction(
     db_client = _get_databricks_client(raw_request)
     settings = get_settings()
     jobs_tbl = settings.jobs_table
+    db_path = _get_db_path(raw_request)
 
-    # Persist to Databricks Delta table
-    aggregations_dict = request.aggregations.model_dump() if request.aggregations else None
-    insert_job(
-        db_client,
-        jobs_tbl,
+    # Persist to Databricks Delta table (best-effort audit trail)
+    try:
+        delta_insert_job(
+            db_client,
+            jobs_tbl,
+            job_id=job.job_id,
+            country=request.country,
+            stage=request.stage,
+            tag=tag,
+            queries=job.queries,
+            triggered_by=user.email,
+            created_at=job.created_at,
+        )
+    except Exception:
+        logger.warning(f"Failed to insert job {job.job_id} into Delta table")
+
+    # Persist to local SQLite (primary store)
+    local_store.insert_job(
+        db_path,
         job_id=job.job_id,
         country=request.country,
         stage=request.stage,
         tag=tag,
         queries=job.queries,
         triggered_by=user.email,
-        created_at=job.created_at,
-        period=request.period,
-        aggregations=aggregations_dict,
+        created_at=job.created_at.isoformat(),
     )
-
-    # Create calibration step tracking
-    calibration_tracker.create(job.job_id, country=request.country)
-    calibration_tracker.start_step(job.job_id, "sync_data")
-
-    # Store in-flight record (needed for background task reference)
-    record = _TriggerJobRecord(
-        extractor=extractor,
-        job=job,
-        triggered_by=user.email,
-        stage=request.stage,
-        tag=tag,
-        period=request.period,
-        aggregations=request.aggregations,
-    )
-    _trigger_jobs[job.job_id] = record
 
     # Launch background extraction
     writer = DeltaTableWriter(db_client)
     background_tasks.add_task(
-        _run_trigger_extraction, extractor, job, writer, db_client, jobs_tbl,
-        tag, user.email,
+        _run_trigger_extraction,
+        extractor, job, writer, db_client, jobs_tbl,
+        db_path, settings.max_parallel_queries, tag,
     )
 
     return TriggerResponse(
@@ -398,7 +400,6 @@ async def trigger_extraction(
         status="pending",
         country=job.country,
         stage=request.stage,
-        period=request.period,
         tag=tag,
         queries=job.queries,
         queries_count=len(job.queries),
@@ -420,114 +421,67 @@ async def list_events(
     status_filter: JobStatus | None = Query(
         default=None, alias="status", description="Filter by status"
     ),
-    stage: str | None = Query(default=None, description="Filter by stage"),
-    period: str | None = Query(default=None, description="Filter by period (e.g. '202602')"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> EventListResponse:
     """List extraction events visible to the current user."""
-    db_client = _get_databricks_client(raw_request)
-    jobs_tbl = get_settings().jobs_table
+    db_path = _get_db_path(raw_request)
 
-    db_jobs, total = list_jobs(
-        db_client,
-        jobs_tbl,
+    sqlite_jobs, total = local_store.list_jobs(
+        db_path,
         country=country,
         status=status_filter.value if status_filter else None,
-        stage=stage,
         triggered_by=None if user.is_admin else user.email,
-        period=period,
         limit=limit,
         offset=offset,
     )
 
     items: list[EventSummary] = []
-    db_job_ids = set()
-    for row in db_jobs:
-        db_job_ids.add(row["job_id"])
-        # If there's an in-flight record, use live progress data
-        record = _trigger_jobs.get(row["job_id"])
-        if record:
-            job = record.job
-            queries_completed = job.queries_completed
-            queries_failed = job.queries_failed
-            live_status = job.status
-            started_at = job.started_at
-            completed_at = job.completed_at
-            error = job.error
-            current_query = job.current_query
-        else:
-            queries_completed = 0
-            queries_failed = 0
-            live_status = row["status"]
-            started_at = row.get("started_at")
-            completed_at = row.get("completed_at")
-            error = row.get("error")
-            current_query = None
+    sqlite_job_ids = set()
 
-        steps, current_step = _build_steps_for_job(row["job_id"])
-        items.append(
-            EventSummary(
-                job_id=row["job_id"],
-                status=live_status,
-                country=row["country"],
-                stage=row["stage"],
-                period=row.get("period"),
-                tag=row["tag"],
-                queries_total=len(row["queries"]),
-                queries_completed=queries_completed,
-                queries_failed=queries_failed,
-                created_at=row["created_at"],
-                started_at=started_at,
-                completed_at=completed_at,
-                triggered_by=row["triggered_by"],
-                error=error,
-                current_query=current_query,
-                steps=steps,
-                current_step=current_step,
+    for row in sqlite_jobs:
+        sqlite_job_ids.add(row["job_id"])
+        items.append(_build_event_summary(row))
+
+    # Fallback: include Delta table jobs not in SQLite (pre-migration)
+    try:
+        db_client = _get_databricks_client(raw_request)
+        jobs_tbl = get_settings().jobs_table
+        delta_jobs, delta_total = delta_list_jobs(
+            db_client,
+            jobs_tbl,
+            country=country,
+            status=status_filter.value if status_filter else None,
+            triggered_by=None if user.is_admin else user.email,
+            limit=limit,
+            offset=offset,
+        )
+        for row in delta_jobs:
+            if row["job_id"] in sqlite_job_ids:
+                continue
+            failed_queries = row.get("failed_queries", [])
+            items.append(
+                EventSummary(
+                    job_id=row["job_id"],
+                    status=row["status"],
+                    country=row["country"],
+                    stage=row["stage"],
+                    tag=row["tag"],
+                    queries_total=len(row["queries"]),
+                    queries_completed=0,
+                    queries_failed=len(failed_queries),
+                    created_at=row["created_at"],
+                    started_at=row.get("started_at"),
+                    completed_at=row.get("completed_at"),
+                    triggered_by=row["triggered_by"],
+                    error=row.get("error"),
+                    current_query=None,
+                    failed_queries=failed_queries,
+                )
             )
-        )
-
-    # Include in-flight jobs not yet visible in the Delta table
-    for job_id, record in _trigger_jobs.items():
-        if job_id in db_job_ids:
-            continue
-        job = record.job
-        # Apply filters
-        if country and job.country != country:
-            continue
-        if status_filter and job.status != status_filter:
-            continue
-        if stage and record.stage != stage:
-            continue
-        if period and record.period != period:
-            continue
-        if not user.is_admin and record.triggered_by != user.email:
-            continue
-        inflight_steps, inflight_current = _build_steps_for_job(job.job_id)
-        items.insert(
-            0,
-            EventSummary(
-                job_id=job.job_id,
-                status=job.status,
-                country=job.country,
-                stage=record.stage,
-                period=record.period,
-                tag=record.tag,
-                queries_total=len(job.queries),
-                queries_completed=job.queries_completed,
-                queries_failed=job.queries_failed,
-                created_at=job.created_at,
-                started_at=job.started_at,
-                completed_at=job.completed_at,
-                triggered_by=record.triggered_by,
-                error=job.error,
-                current_query=job.current_query,
-                steps=inflight_steps,
-                current_step=inflight_current,
-            ),
-        )
-        total += 1
+            total += 1
+    except Exception:
+        logger.debug("Delta table fallback for list_events failed (non-critical)")
 
     return EventListResponse(
         items=items,
@@ -549,75 +503,80 @@ async def get_event_detail(
     raw_request: Request,
 ) -> EventDetail:
     """Get detailed event info including per-query progress."""
-    db_client = _get_databricks_client(raw_request)
-    jobs_tbl = get_settings().jobs_table
+    db_path = _get_db_path(raw_request)
 
-    # Check in-flight record first (avoids Delta table read-after-write lag)
-    record = _trigger_jobs.get(job_id)
+    # Try SQLite first (primary store with live progress)
+    row = local_store.get_job(db_path, job_id)
 
-    db_row = get_job(db_client, jobs_tbl, job_id)
+    if row:
+        # Non-admin users can only see their own jobs
+        if not user.is_admin and row["triggered_by"] != user.email:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "not_found", "message": f"Job not found: {job_id}"},
+            )
 
-    if not db_row and not record:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "not_found", "message": f"Job not found: {job_id}"},
-        )
+        results = _results_from_row(row)
+        q_completed, q_failed = _compute_counts(results)
+        running_queries = row.get("running_queries", [])
 
-    # Non-admin users can only see their own jobs
-    triggered_by = record.triggered_by if record else db_row["triggered_by"]
-    if not user.is_admin and triggered_by != user.email:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "not_found", "message": f"Job not found: {job_id}"},
-        )
-
-    # If there's an in-flight record, use live progress
-    if record:
-        job = record.job
-        # Prefer db_row for stage/tag/period if available, fallback to in-flight data
-        detail_stage = db_row["stage"] if db_row else record.stage
-        detail_tag = db_row["tag"] if db_row else record.tag
-        detail_period = db_row.get("period") if db_row else record.period
-        detail_steps, detail_current = _build_steps_for_job(job.job_id)
         return EventDetail(
-            job_id=job.job_id,
-            status=job.status,
-            country=job.country,
-            stage=detail_stage,
-            period=detail_period,
-            tag=detail_tag,
-            queries_total=len(job.queries),
-            queries_completed=job.queries_completed,
-            queries_failed=job.queries_failed,
-            created_at=job.created_at,
-            started_at=job.started_at,
-            completed_at=job.completed_at,
-            triggered_by=record.triggered_by,
-            error=job.error,
-            current_query=job.current_query,
-            steps=detail_steps,
-            current_step=detail_current,
-            results=job.results,
+            job_id=row["job_id"],
+            status=row["status"],
+            country=row["country"],
+            stage=row["stage"],
+            tag=row["tag"],
+            queries_total=len(row["queries"]),
+            queries_completed=q_completed,
+            queries_failed=q_failed,
+            created_at=row["created_at"],
+            started_at=row.get("started_at"),
+            completed_at=row.get("completed_at"),
+            triggered_by=row["triggered_by"],
+            error=row.get("error"),
+            current_query=row.get("current_query"),
+            results=results,
+            failed_queries=row.get("failed_queries", []),
+            running_queries=running_queries,
+            queries_running=len(running_queries),
+            total_rows_extracted=_total_rows(results),
         )
 
-    # Job completed and no longer in-flight -- return from Databricks
-    completed_steps, completed_current = _build_steps_for_job(db_row["job_id"])
+    # Fallback to Delta table for pre-SQLite jobs
+    try:
+        db_client = _get_databricks_client(raw_request)
+        jobs_tbl = get_settings().jobs_table
+        db_row = delta_get_job(db_client, jobs_tbl, job_id)
+    except Exception:
+        db_row = None
+
+    if not db_row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": f"Job not found: {job_id}"},
+        )
+
+    if not user.is_admin and db_row["triggered_by"] != user.email:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": f"Job not found: {job_id}"},
+        )
+
+    failed_queries = db_row.get("failed_queries", [])
     return EventDetail(
         job_id=db_row["job_id"],
         status=db_row["status"],
         country=db_row["country"],
         stage=db_row["stage"],
-        period=db_row.get("period"),
         tag=db_row["tag"],
         queries_total=len(db_row["queries"]),
         queries_completed=0,
-        queries_failed=0,
+        queries_failed=len(failed_queries),
         created_at=db_row["created_at"],
         started_at=db_row.get("started_at"),
         completed_at=db_row.get("completed_at"),
         triggered_by=db_row["triggered_by"],
         error=db_row.get("error"),
-        steps=completed_steps,
-        current_step=completed_current,
         results=[],
+        failed_queries=failed_queries,
     )

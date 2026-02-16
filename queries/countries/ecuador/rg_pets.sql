@@ -1,5 +1,5 @@
 -- ecuador: rg_pets
--- columns: 5
+-- columns: 5 (periodo is varchar 'Q1_2017' format, filter by ano instead)
 
 select
     cao_qtd,
@@ -8,4 +8,4 @@ select
     periodo,
     qtdanimais
 from rg_pets
-where periodo >= {start_period} and periodo <= {end_period}
+where ano >= {start_year} and ano <= {end_year}

@@ -63,6 +63,7 @@ class DeltaTableWriter:
         catalog: str | None = None,
         schema: str | None = None,
         save_local: bool = False,
+        tag: str | None = None,
     ) -> WriteResult:
         """Write DataFrame to a Delta table using stage-then-CTAS.
 
@@ -110,6 +111,7 @@ class DeltaTableWriter:
                 f"AS SELECT * FROM read_files('{staging_path}', format => 'parquet') LIMIT 0"
             )
             self.client.execute_sql(ctas)
+            self._apply_tags(table_name, tag)
             self._cleanup_staging(staging_path)
             duration = (datetime.utcnow() - start_time).total_seconds()
             logger.info(f"Created empty table {table_name}")
@@ -129,7 +131,10 @@ class DeltaTableWriter:
         self.client.execute_sql(ctas)
         logger.info(f"Created table {table_name} with {rows} rows")
 
-        # 3. Cleanup staging (best-effort)
+        # 3. Apply tags (best-effort)
+        self._apply_tags(table_name, tag)
+
+        # 4. Cleanup staging (best-effort)
         self._cleanup_staging(staging_path)
 
         duration = (datetime.utcnow() - start_time).total_seconds()
@@ -165,32 +170,17 @@ class DeltaTableWriter:
         except Exception:
             return False
 
-    def get_current_version(self, table_name: str) -> int:
-        """Get the latest version number of a Delta table.
-
-        Args:
-            table_name: Fully-qualified table name (catalog.schema.table).
-
-        Returns:
-            Latest version number.
-        """
-        rows = self.client.execute_sql(f"DESCRIBE HISTORY {table_name} LIMIT 1")
-        assert rows, f"No history found for table {table_name}"
-        return int(rows[0]["version"])
-
-    def get_history(self, table_name: str, limit: int = 20) -> list[dict[str, Any]]:
-        """Get Delta table version history.
-
-        Args:
-            table_name: Fully-qualified table name (catalog.schema.table).
-            limit: Max history entries to return.
-
-        Returns:
-            List of history entries with version, timestamp, operation, etc.
-        """
-        return self.client.execute_sql(
-            f"DESCRIBE HISTORY {table_name} LIMIT {limit}"
-        )
+    def _apply_tags(self, table_name: str, tag: str | None) -> None:
+        """Apply Unity Catalog tags to a Delta table (best-effort)."""
+        if not tag:
+            return
+        try:
+            self.client.execute_sql(
+                f"ALTER TABLE {table_name} SET TAGS ('sync_tag' = '{tag}')"
+            )
+            logger.info(f"Applied tag '{tag}' to {table_name}")
+        except Exception as e:
+            logger.warning(f"Failed to apply tags to {table_name}: {e}")
 
     def _cleanup_staging(self, path: str) -> None:
         """Delete staging file, logging warnings on failure."""
