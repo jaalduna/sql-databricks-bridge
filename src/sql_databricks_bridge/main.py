@@ -9,11 +9,11 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from sql_databricks_bridge import __version__
-from sql_databricks_bridge.api.routes import auth, databricks_jobs, extract, health, jobs, metadata, pipeline, sync, tags, trigger
+from sql_databricks_bridge.api.routes import auth, extract, health, jobs, metadata, sync, trigger
 from sql_databricks_bridge.core.config import get_settings
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db.jobs_table import ensure_jobs_table
-from sql_databricks_bridge.db.version_tags_table import ensure_version_tags_table
+from sql_databricks_bridge.db.local_store import init_db, mark_orphaned_jobs
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 from sql_databricks_bridge.core.calibration_launcher import CalibrationJobLauncher
 from sql_databricks_bridge.core.databricks_monitor import DatabricksJobMonitor
@@ -42,15 +42,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info(f"Starting {settings.service_name} v{__version__}")
     logger.info(f"Environment: {settings.environment}")
 
+    # Initialize local SQLite store and recover orphaned jobs
+    db_path = init_db(settings.sqlite_db_path)
+    mark_orphaned_jobs(db_path)
+    app.state.sqlite_db_path = db_path
+
     # Start event poller if configured
     if settings.databricks.warehouse_id:
         try:
             databricks_client = DatabricksClient()
             sql_client = SQLServerClient()
 
-            # Ensure the jobs and version_tags Delta tables exist
+            # Ensure the jobs Delta table exists
             ensure_jobs_table(databricks_client, settings.jobs_table)
-            ensure_version_tags_table(databricks_client, settings.version_tags_table)
 
             # Store client on app.state for route access
             app.state.databricks_client = databricks_client
@@ -151,10 +155,7 @@ def create_app() -> FastAPI:
     api_v1.include_router(extract.router)
     api_v1.include_router(jobs.router)
     api_v1.include_router(sync.router)
-    api_v1.include_router(tags.router)
     api_v1.include_router(trigger.router)
-    api_v1.include_router(pipeline.router)
-    api_v1.include_router(databricks_jobs.router)
     app.include_router(api_v1)
 
     # Root endpoint

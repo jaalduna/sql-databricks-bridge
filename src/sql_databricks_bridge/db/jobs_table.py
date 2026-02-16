@@ -26,22 +26,14 @@ def ensure_jobs_table(client: DatabricksClient, table: str) -> None:
             status STRING NOT NULL,
             queries STRING,
             triggered_by STRING NOT NULL,
-            period STRING,
             created_at TIMESTAMP,
             started_at TIMESTAMP,
             completed_at TIMESTAMP,
             error STRING,
-            aggregations STRING
+            failed_queries STRING
         ) USING DELTA
     """
     client.execute_sql(ddl)
-
-    # Add aggregations column if table was created before this field existed
-    try:
-        client.execute_sql(f"ALTER TABLE {table} ADD COLUMNS (aggregations STRING)")
-    except Exception:
-        pass  # Column already exists
-
     logger.info(f"Ensured jobs table exists: {table}")
 
 
@@ -56,15 +48,13 @@ def insert_job(
     queries: list[str],
     triggered_by: str,
     created_at: datetime,
-    period: str | None = None,
-    aggregations: dict[str, Any] | None = None,
+    failed_queries: list[str] | None = None,
 ) -> None:
     """Insert a new job record into the Delta table."""
     queries_json = _esc(json.dumps(queries))
-    period_val = f"'{_esc(period)}'" if period else "NULL"
-    agg_val = f"'{_esc(json.dumps(aggregations))}'" if aggregations else "NULL"
+    failed_queries_json = _esc(json.dumps(failed_queries or []))
     sql = f"""
-        INSERT INTO {table} (job_id, country, stage, tag, status, queries, triggered_by, period, created_at, aggregations)
+        INSERT INTO {table} (job_id, country, stage, tag, status, queries, triggered_by, created_at, failed_queries)
         VALUES (
             '{_esc(job_id)}',
             '{_esc(country)}',
@@ -73,9 +63,8 @@ def insert_job(
             'pending',
             '{queries_json}',
             '{_esc(triggered_by)}',
-            {period_val},
             '{created_at.isoformat()}',
-            {agg_val}
+            '{failed_queries_json}'
         )
     """
     client.execute_sql(sql)
@@ -90,8 +79,10 @@ def get_job(client: DatabricksClient, table: str, job_id: str) -> dict[str, Any]
     row = rows[0]
     if row.get("queries"):
         row["queries"] = json.loads(row["queries"])
-    if row.get("aggregations"):
-        row["aggregations"] = json.loads(row["aggregations"])
+    if row.get("failed_queries"):
+        row["failed_queries"] = json.loads(row["failed_queries"])
+    else:
+        row["failed_queries"] = []
     return row
 
 
@@ -101,9 +92,7 @@ def list_jobs(
     *,
     country: str | None = None,
     status: str | None = None,
-    stage: str | None = None,
     triggered_by: str | None = None,
-    period: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict[str, Any]], int]:
@@ -113,12 +102,8 @@ def list_jobs(
         where_parts.append(f"country = '{_esc(country)}'")
     if status:
         where_parts.append(f"status = '{_esc(status)}'")
-    if stage:
-        where_parts.append(f"stage = '{_esc(stage)}'")
     if triggered_by:
         where_parts.append(f"triggered_by = '{_esc(triggered_by)}'")
-    if period:
-        where_parts.append(f"period = '{_esc(period)}'")
 
     where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
@@ -133,8 +118,10 @@ def list_jobs(
     for row in rows:
         if row.get("queries"):
             row["queries"] = json.loads(row["queries"])
-        if row.get("aggregations"):
-            row["aggregations"] = json.loads(row["aggregations"])
+        if row.get("failed_queries"):
+            row["failed_queries"] = json.loads(row["failed_queries"])
+        else:
+            row["failed_queries"] = []
         items.append(row)
 
     return items, total
@@ -149,6 +136,7 @@ def update_job_status(
     started_at: datetime | None = None,
     completed_at: datetime | None = None,
     error: str | None = None,
+    failed_queries: list[str] | None = None,
 ) -> None:
     """Update a job's status and optional timestamps."""
     sets = [f"status = '{_esc(status)}'"]
@@ -159,6 +147,9 @@ def update_job_status(
         sets.append(f"completed_at = '{completed_at.isoformat()}'")
     if error is not None:
         sets.append(f"error = '{_esc(error)}'")
+    if failed_queries is not None:
+        failed_queries_json = _esc(json.dumps(failed_queries))
+        sets.append(f"failed_queries = '{failed_queries_json}'")
 
     sql = f"UPDATE {table} SET {', '.join(sets)} WHERE job_id = '{_esc(job_id)}'"
     client.execute_sql(sql)

@@ -77,6 +77,7 @@ class QueryResult(BaseModel):
     files_created: list[str] = Field(default_factory=list)
     error: str | None = None
     duration_seconds: float = 0.0
+    started_at: datetime | None = None
 
 
 class JobStatusResponse(BaseModel):
