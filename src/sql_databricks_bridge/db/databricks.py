@@ -178,12 +178,21 @@ class DatabricksClient:
     def find_job_by_name(self, name: str) -> int | None:
         """Find a Databricks job ID by name (substring match).
 
-        Searches through all jobs and returns the first whose name contains
-        the given string.  Returns None if no match is found.
+        First tries an exact-name API filter. If that returns nothing, falls
+        back to iterating all jobs and checking for a substring match (needed
+        when DAB-deployed jobs have prefixes like ``[dev] Bronze Copy``).
         """
+        # Fast path: exact name match via API filter
         for job in self.client.jobs.list(name=name):
             if job.settings and job.settings.name and name in job.settings.name:
                 return job.job_id
+
+        # Slow path: iterate all jobs with substring match
+        for job in self.client.jobs.list():
+            if job.settings and job.settings.name and name in job.settings.name:
+                logger.info("Found job '%s' via substring match (id=%d)", job.settings.name, job.job_id)
+                return job.job_id
+
         return None
 
     def run_job(self, job_id: int, parameters: dict[str, str] | None = None) -> int:
