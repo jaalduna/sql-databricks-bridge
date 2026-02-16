@@ -2,11 +2,8 @@ import axios from "axios"
 import type {
   ApiError,
   CountriesResponse,
-  CreatePipelineRequest,
   EventDetail,
   EventListResponse,
-  PipelineListResponse,
-  PipelineResponse,
   StagesResponse,
   TriggerRequest,
   TriggerResponse,
@@ -82,27 +79,4 @@ export function getCountries() {
 
 export function getStages() {
   return api.get<StagesResponse>("/metadata/stages").then((r) => r.data)
-}
-
-// -- Pipeline --
-
-export function createPipeline(body: CreatePipelineRequest) {
-  return api.post<PipelineResponse>("/pipeline", body).then((r) => r.data)
-}
-
-export function getPipelines(params?: {
-  country?: string
-  status?: string
-  limit?: number
-  offset?: number
-}) {
-  return api.get<PipelineListResponse>("/pipeline", { params }).then((r) => r.data)
-}
-
-export function getPipeline(pipelineId: string) {
-  return api.get<PipelineResponse>(`/pipeline/${pipelineId}`).then((r) => r.data)
-}
-
-export function pollPipeline(pipelineId: string) {
-  return api.post<PipelineResponse>(`/pipeline/${pipelineId}/poll`).then((r) => r.data)
 }
