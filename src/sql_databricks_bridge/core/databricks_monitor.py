@@ -170,6 +170,8 @@ class DatabricksJobMonitor:
 
         if idx + 1 >= len(CALIBRATION_STEP_ORDER):
             logger.info("Job %s: all calibration steps completed", job_id)
+            # Update overall job status to completed
+            self._finalize_job(job_id)
             return
 
         next_step = CALIBRATION_STEP_ORDER[idx + 1]
@@ -182,6 +184,30 @@ class DatabricksJobMonitor:
             country = info.country if info else ""
             if country:
                 self._launcher.launch_step(job_id, next_step, country)
+
+        # If launch_step auto-completed the step (e.g. download_csv has no
+        # Databricks job), advance again so the pipeline doesn't stall.
+        step_info = calibration_tracker.get(job_id)
+        if step_info:
+            step_obj = step_info.get_step(next_step)
+            if step_obj and step_obj.status == "completed":
+                self._advance_next_step(job_id, next_step)
+
+    def _finalize_job(self, job_id: str, status: str = "completed", error: str | None = None) -> None:
+        """Update the overall job status in the Delta table when calibration finishes."""
+        try:
+            from sql_databricks_bridge.core.config import get_settings
+            from sql_databricks_bridge.db.jobs_table import update_job_status
+
+            settings = get_settings()
+            completed_at = datetime.utcnow()
+            update_job_status(
+                self._client, settings.jobs_table, job_id, status,
+                completed_at=completed_at, error=error,
+            )
+            logger.info("Job %s finalized as %s", job_id, status)
+        except Exception as e:
+            logger.warning("Failed to finalize job %s: %s", job_id, e)
 
     def poll_single_job(self, job_id: str) -> list[dict]:
         """Poll all steps for a single job. Returns list of updates made.
