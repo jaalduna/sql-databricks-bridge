@@ -92,7 +92,9 @@ def list_jobs(
     *,
     country: str | None = None,
     status: str | None = None,
+    stage: str | None = None,
     triggered_by: str | None = None,
+    period: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict[str, Any]], int]:
@@ -102,8 +104,12 @@ def list_jobs(
         where_parts.append(f"country = '{_esc(country)}'")
     if status:
         where_parts.append(f"status = '{_esc(status)}'")
+    if stage:
+        where_parts.append(f"stage = '{_esc(stage)}'")
     if triggered_by:
         where_parts.append(f"triggered_by = '{_esc(triggered_by)}'")
+    if period:
+        where_parts.append(f"period = '{_esc(period)}'")
 
     where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
