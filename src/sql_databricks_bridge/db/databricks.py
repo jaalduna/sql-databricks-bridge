@@ -159,19 +159,39 @@ class DatabricksClient:
         Returns:
             Query results as list of dictionaries.
         """
+        logger.debug("Executing SQL query: %s", query)
+
         # Use the SQL warehouse for query execution
         # This requires a warehouse_id to be configured
-        statement = self.client.statement_execution.execute_statement(
-            warehouse_id=getattr(self.settings, "warehouse_id", ""),
-            statement=query,
-            wait_timeout="30s",
-        )
+        try:
+            statement = self.client.statement_execution.execute_statement(
+                warehouse_id=getattr(self.settings, "warehouse_id", ""),
+                statement=query,
+                wait_timeout="30s",
+            )
+        except Exception:
+            logger.exception("execute_statement() failed for query: %s", query)
+            raise
 
-        if statement.result and statement.result.data_array:
-            columns = [col.name for col in (statement.manifest.schema.columns or [])]
-            return [dict(zip(columns, row)) for row in statement.result.data_array]
+        logger.debug("Statement status: %s", statement.status)
 
-        return []
+        if statement.result is None:
+            logger.warning(
+                "statement.result is None — status: %s, error: %s, query: %s",
+                statement.status,
+                getattr(statement.status, "error", None) if statement.status else None,
+                query,
+            )
+            return []
+
+        if not statement.result.data_array:
+            logger.debug("Query returned no rows (data_array is empty/None)")
+            return []
+
+        columns = [col.name for col in (statement.manifest.schema.columns or [])]
+        rows = [dict(zip(columns, row)) for row in statement.result.data_array]
+        logger.debug("Query returned %d row(s)", len(rows))
+        return rows
 
     # --- Jobs API ---
 

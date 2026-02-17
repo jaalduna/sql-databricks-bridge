@@ -1,8 +1,11 @@
 """Trigger API endpoints -- frontend-facing sync trigger and event views."""
 
+import json
 import logging
 import os
+import threading
 import uuid as _uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
@@ -15,6 +18,7 @@ from sql_databricks_bridge.core.delta_writer import DeltaTableWriter
 from sql_databricks_bridge.core.extractor import Extractor, ExtractionJob
 from sql_databricks_bridge.core.stages import build_tag
 from sql_databricks_bridge.db.databricks import DatabricksClient
+from sql_databricks_bridge.db import local_store
 from sql_databricks_bridge.db.jobs_table import (
     get_job,
     insert_job,
@@ -91,6 +95,9 @@ class EventSummary(BaseModel):
     queries_total: int
     queries_completed: int
     queries_failed: int
+    queries_running: int = 0
+    running_queries: list[str] = Field(default_factory=list)
+    total_rows_extracted: int = 0
     created_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None
@@ -135,6 +142,7 @@ class _TriggerJobRecord:
         self.tag = tag
         self.period = period
         self.aggregations = aggregations
+        self.running_queries: set[str] = set()  # live set updated by background threads
 
 
 # Fix forward reference for module-level dict
@@ -149,6 +157,78 @@ def _build_steps_for_job(job_id: str) -> tuple[list[CalibrationStepResponse] | N
         return None, None
     steps = [CalibrationStepResponse(**s) for s in steps_data]
     return steps, current
+
+
+def _get_db_path(request: Request) -> str | None:
+    """Get SQLite database path from app.state."""
+    return getattr(request.app.state, "sqlite_db_path", None)
+
+
+def _results_from_row(row: dict) -> list[QueryResult]:
+    """Deserialize results list from a SQLite row."""
+    raw = row.get("results", [])
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return []
+    results = []
+    for r in raw:
+        if isinstance(r, dict):
+            results.append(QueryResult(**r))
+    return results
+
+
+def _compute_counts(results: list[QueryResult]) -> tuple[int, int]:
+    """Count completed and failed queries from results list."""
+    completed = sum(1 for r in results if r.status == JobStatus.COMPLETED)
+    failed = sum(1 for r in results if r.status == JobStatus.FAILED)
+    return completed, failed
+
+
+def _total_rows(results: list[QueryResult]) -> int:
+    """Sum rows_extracted across all results."""
+    return sum(r.rows_extracted or 0 for r in results)
+
+
+def _build_event_summary(row: dict, results: list[QueryResult]) -> EventSummary:
+    """Build an EventSummary from a SQLite row and its deserialized results."""
+    completed, failed = _compute_counts(results)
+    running_queries = row.get("running_queries", [])
+    if isinstance(running_queries, str):
+        try:
+            running_queries = json.loads(running_queries)
+        except (json.JSONDecodeError, TypeError):
+            running_queries = []
+    queries = row.get("queries", [])
+    if isinstance(queries, str):
+        try:
+            queries = json.loads(queries)
+        except (json.JSONDecodeError, TypeError):
+            queries = []
+    steps, current_step = _build_steps_for_job(row["job_id"])
+    return EventSummary(
+        job_id=row["job_id"],
+        status=row["status"],
+        country=row["country"],
+        stage=row["stage"],
+        period=row.get("period"),
+        tag=row["tag"],
+        queries_total=len(queries),
+        queries_completed=completed,
+        queries_failed=failed,
+        queries_running=len(running_queries),
+        running_queries=running_queries,
+        total_rows_extracted=_total_rows(results),
+        created_at=row["created_at"],
+        started_at=row.get("started_at"),
+        completed_at=row.get("completed_at"),
+        triggered_by=row["triggered_by"],
+        error=row.get("error"),
+        current_query=row.get("current_query"),
+        steps=steps,
+        current_step=current_step,
+    )
 
 
 def _launch_calibration_step(job_id: str, step_name: str, country: str) -> None:
@@ -181,6 +261,8 @@ def _run_trigger_extraction(
     table: str,
     tag: str = "",
     triggered_by: str = "",
+    db_path: str | None = None,
+    max_parallel: int = 4,
 ) -> None:
     """Background task to run the extraction triggered by a user."""
     try:
@@ -192,21 +274,56 @@ def _run_trigger_extraction(
         job.status = JobStatus.RUNNING
         job.started_at = datetime.utcnow()
         update_job_status(client, table, job.job_id, "running", started_at=job.started_at)
+        if db_path:
+            local_store.update_job(db_path, job.job_id, status="running", started_at=job.started_at.isoformat())
 
-        for query_name in job.queries:
-            job.current_query = query_name
+        results_lock = threading.Lock()
+        # Get the in-flight record so we can update its running_queries for live API reads
+        record = _trigger_jobs.get(job.job_id)
+
+        def _persist_progress() -> None:
+            """Write current progress to SQLite under lock (already held)."""
+            if not db_path:
+                return
+            try:
+                running_set = record.running_queries if record else set()
+                serialized_results = json.dumps(
+                    [r.model_dump(mode="json") for r in job.results]
+                )
+                failed_queries = json.dumps(
+                    [r.query_name for r in job.results if r.status == JobStatus.FAILED]
+                )
+                local_store.update_job(
+                    db_path,
+                    job.job_id,
+                    current_query=next(iter(running_set), None),
+                    running_queries=json.dumps(sorted(running_set)),
+                    results=serialized_results,
+                    failed_queries=failed_queries,
+                )
+            except Exception as persist_err:
+                logger.warning(f"Failed to persist progress for {job.job_id}: {persist_err}")
+
+        def process_query(query_name: str) -> QueryResult:
+            """Process a single query — runs inside ThreadPoolExecutor."""
+            with results_lock:
+                if record:
+                    record.running_queries.add(query_name)
+                _persist_progress()
+
             result = QueryResult(query_name=query_name, status=JobStatus.RUNNING)
             start_time = datetime.utcnow()
 
             try:
-                row_limit = int(os.environ.get("QUERY_ROW_LIMIT", "0")) or None
+                row_limit = settings.query_row_limit or None
+                lookback = settings.lookback_months
                 chunks = list(
-                    extractor.execute_query(query_name, job.country, job.chunk_size, limit=row_limit)
+                    extractor.execute_query(query_name, job.country, job.chunk_size, limit=row_limit, lookback_months=lookback)
                 )
 
                 if chunks:
                     combined = pl.concat(chunks)
-                    writer.write_dataframe(combined, query_name, job.country)
+                    writer.write_dataframe(combined, query_name, job.country, tag=tag)
                     result.rows_extracted = len(combined)
                     result.table_name = writer.resolve_table_name(
                         query_name, job.country
@@ -245,7 +362,27 @@ def _run_trigger_extraction(
             result.duration_seconds = (
                 datetime.utcnow() - start_time
             ).total_seconds()
-            job.results.append(result)
+
+            with results_lock:
+                if record:
+                    record.running_queries.discard(query_name)
+                job.results.append(result)
+                _persist_progress()
+
+            return result
+
+        # Run queries in parallel
+        with ThreadPoolExecutor(max_workers=max_parallel) as executor:
+            futures = {
+                executor.submit(process_query, qn): qn
+                for qn in job.queries
+            }
+            for future in as_completed(futures):
+                qn = futures[future]
+                try:
+                    future.result()
+                except Exception as exc:
+                    logger.error(f"Unexpected error processing query {qn}: {exc}")
 
         job.current_query = None
         job.status = (
@@ -261,6 +398,19 @@ def _run_trigger_extraction(
             job.status.value,
             completed_at=job.completed_at,
         )
+        if db_path:
+            serialized_results = json.dumps(
+                [r.model_dump(mode="json") for r in job.results]
+            )
+            local_store.update_job(
+                db_path,
+                job.job_id,
+                status=job.status.value,
+                completed_at=job.completed_at.isoformat(),
+                current_query=None,
+                running_queries="[]",
+                results=serialized_results,
+            )
 
         # Update calibration sync_data step
         if job.queries_failed > 0 and job.queries_completed == 0:
@@ -283,6 +433,8 @@ def _run_trigger_extraction(
         job.error = str(e)
         logger.error(f"Trigger job {job.job_id} failed: {e}")
         update_job_status(client, table, job.job_id, "failed", error=str(e))
+        if db_path:
+            local_store.update_job(db_path, job.job_id, status="failed", error=str(e), running_queries="[]", current_query=None)
         # Mark sync_data as failed
         calibration_tracker.complete_step(job.job_id, "sync_data", error=str(e))
 
@@ -428,6 +580,23 @@ async def trigger_extraction(
         aggregations=aggregations_dict,
     )
 
+    # Persist to local SQLite for crash recovery
+    db_path = _get_db_path(raw_request)
+    if db_path:
+        try:
+            local_store.insert_job(
+                db_path,
+                job_id=job.job_id,
+                country=request.country,
+                stage=request.stage,
+                tag=tag,
+                queries=job.queries,
+                triggered_by=user.email,
+                created_at=job.created_at.isoformat(),
+            )
+        except Exception as sqlite_err:
+            logger.warning(f"Failed to insert job into SQLite: {sqlite_err}")
+
     # Create calibration step tracking
     calibration_tracker.create(job.job_id, country=request.country)
     calibration_tracker.start_step(job.job_id, "sync_data")
@@ -448,7 +617,7 @@ async def trigger_extraction(
     writer = DeltaTableWriter(db_client)
     background_tasks.add_task(
         _run_trigger_extraction, extractor, job, writer, db_client, jobs_tbl,
-        tag, user.email,
+        tag, user.email, db_path, settings.max_parallel_queries,
     )
 
     return TriggerResponse(
@@ -486,18 +655,26 @@ async def list_events(
     """List extraction events visible to the current user."""
     db_client = _get_databricks_client(raw_request)
     jobs_tbl = get_settings().jobs_table
+    db_path = _get_db_path(raw_request)
 
-    db_jobs, total = list_jobs(
-        db_client,
-        jobs_tbl,
-        country=country,
-        status=status_filter.value if status_filter else None,
-        stage=stage,
-        triggered_by=None if user.is_admin else user.email,
-        period=period,
-        limit=limit,
-        offset=offset,
-    )
+    try:
+        db_jobs, total = list_jobs(
+            db_client,
+            jobs_tbl,
+            country=country,
+            status=status_filter.value if status_filter else None,
+            stage=stage,
+            triggered_by=None if user.is_admin else user.email,
+            period=period,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception:
+        logger.error("Failed to query jobs from Delta table", exc_info=True)
+        db_jobs, total = [], 0
+
+    if not db_jobs and total == 0:
+        logger.debug("No Delta table results found for list_events query")
 
     items: list[EventSummary] = []
     db_job_ids = set()
@@ -514,14 +691,39 @@ async def list_events(
             completed_at = job.completed_at
             error = job.error
             current_query = job.current_query
+            running_queries = sorted(record.running_queries)
+            total_rows = sum(r.rows_extracted or 0 for r in job.results)
         else:
-            queries_completed = 0
-            queries_failed = 0
-            live_status = row["status"]
-            started_at = row.get("started_at")
-            completed_at = row.get("completed_at")
-            error = row.get("error")
-            current_query = None
+            # Try SQLite for live state on running jobs
+            sqlite_row = None
+            if db_path and row.get("status") in ("running", "pending"):
+                try:
+                    sqlite_row = local_store.get_job(db_path, row["job_id"])
+                except Exception:
+                    pass
+            if sqlite_row:
+                sqlite_results = _results_from_row(sqlite_row)
+                c, f = _compute_counts(sqlite_results)
+                queries_completed = c
+                queries_failed = f
+                live_status = sqlite_row["status"]
+                started_at = sqlite_row.get("started_at")
+                completed_at = sqlite_row.get("completed_at")
+                error = sqlite_row.get("error")
+                current_query = sqlite_row.get("current_query")
+                rq = sqlite_row.get("running_queries", [])
+                running_queries = rq if isinstance(rq, list) else []
+                total_rows = _total_rows(sqlite_results)
+            else:
+                queries_completed = 0
+                queries_failed = 0
+                live_status = row["status"]
+                started_at = row.get("started_at")
+                completed_at = row.get("completed_at")
+                error = row.get("error")
+                current_query = None
+                running_queries = []
+                total_rows = 0
 
         steps, current_step = _build_steps_for_job(row["job_id"])
         items.append(
@@ -535,6 +737,9 @@ async def list_events(
                 queries_total=len(row["queries"]),
                 queries_completed=queries_completed,
                 queries_failed=queries_failed,
+                queries_running=len(running_queries),
+                running_queries=running_queries,
+                total_rows_extracted=total_rows,
                 created_at=row["created_at"],
                 started_at=started_at,
                 completed_at=completed_at,
@@ -562,6 +767,8 @@ async def list_events(
             continue
         if not user.is_admin and record.triggered_by != user.email:
             continue
+        inflight_running = sorted(record.running_queries)
+        inflight_rows = sum(r.rows_extracted or 0 for r in job.results)
         inflight_steps, inflight_current = _build_steps_for_job(job.job_id)
         items.insert(
             0,
@@ -575,6 +782,9 @@ async def list_events(
                 queries_total=len(job.queries),
                 queries_completed=job.queries_completed,
                 queries_failed=job.queries_failed,
+                queries_running=len(inflight_running),
+                running_queries=inflight_running,
+                total_rows_extracted=inflight_rows,
                 created_at=job.created_at,
                 started_at=job.started_at,
                 completed_at=job.completed_at,
@@ -609,20 +819,33 @@ async def get_event_detail(
     """Get detailed event info including per-query progress."""
     db_client = _get_databricks_client(raw_request)
     jobs_tbl = get_settings().jobs_table
+    db_path = _get_db_path(raw_request)
 
     # Check in-flight record first (avoids Delta table read-after-write lag)
     record = _trigger_jobs.get(job_id)
 
     db_row = get_job(db_client, jobs_tbl, job_id)
 
-    if not db_row and not record:
+    # Also try SQLite for crash-recovered or live state
+    sqlite_row = None
+    if db_path:
+        try:
+            sqlite_row = local_store.get_job(db_path, job_id)
+        except Exception:
+            pass
+
+    if not db_row and not record and not sqlite_row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "not_found", "message": f"Job not found: {job_id}"},
         )
 
     # Non-admin users can only see their own jobs
-    triggered_by = record.triggered_by if record else db_row["triggered_by"]
+    triggered_by = (
+        record.triggered_by if record
+        else db_row["triggered_by"] if db_row
+        else sqlite_row["triggered_by"]
+    )
     if not user.is_admin and triggered_by != user.email:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -636,6 +859,8 @@ async def get_event_detail(
         detail_stage = db_row["stage"] if db_row else record.stage
         detail_tag = db_row["tag"] if db_row else record.tag
         detail_period = db_row.get("period") if db_row else record.period
+        inflight_running = sorted(record.running_queries)
+        inflight_rows = sum(r.rows_extracted or 0 for r in job.results)
         detail_steps, detail_current = _build_steps_for_job(job.job_id)
         return EventDetail(
             job_id=job.job_id,
@@ -647,6 +872,9 @@ async def get_event_detail(
             queries_total=len(job.queries),
             queries_completed=job.queries_completed,
             queries_failed=job.queries_failed,
+            queries_running=len(inflight_running),
+            running_queries=inflight_running,
+            total_rows_extracted=inflight_rows,
             created_at=job.created_at,
             started_at=job.started_at,
             completed_at=job.completed_at,
@@ -658,7 +886,41 @@ async def get_event_detail(
             results=job.results,
         )
 
-    # Job completed and no longer in-flight -- return from Databricks
+    # Try SQLite for richer detail (results, running_queries)
+    if sqlite_row:
+        sqlite_results = _results_from_row(sqlite_row)
+        completed_count, failed_count = _compute_counts(sqlite_results)
+        rq = sqlite_row.get("running_queries", [])
+        running_queries = rq if isinstance(rq, list) else []
+        row_total = _total_rows(sqlite_results)
+        # Use db_row fields where available, fallback to sqlite_row
+        source = db_row if db_row else sqlite_row
+        sq_steps, sq_current = _build_steps_for_job(job_id)
+        return EventDetail(
+            job_id=job_id,
+            status=sqlite_row["status"],
+            country=source["country"],
+            stage=source["stage"],
+            period=source.get("period") if db_row else None,
+            tag=source["tag"],
+            queries_total=len(source.get("queries", [])),
+            queries_completed=completed_count,
+            queries_failed=failed_count,
+            queries_running=len(running_queries),
+            running_queries=running_queries,
+            total_rows_extracted=row_total,
+            created_at=source["created_at"],
+            started_at=sqlite_row.get("started_at") or source.get("started_at"),
+            completed_at=sqlite_row.get("completed_at") or source.get("completed_at"),
+            triggered_by=source["triggered_by"],
+            error=sqlite_row.get("error") or source.get("error"),
+            current_query=sqlite_row.get("current_query"),
+            steps=sq_steps,
+            current_step=sq_current,
+            results=sqlite_results,
+        )
+
+    # Job completed and no longer in-flight -- return from Databricks only
     completed_steps, completed_current = _build_steps_for_job(db_row["job_id"])
     return EventDetail(
         job_id=db_row["job_id"],
@@ -670,6 +932,9 @@ async def get_event_detail(
         queries_total=len(db_row["queries"]),
         queries_completed=0,
         queries_failed=0,
+        queries_running=0,
+        running_queries=[],
+        total_rows_extracted=0,
         created_at=db_row["created_at"],
         started_at=db_row.get("started_at"),
         completed_at=db_row.get("completed_at"),
