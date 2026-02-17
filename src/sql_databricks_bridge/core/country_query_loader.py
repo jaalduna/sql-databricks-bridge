@@ -20,15 +20,20 @@ class CountryAwareQueryLoader:
         ├── common/              # Shared queries for all countries
         │   ├── customers.sql
         │   └── products.sql
-        └── countries/           # Country-specific queries & overrides
-            ├── bolivia/
-            │   ├── stores.sql   # Bolivia-only
-            │   └── customers.sql # Overrides common/customers.sql
-            └── chile/
-                └── tax.sql
+        ├── countries/           # Country-specific queries & overrides
+        │   ├── bolivia/
+        │   │   ├── stores.sql   # Bolivia-only
+        │   │   └── customers.sql # Overrides common/customers.sql
+        │   └── chile/
+        │       └── tax.sql
+        └── servers/             # Server-specific queries (e.g., cross-DB)
+            ├── KTCLSQL001/
+            │   └── loc_psdata_compras.sql
+            └── KTCLSQL002/
+                └── loc_psdata_compras.sql
 
     Resolution strategy:
-        1. Check countries/{country}/{query}.sql (country-specific)
+        1. Check countries/{name}/{query}.sql or servers/{name}/{query}.sql
         2. Fallback to common/{query}.sql (shared)
         3. Raise QueryNotFoundError if neither exists
     """
@@ -37,7 +42,7 @@ class CountryAwareQueryLoader:
         """Initialize country-aware query loader.
 
         Args:
-            base_path: Root path containing 'common/' and 'countries/' directories.
+            base_path: Root path containing 'common/', 'countries/', and optionally 'servers/' directories.
 
         Raises:
             FileNotFoundError: If base_path doesn't exist.
@@ -48,9 +53,17 @@ class CountryAwareQueryLoader:
 
         self.common_path = self.base_path / "common"
         self.countries_path = self.base_path / "countries"
+        self.servers_path = self.base_path / "servers"
 
         # Cache: {country: {query_name: (sql_content, source_type)}}
         self._cache: dict[str, dict[str, tuple[str, str]]] = {}
+
+        # Track which names are servers vs countries
+        self._servers: set[str] = set()
+        if self.servers_path.exists():
+            for d in self.servers_path.iterdir():
+                if d.is_dir() and not d.name.startswith("."):
+                    self._servers.add(d.name)
 
     def _discover_common_queries(self) -> dict[str, str]:
         """Discover all queries in common/ directory.
@@ -74,23 +87,29 @@ class CountryAwareQueryLoader:
         return queries
 
     def _discover_country_queries(self, country: str) -> dict[str, str]:
-        """Discover country-specific queries.
+        """Discover country- or server-specific queries.
+
+        Checks countries/{name}/ first, then falls back to servers/{name}/.
 
         Args:
-            country: Country name (e.g., 'bolivia', 'chile').
+            country: Country or server name (e.g., 'bolivia', 'KTCLSQL001').
 
         Returns:
             Dictionary mapping query names to SQL content.
         """
         queries = {}
+
+        # Check countries/ first, then servers/
         country_path = self.countries_path / country
+        if not country_path.exists() or not country_path.is_dir():
+            country_path = self.servers_path / country
 
         if not country_path.exists():
-            logger.debug(f"Country path not found: {country_path}")
+            logger.debug(f"Query path not found for: {country}")
             return queries
 
         if not country_path.is_dir():
-            logger.warning(f"Country path is not a directory: {country_path}")
+            logger.warning(f"Query path is not a directory: {country_path}")
             return queries
 
         for sql_file in country_path.glob("*.sql"):
@@ -101,6 +120,37 @@ class CountryAwareQueryLoader:
 
         logger.info(f"Discovered {len(queries)} queries for {country}")
         return queries
+
+    def is_server(self, name: str) -> bool:
+        """Check if a name corresponds to a server (vs a country).
+
+        Args:
+            name: Country or server name.
+
+        Returns:
+            True if the name is found under servers/ directory.
+        """
+        return name in self._servers
+
+    def list_all_entries(self) -> list[tuple[str, str]]:
+        """List all available country and server entries.
+
+        Returns:
+            List of (name, type) tuples where type is 'country' or 'server'.
+        """
+        entries: list[tuple[str, str]] = []
+
+        if self.countries_path.exists():
+            for d in sorted(self.countries_path.iterdir()):
+                if d.is_dir() and not d.name.startswith("."):
+                    entries.append((d.name, "country"))
+
+        if self.servers_path.exists():
+            for d in sorted(self.servers_path.iterdir()):
+                if d.is_dir() and not d.name.startswith("."):
+                    entries.append((d.name, "server"))
+
+        return entries
 
     def discover_queries(self, country: str) -> dict[str, str]:
         """Discover all available queries for a country.
