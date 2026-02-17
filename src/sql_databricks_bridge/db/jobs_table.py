@@ -30,10 +30,20 @@ def ensure_jobs_table(client: DatabricksClient, table: str) -> None:
             started_at TIMESTAMP,
             completed_at TIMESTAMP,
             error STRING,
-            failed_queries STRING
+            failed_queries STRING,
+            period STRING,
+            aggregations STRING
         ) USING DELTA
     """
     client.execute_sql(ddl)
+
+    # Migrate existing tables: add columns that may not exist yet
+    for col in ("period STRING", "aggregations STRING"):
+        try:
+            client.execute_sql(f"ALTER TABLE {table} ADD COLUMN {col}")
+            logger.info(f"Added column {col.split()[0]} to {table}")
+        except Exception:
+            pass  # Column already exists
     logger.info(f"Ensured jobs table exists: {table}")
 
 
@@ -49,12 +59,16 @@ def insert_job(
     triggered_by: str,
     created_at: datetime,
     failed_queries: list[str] | None = None,
+    period: str | None = None,
+    aggregations: dict | None = None,
 ) -> None:
     """Insert a new job record into the Delta table."""
     queries_json = _esc(json.dumps(queries))
     failed_queries_json = _esc(json.dumps(failed_queries or []))
+    period_sql = f"'{_esc(period)}'" if period else "NULL"
+    aggregations_sql = f"'{_esc(json.dumps(aggregations))}'" if aggregations else "NULL"
     sql = f"""
-        INSERT INTO {table} (job_id, country, stage, tag, status, queries, triggered_by, created_at, failed_queries)
+        INSERT INTO {table} (job_id, country, stage, tag, status, queries, triggered_by, created_at, failed_queries, period, aggregations)
         VALUES (
             '{_esc(job_id)}',
             '{_esc(country)}',
@@ -64,7 +78,9 @@ def insert_job(
             '{queries_json}',
             '{_esc(triggered_by)}',
             '{created_at.isoformat()}',
-            '{failed_queries_json}'
+            '{failed_queries_json}',
+            {period_sql},
+            {aggregations_sql}
         )
     """
     client.execute_sql(sql)
@@ -113,12 +129,19 @@ def list_jobs(
 
     where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
-    count_rows = client.execute_sql(f"SELECT COUNT(*) AS cnt FROM {table}{where_sql}")
-    total = int(count_rows[0]["cnt"]) if count_rows else 0
+    count_sql = f"SELECT COUNT(*) AS cnt FROM {table}{where_sql}"
+    logger.debug("list_jobs COUNT query: %s", count_sql)
+    count_rows = client.execute_sql(count_sql)
+    if not count_rows:
+        logger.warning("list_jobs COUNT query returned no results for table %s", table)
+        total = 0
+    else:
+        total = int(count_rows[0]["cnt"])
+    logger.debug("list_jobs total count: %d", total)
 
-    rows = client.execute_sql(
-        f"SELECT * FROM {table}{where_sql} ORDER BY created_at DESC LIMIT {limit} OFFSET {offset}"
-    )
+    select_sql = f"SELECT * FROM {table}{where_sql} ORDER BY created_at DESC LIMIT {limit} OFFSET {offset}"
+    logger.debug("list_jobs SELECT query: %s", select_sql)
+    rows = client.execute_sql(select_sql)
 
     items = []
     for row in rows:
@@ -129,6 +152,8 @@ def list_jobs(
         else:
             row["failed_queries"] = []
         items.append(row)
+
+    logger.debug("list_jobs returned %d rows", len(items))
 
     return items, total
 

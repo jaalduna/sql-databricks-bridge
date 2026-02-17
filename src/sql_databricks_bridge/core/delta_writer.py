@@ -170,6 +170,35 @@ class DeltaTableWriter:
         except Exception:
             return False
 
+    def get_current_version(self, table_name: str) -> int:
+        """Get the latest version number of a Delta table.
+
+        Args:
+            table_name: Fully-qualified table name (catalog.schema.table).
+
+        Returns:
+            Latest version number.
+
+        Raises:
+            RuntimeError: If table has no history or cannot be queried.
+        """
+        rows = self.client.execute_sql(f"DESCRIBE HISTORY {table_name} LIMIT 1")
+        if not rows:
+            raise RuntimeError(f"No history found for {table_name}")
+        return int(rows[0]["version"])
+
+    def get_history(self, table_name: str, limit: int = 20) -> list[dict]:
+        """Get Delta table version history.
+
+        Args:
+            table_name: Fully-qualified table name (catalog.schema.table).
+            limit: Maximum number of history entries to return.
+
+        Returns:
+            List of history row dicts with version, timestamp, operation, etc.
+        """
+        return self.client.execute_sql(f"DESCRIBE HISTORY {table_name} LIMIT {limit}")
+
     def _apply_tags(self, table_name: str, tag: str | None) -> None:
         """Apply Unity Catalog tags to a Delta table (best-effort)."""
         if not tag:
