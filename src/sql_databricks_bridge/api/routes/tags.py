@@ -63,6 +63,9 @@ class TableHistoryResponse(BaseModel):
     table_name: str
     history: list[HistoryEntry]
     tags: list[TagResponse]
+    total: int
+    limit: int
+    offset: int
 
 
 # --- Helpers ---
@@ -237,6 +240,7 @@ async def get_table_history_with_tags(
     user: CurrentAzureADUser,
     raw_request: Request,
     limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
 ) -> TableHistoryResponse:
     """Get Delta table version history with associated tags."""
     db_client = _get_databricks_client(raw_request)
@@ -245,16 +249,28 @@ async def get_table_history_with_tags(
 
     writer = DeltaTableWriter(db_client)
 
+    # Get total version count from latest version number
     try:
-        history_rows = writer.get_history(table_name, limit=limit)
+        total = writer.get_current_version(table_name) + 1
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "not_found", "message": f"Table not found or cannot read history: {e}"},
+            detail={"error": "not_found", "message": f"Table not found or no history: {e}"},
         )
 
+    # DESCRIBE HISTORY doesn't support OFFSET, so over-fetch and slice
+    try:
+        all_rows = writer.get_history(table_name, limit=offset + limit)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": f"Cannot read history: {e}"},
+        )
+
+    page_rows = all_rows[offset:offset + limit]
+
     history = []
-    for row in history_rows:
+    for row in page_rows:
         history.append(
             HistoryEntry(
                 version=int(row["version"]) if row.get("version") is not None else None,
@@ -275,4 +291,7 @@ async def get_table_history_with_tags(
         table_name=table_name,
         history=history,
         tags=tags,
+        total=total,
+        limit=limit,
+        offset=offset,
     )
