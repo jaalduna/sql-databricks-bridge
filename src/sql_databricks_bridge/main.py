@@ -2,10 +2,7 @@
 
 import asyncio
 import logging
-import os
-import uuid as _uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
 from typing import AsyncIterator
 
 from fastapi import APIRouter, FastAPI
@@ -14,9 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from sql_databricks_bridge import __version__
 from sql_databricks_bridge.api.routes import auth, databricks_jobs, extract, health, jobs, metadata, pipeline, sync, tags, trigger
 from sql_databricks_bridge.core.config import get_settings
-from sql_databricks_bridge.core.stages import build_tag
 from sql_databricks_bridge.db.databricks import DatabricksClient
-from sql_databricks_bridge.db.jobs_table import ensure_jobs_table, insert_job, update_job_status
+from sql_databricks_bridge.db.jobs_table import ensure_jobs_table
+from sql_databricks_bridge.db.local_store import init_db, mark_orphaned_jobs
 from sql_databricks_bridge.db.version_tags_table import ensure_version_tags_table
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 from sql_databricks_bridge.core.calibration_launcher import CalibrationJobLauncher
@@ -56,42 +53,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ensure_jobs_table(databricks_client, settings.jobs_table)
             ensure_version_tags_table(databricks_client, settings.version_tags_table)
 
-            # Seed fake availability data for e2e testing
-            seed_availability = os.environ.get("SEED_AVAILABILITY", "").lower() in ("1", "true", "yes")
-            if seed_availability:
-                seed_country = os.environ.get("SEED_COUNTRY", "bolivia")
-                now = datetime.utcnow()
-                # Calculate current period as YYYYMM
-                seed_period = os.environ.get("SEED_PERIOD", now.strftime("%Y%m"))
-
-                for seed_stage in ("elegibilidad", "pesaje"):
-                    seed_job_id = str(_uuid.uuid4())
-                    seed_tag = build_tag(seed_country, seed_stage)
-                    created = datetime(now.year, now.month, 1)  # first of month
-                    try:
-                        insert_job(
-                            databricks_client,
-                            settings.jobs_table,
-                            job_id=seed_job_id,
-                            country=seed_country,
-                            stage=seed_stage,
-                            tag=seed_tag,
-                            queries=["seed_placeholder"],
-                            triggered_by="system-seed",
-                            created_at=created,
-                            period=seed_period,
-                        )
-                        update_job_status(
-                            databricks_client,
-                            settings.jobs_table,
-                            seed_job_id,
-                            "completed",
-                            started_at=created,
-                            completed_at=created,
-                        )
-                        logger.info(f"SEED_AVAILABILITY: Seeded {seed_stage} job for {seed_country} period {seed_period}")
-                    except Exception as e:
-                        logger.warning(f"SEED_AVAILABILITY: Failed to seed {seed_stage}: {e}")
+            # Initialize local SQLite store and recover orphaned jobs
+            db_path = init_db(settings.sqlite_db_path)
+            mark_orphaned_jobs(db_path)
+            app.state.sqlite_db_path = db_path
 
             # Store client on app.state for route access
             app.state.databricks_client = databricks_client
