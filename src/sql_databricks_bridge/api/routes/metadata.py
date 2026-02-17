@@ -21,6 +21,7 @@ class CountryInfo(BaseModel):
     code: str
     queries: list[str]
     queries_count: int
+    type: str = "country"  # "country" or "server"
 
 
 class CountriesResponse(BaseModel):
@@ -43,28 +44,20 @@ class StagesResponse(BaseModel):
     description="Returns the list of supported countries and their available SQL queries.",
 )
 async def list_countries() -> CountriesResponse:
-    """List all available countries and their queries."""
+    """List all available countries, servers, and their queries."""
     queries_base = Path(get_settings().queries_path)
-    countries_path = queries_base / "countries"
-
-    if not countries_path.exists():
-        return CountriesResponse(countries=[])
 
     loader = CountryAwareQueryLoader(queries_base)
     result = []
 
-    for country_dir in sorted(countries_path.iterdir()):
-        if not country_dir.is_dir() or country_dir.name.startswith("."):
-            continue
-
-        country_code = country_dir.name
-        queries = loader.list_queries(country_code)
-
+    for name, entry_type in loader.list_all_entries():
+        queries = loader.list_queries(name)
         result.append(
             CountryInfo(
-                code=country_code,
+                code=name,
                 queries=queries,
                 queries_count=len(queries),
+                type=entry_type,
             )
         )
 

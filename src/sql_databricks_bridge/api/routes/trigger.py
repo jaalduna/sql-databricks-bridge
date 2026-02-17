@@ -15,6 +15,7 @@ from sql_databricks_bridge.api.dependencies import CurrentAzureADUser
 from sql_databricks_bridge.api.schemas import JobStatus, QueryResult
 from sql_databricks_bridge.core.config import get_settings
 from sql_databricks_bridge.core.delta_writer import DeltaTableWriter
+from sql_databricks_bridge.core.country_query_loader import CountryAwareQueryLoader
 from sql_databricks_bridge.core.extractor import Extractor, ExtractionJob
 from sql_databricks_bridge.core.stages import build_tag
 from sql_databricks_bridge.db.databricks import DatabricksClient
@@ -534,9 +535,14 @@ async def trigger_extraction(
 
     # Create extractor and job
     try:
-        sql_client = SQLServerClient(country=request.country)
+        queries_path = get_settings().queries_path
+        loader = CountryAwareQueryLoader(queries_path)
+        if loader.is_server(request.country):
+            sql_client = SQLServerClient(server=request.country, database="master")
+        else:
+            sql_client = SQLServerClient(country=request.country)
         extractor = Extractor(
-            queries_path=get_settings().queries_path,
+            queries_path=queries_path,
             sql_client=sql_client,
         )
 
