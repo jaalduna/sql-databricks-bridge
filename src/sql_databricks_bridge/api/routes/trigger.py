@@ -61,6 +61,14 @@ class TriggerRequest(BaseModel):
         default=None,
         description="Aggregation options for calibration (region, nivel_2).",
     )
+    row_limit: int | None = Field(
+        default=None,
+        description="Override row limit per query (TOP N). null = use server default.",
+    )
+    lookback_months: int | None = Field(
+        default=None,
+        description="Override rolling lookback months. null = use server default.",
+    )
 
 
 class TriggerResponse(BaseModel):
@@ -264,6 +272,8 @@ def _run_trigger_extraction(
     triggered_by: str = "",
     db_path: str | None = None,
     max_parallel: int = 4,
+    override_row_limit: int | None = None,
+    override_lookback_months: int | None = None,
 ) -> None:
     """Background task to run the extraction triggered by a user."""
     try:
@@ -316,8 +326,8 @@ def _run_trigger_extraction(
             start_time = datetime.utcnow()
 
             try:
-                row_limit = settings.query_row_limit or None
-                lookback = settings.lookback_months
+                row_limit = override_row_limit if override_row_limit is not None else (settings.query_row_limit or None)
+                lookback = override_lookback_months if override_lookback_months is not None else settings.lookback_months
                 chunks = list(
                     extractor.execute_query(query_name, job.country, job.chunk_size, limit=row_limit, lookback_months=lookback)
                 )
@@ -624,6 +634,7 @@ async def trigger_extraction(
     background_tasks.add_task(
         _run_trigger_extraction, extractor, job, writer, db_client, jobs_tbl,
         tag, user.email, db_path, settings.max_parallel_queries,
+        request.row_limit, request.lookback_months,
     )
 
     return TriggerResponse(
