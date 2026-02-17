@@ -1,4 +1,5 @@
 -- mexico: nac_ato
+-- source: mx_sinc.dbo.nac_ato (cross-database)
 -- columns: 14
 
 select
@@ -16,4 +17,6 @@ select
     ventasuelta,
     volume,
     vsfrmcompra
-from nac_ato
+from mx_sinc.dbo.nac_ato
+where duplicado = 0
+    and datacoleta >= DATEADD(MONTH, -{lookback_months}, GETDATE())
