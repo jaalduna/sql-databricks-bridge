@@ -11,7 +11,7 @@ from sql_databricks_bridge.api.schemas import (
     JobStatus,
 )
 from sql_databricks_bridge.core.delta_writer import DeltaTableWriter
-from sql_databricks_bridge.core.extractor import Extractor, ExtractionJob
+from sql_databricks_bridge.core.extractor import Extractor, ExtractionJob, concat_chunks
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 
@@ -64,9 +64,7 @@ async def run_extraction_job(
             )
 
             if chunks:
-                import polars as pl
-
-                combined = pl.concat(chunks)
+                combined = concat_chunks(chunks)
                 writer.write_dataframe(
                     combined,
                     query_name,
