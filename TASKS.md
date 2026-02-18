@@ -11,14 +11,14 @@
 ## Todo
 - [ ] Revisar como correr el server con el ejecutable | priority:high | tags:server,deploy
 - [ ] sql-databricks-bridge corriendo en servidor | priority:high | tags:deploy,server
-- [ ] busqueda en dashboard | priority:medium
-  /pancha incorporar la opción de buscar/filtrar tareas por nombre en el titulo
 
 ## In Progress
 
 ## Review
 
 ## Done
+- [x] busqueda en dashboard | priority:medium
+  /pancha incorporar la opción de buscar/filtrar tareas por nombre en el titulo
 - [x] Merge kpioe queries to databricks 000 | priority:high | tags:queries,databricks
 - [x] Compilar en ejecutable en windows | priority:medium | tags:build,windows
 - [x] Jobs with partial failed queries should not be marked as complete | priority:high | tags:frontend,bug,m1
@@ -33,19 +33,14 @@
 - [x] Agregar tags a las versiones historicas de Delta tables | priority:medium | tags:feature,delta
 - [x] Correr aplicativo para extraer Bolivia | priority:medium | tags:bolivia,extract
 - [x] steps and subteps information | priority:medium
-  search for an endpoint that provide information from each step of the calibration process, such as sync to databricks 000-sql-databricks-bridge.{country} schema and then from there copy to 001-calibration-3-0.bronze-{country} schema and then -> merge -> simulate weights if not available -> simulate kpis for all/bc/original and finally calculate penetration and volume targets. 
-  
+  search for an endpoint that provide information from each step of the calibration process, such as sync to databricks 000-sql-databricks-bridge.{country} schema and then from there copy to 001-calibration-3-0.bronze-{country} schema and then -> merge -> simulate weights if not available -> simulate kpis for all/bc/original and finally calculate penetration and volume targets.
   Objetives:
   implement a solution to retrieve information from each job status periodically, tipically using databricks sdk or other method u think is appropiate. Data should flow to the endpoint to be forwarded to the ../calibration-fronted application, Check the dev server there if u need more information on how the endpoint should work.
-  
-  For the tests use firt a mockup of databricks feedback, to validate internal data flow and then test with a subset for 1 product of bolivia. For the sync sql->databricks , use only 5 products from Bolivia. 
-  
-  use an agent team of 1 data_engineers, 1 backend engineer,  1 data_scientist, 1 code reviewer, 1 tester and 1 software architect to verify code organization is correct and organized. 
-  
+  For the tests use firt a mockup of databricks feedback, to validate internal data flow and then test with a subset for 1 product of bolivia. For the sync sql->databricks , use only 5 products from Bolivia.
+  use an agent team of 1 data_engineers, 1 backend engineer,  1 data_scientist, 1 code reviewer, 1 tester and 1 software architect to verify code organization is correct and organized.
   Expected results:
   endpoint to feed calibration-backend tested and validated.
-  
-  note: 
-  - dont wait for approvals, just run until u solve this if u cant solve a particular issue after 5 iterations, asamble a team of 5 engineers that find the root cause discusing and comparing hipotesis. 
+  note:
+  - dont wait for approvals, just run until u solve this if u cant solve a particular issue after 5 iterations, asamble a team of 5 engineers that find the root cause discusing and comparing hipotesis.
   - teams coordinators should not solve problems, just plan and delegate tasks.
 - [x] Validar que los tags se esten implementando | priority:medium | tags:validation,delta
