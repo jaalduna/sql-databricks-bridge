@@ -11,9 +11,28 @@
 ## Todo
 - [ ] Revisar como correr el server con el ejecutable | priority:high | tags:server,deploy
 - [ ] sql-databricks-bridge corriendo en servidor | priority:high | tags:deploy,server
+- [ ] busqueda en dashboard | priority:medium
+  /pancha incorporar la opción de buscar/filtrar tareas por nombre en el titulo
 
 ## In Progress
-- [-] steps and subteps information | priority:medium
+
+## Review
+
+## Done
+- [x] Merge kpioe queries to databricks 000 | priority:high | tags:queries,databricks
+- [x] Compilar en ejecutable en windows | priority:medium | tags:build,windows
+- [x] Jobs with partial failed queries should not be marked as complete | priority:high | tags:frontend,bug,m1
+  Should show a warning instead
+- [x] Compile front end with tauri in github actions | priority:medium | tags:ci,tauri
+- [x] milestone colors have small contrast when on warning | priority:medium
+  increase contrast (may be when background is in warning, use dark letters)
+- [x] Incorporar query mordom para simulador de pesaje | priority:medium | tags:queries
+- [x] Agregar Inicio en stage | priority:medium | tags:frontend,m1
+- [x] Validation with Colombia sync | priority:high | tags:frontend,colombia,m1
+- [x] Duration always showing 0ms | priority:high | tags:frontend,bug,m1
+- [x] Agregar tags a las versiones historicas de Delta tables | priority:medium | tags:feature,delta
+- [x] Correr aplicativo para extraer Bolivia | priority:medium | tags:bolivia,extract
+- [x] steps and subteps information | priority:medium
   search for an endpoint that provide information from each step of the calibration process, such as sync to databricks 000-sql-databricks-bridge.{country} schema and then from there copy to 001-calibration-3-0.bronze-{country} schema and then -> merge -> simulate weights if not available -> simulate kpis for all/bc/original and finally calculate penetration and volume targets. 
   
   Objetives:
@@ -29,21 +48,4 @@
   note: 
   - dont wait for approvals, just run until u solve this if u cant solve a particular issue after 5 iterations, asamble a team of 5 engineers that find the root cause discusing and comparing hipotesis. 
   - teams coordinators should not solve problems, just plan and delegate tasks.
-- [-] milestone colors have small contrast when on warning | priority:medium
-  increase contrast (may be when background is in warning, use dark letters)
-
-## Review
-- [-] Merge kpioe queries to databricks 000 | priority:high | tags:queries,databricks
-- [-] Jobs with partial failed queries should not be marked as complete | priority:high | tags:frontend,bug,m1
-  Should show a warning instead
-- [-] Agregar tags a las versiones historicas de Delta tables | priority:medium | tags:feature,delta
-- [-] Validar que los tags se esten implementando | priority:medium | tags:validation,delta
-
-## Done
-- [x] Compilar en ejecutable en windows | priority:medium | tags:build,windows
-- [x] Compile front end with tauri in github actions | priority:medium | tags:ci,tauri
-- [x] Incorporar query mordom para simulador de pesaje | priority:medium | tags:queries
-- [x] Agregar Inicio en stage | priority:medium | tags:frontend,m1
-- [x] Validation with Colombia sync | priority:high | tags:frontend,colombia,m1
-- [x] Duration always showing 0ms | priority:high | tags:frontend,bug,m1
-- [x] Correr aplicativo para extraer Bolivia | priority:medium | tags:bolivia,extract
+- [x] Validar que los tags se esten implementando | priority:medium | tags:validation,delta
