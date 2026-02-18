@@ -165,13 +165,26 @@ class SQLServerClient:
                     infer_schema_length=None,
                 )
 
-                # Cast columns to match the schema from first chunk
-                try:
-                    for col, dtype in schema.items():
-                        if col in chunk_df.columns and chunk_df[col].dtype != dtype:
-                            chunk_df = chunk_df.with_columns(pl.col(col).cast(dtype, strict=False))
-                except Exception:
-                    pass  # If casting fails, use original types
+                # Reconcile column types with the reference schema.
+                # If the reference has Null (first chunk was all-null) but this
+                # chunk has a real type, upgrade the reference schema instead of
+                # discarding data by casting to Null.
+                for col, dtype in list(schema.items()):
+                    if col not in chunk_df.columns:
+                        continue
+                    chunk_type = chunk_df[col].dtype
+                    if chunk_type == dtype:
+                        continue
+                    if dtype == pl.Null:
+                        # Upgrade: first chunk was all-null, now we know the real type
+                        schema[col] = chunk_type
+                    else:
+                        try:
+                            chunk_df = chunk_df.with_columns(
+                                pl.col(col).cast(dtype, strict=False)
+                            )
+                        except Exception:
+                            pass
 
                 yield chunk_df
 
