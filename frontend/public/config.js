@@ -5,5 +5,5 @@
 // NO es necesario reconstruir la app, solo editar y refrescar el navegador.
 
 window.__BRIDGE_CONFIG__ = {
-  API_URL: "http://localhost:8000/api/v1",
+  API_URL: "http://localhost:5000/api/v1",
 };

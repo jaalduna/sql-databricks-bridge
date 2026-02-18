@@ -1,0 +1,86 @@
+flowchart TD
+    subgraph FASTAPI["FastAPI Application — /api/v1"]
+        direction TB
+
+        subgraph HEALTH["Health"]
+            H1["GET /health/live"]
+            H2["GET /health/ready"]
+            H3["GET /health/startup"]
+        end
+
+        subgraph AUTH["Auth"]
+            A1["GET /auth/me"]
+        end
+
+        subgraph META["Metadata"]
+            M1["GET /metadata/countries"]
+            M2["GET /metadata/stages"]
+            M3["GET /metadata/data-availability"]
+        end
+
+        subgraph EXTRACT["Extraction"]
+            E1["POST /extract"]
+        end
+
+        subgraph TRIGGER["Trigger"]
+            T1["POST /trigger"]
+            T2["GET /events"]
+            T3["GET /events/{job_id}"]
+            T4["GET /events/{job_id}/download"]
+        end
+
+        subgraph SYNC["Sync"]
+            S1["POST /sync/events"]
+            S2["GET /sync/events"]
+            S3["GET /sync/events/{id}"]
+            S4["POST /sync/events/{id}/retry"]
+            S5["DELETE /sync/events/{id}"]
+            S6["GET /sync/stats"]
+            S7["GET /sync/poller/status"]
+            S8["POST /sync/poller/trigger"]
+            S9["WS /sync/events/ws"]
+        end
+
+        subgraph PIPE["Pipeline"]
+            P1["POST /pipeline"]
+            P2["GET /pipeline"]
+            P3["GET /pipeline/{id}"]
+            P4["POST /pipeline/{id}/poll"]
+            P5["PATCH /pipeline/{id}/steps/{step_id}"]
+            P6["PATCH /pipeline/{id}/steps/{step_id}/substeps/{name}"]
+            P7["DELETE /pipeline/{id}"]
+        end
+
+        subgraph DBRICKS["Databricks Jobs"]
+            D1["POST /databricks/jobs/{id}/run"]
+            D2["GET /databricks/runs/{run_id}"]
+        end
+
+        subgraph TAGS["Version Tags"]
+            V1["POST /tags"]
+            V2["GET /tags"]
+            V3["DELETE /tags/{tag}"]
+            V4["GET /tags/history/{table_name}"]
+        end
+    end
+
+    %% Auth requirements
+    A1 -.->|JWT required| AUTH_NOTE["Azure AD JWT"]
+    T1 -.->|JWT + can_trigger_sync| AUTH_NOTE
+    P1 -.->|JWT + can_trigger_sync| AUTH_NOTE
+    D1 -.->|JWT + can_trigger_sync| AUTH_NOTE
+
+    %% Styling
+    classDef get fill:#61AFFE,stroke:#4A90D9,color:#fff
+    classDef post fill:#49CC90,stroke:#3DAA76,color:#fff
+    classDef delete fill:#F93E3E,stroke:#D63333,color:#fff
+    classDef patch fill:#FCA130,stroke:#D88A28,color:#fff
+    classDef ws fill:#9B59B6,stroke:#7D3C98,color:#fff
+    classDef authNote fill:#F39C12,stroke:#D68910,color:#fff
+
+    class H1,H2,H3,A1,M1,M2,M3,T2,T3,T4,S2,S3,S6,S7,P2,P3,D2,V2,V4 get
+    class E1,T1,S1,S4,S8,P1,P4,D1,V1 post
+    class S5,P7,V3 delete
+    class P5,P6 patch
+    class S9 ws
+    class AUTH_NOTE authNote

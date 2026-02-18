@@ -1,0 +1,114 @@
+flowchart TD
+    subgraph "FastAPI Application"
+        MAIN["main.py<br/>Startup & Lifespan"]
+        SERVER["server.py<br/>ASGI Server"]
+    end
+
+    subgraph "api/ — REST Endpoints"
+        AUTH_R["auth.py<br/>GET /auth/me"]
+        HEALTH["health.py<br/>GET /health/*"]
+        META["metadata.py<br/>GET /metadata/*"]
+        EXTRACT["extract.py<br/>POST /extract"]
+        TRIGGER["trigger.py<br/>POST /trigger"]
+        SYNC_R["sync.py<br/>POST /sync/*"]
+        PIPELINE["pipeline.py<br/>/pipeline/*"]
+        DBRICKS_J["databricks_jobs.py<br/>/databricks/*"]
+        TAGS["tags.py<br/>/tags/*"]
+    end
+
+    subgraph "auth/ — Authentication & Authorization"
+        AZURE_AD["azure_ad.py<br/>JWT Validator"]
+        AUTH_USERS["authorized_users.py<br/>Allowlist YAML"]
+        PERMS["permissions.py<br/>Role Checks"]
+        TOKEN["token.py<br/>Bearer Extraction"]
+    end
+
+    subgraph "core/ — Business Logic"
+        CONFIG["config.py<br/>Settings"]
+        EXTRACTOR["extractor.py<br/>SQL Extraction"]
+        DELTA_W["delta_writer.py<br/>Delta Table Writer"]
+        Q_LOADER["country_query_loader.py<br/>Query Discovery"]
+        CAL_LAUNCH["calibration_launcher.py<br/>Databricks Job Launch"]
+        CAL_TRACK["calibration_tracker.py<br/>Step State Machine"]
+        PIPE_TRACK["pipeline_tracker.py<br/>Pipeline Orchestration"]
+        DB_MON["databricks_monitor.py<br/>Run Polling"]
+        STAGES["stages.py<br/>Stage Config"]
+        UPLOADER["uploader.py<br/>Volume Upload"]
+    end
+
+    subgraph "db/ — Database Clients"
+        SQL_SRV["sql_server.py<br/>pymssql Client"]
+        DBRICKS["databricks.py<br/>SDK Client"]
+        JOBS_TBL["jobs_table.py<br/>Jobs Delta Table"]
+        LOCAL["local_store.py<br/>SQLite Cache"]
+        VTAGS["version_tags_table.py<br/>Tags Delta Table"]
+    end
+
+    subgraph "sync/ — Sync Engine"
+        SYNC_OPS["operations.py<br/>SyncOperator"]
+        VALIDATORS["validators.py<br/>Event Validators"]
+        POLLER["poller.py<br/>Event Poller"]
+        RETRY["retry.py<br/>Exponential Backoff"]
+    end
+
+    subgraph "models/ — Data Models"
+        EVENTS["events.py<br/>SyncEvent"]
+        CAL_M["calibration.py<br/>Calibration Models"]
+        PIPE_M["pipeline.py<br/>Pipeline Models"]
+    end
+
+    %% FastAPI entry
+    SERVER --> MAIN
+    MAIN --> AUTH_R & HEALTH & META & EXTRACT & TRIGGER & SYNC_R & PIPELINE & DBRICKS_J & TAGS
+
+    %% Auth middleware
+    AUTH_R --> AZURE_AD
+    TRIGGER --> AZURE_AD
+    PIPELINE --> AZURE_AD
+    AZURE_AD --> AUTH_USERS
+    AUTH_USERS --> PERMS
+    TOKEN --> AZURE_AD
+
+    %% API to Core
+    EXTRACT --> EXTRACTOR & DELTA_W
+    TRIGGER --> EXTRACTOR & DELTA_W & CAL_TRACK & CAL_LAUNCH
+    PIPELINE --> PIPE_TRACK & DB_MON
+    META --> Q_LOADER & STAGES
+    TAGS --> DELTA_W & VTAGS
+    DBRICKS_J --> DBRICKS
+
+    %% Core to DB
+    EXTRACTOR --> SQL_SRV & Q_LOADER
+    DELTA_W --> DBRICKS
+    CAL_LAUNCH --> DBRICKS
+    DB_MON --> DBRICKS
+    TRIGGER --> JOBS_TBL & LOCAL
+    HEALTH --> SQL_SRV & DBRICKS
+
+    %% Sync
+    SYNC_R --> SYNC_OPS
+    SYNC_OPS --> VALIDATORS & SQL_SRV & DBRICKS
+    POLLER --> DBRICKS & SYNC_OPS
+    SYNC_OPS --> RETRY
+
+    %% Models usage
+    SYNC_OPS --> EVENTS
+    PIPE_TRACK --> PIPE_M
+    CAL_TRACK --> CAL_M
+
+    %% Styling
+    classDef api fill:#4A90D9,stroke:#2C5F8A,color:#fff
+    classDef auth fill:#E67E22,stroke:#A35B16,color:#fff
+    classDef core fill:#27AE60,stroke:#1B7A43,color:#fff
+    classDef db fill:#8E44AD,stroke:#6A3280,color:#fff
+    classDef sync fill:#E74C3C,stroke:#A33529,color:#fff
+    classDef model fill:#F39C12,stroke:#C87F0A,color:#fff
+    classDef entry fill:#2C3E50,stroke:#1A252F,color:#fff
+
+    class AUTH_R,HEALTH,META,EXTRACT,TRIGGER,SYNC_R,PIPELINE,DBRICKS_J,TAGS api
+    class AZURE_AD,AUTH_USERS,PERMS,TOKEN auth
+    class CONFIG,EXTRACTOR,DELTA_W,Q_LOADER,CAL_LAUNCH,CAL_TRACK,PIPE_TRACK,DB_MON,STAGES,UPLOADER core
+    class SQL_SRV,DBRICKS,JOBS_TBL,LOCAL,VTAGS db
+    class SYNC_OPS,VALIDATORS,POLLER,RETRY sync
+    class EVENTS,CAL_M,PIPE_M model
+    class MAIN,SERVER entry

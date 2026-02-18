@@ -1,0 +1,62 @@
+sequenceDiagram
+    autonumber
+    participant Poller as EventPoller
+    participant ETbl as Databricks<br/>Events Table
+    participant Val as Validators
+    participant SOp as SyncOperator
+    participant DData as Databricks<br/>Source Data
+    participant SQL as SQL Server
+    participant WS as WebSocket<br/>Subscribers
+
+    Note over Poller,SQL: Poll cycle (periodic or manual trigger)
+
+    Poller->>ETbl: SELECT * WHERE status = 'pending'
+    ETbl-->>Poller: SyncEvent[] (batch)
+
+    loop For each SyncEvent
+        Poller->>Val: validate_event(event)
+
+        alt INSERT operation
+            Val->>Val: validate_source_table(catalog.schema.table)
+            Val-->>SOp: Validated
+
+            SOp->>DData: Read source data (Statement Execution API)
+            DData-->>SOp: Polars DataFrame
+
+            SOp->>SQL: Bulk INSERT into target_table
+            SQL-->>SOp: rows_affected
+
+        else UPDATE operation
+            Val->>Val: validate_primary_keys(PKs required)
+            Val->>Val: validate_source_table()
+            Val-->>SOp: Validated
+
+            SOp->>DData: Read source data with filter
+            DData-->>SOp: Polars DataFrame
+
+            SOp->>SQL: UPDATE ... SET ... WHERE pk = ?
+            SQL-->>SOp: rows_affected
+
+        else DELETE operation
+            Val->>Val: validate_primary_keys(PKs required)
+            Val->>Val: validate_delete_limit(max 10,000 rows)
+            Val-->>SOp: Validated
+
+            SOp->>SQL: DELETE FROM target WHERE pk IN (...)
+            SQL-->>SOp: rows_affected
+        end
+
+        alt Success
+            SOp->>ETbl: UPDATE status = 'completed'
+            SOp->>WS: broadcast(event: completed)
+        else Failure
+            SOp->>ETbl: UPDATE status = 'failed', error = msg
+
+            alt can_retry (< max_retries)
+                Note over SOp: Exponential backoff
+                SOp->>ETbl: UPDATE status = 'pending' (retry)
+            else max_retries exceeded
+                SOp->>WS: broadcast(event: failed)
+            end
+        end
+    end
