@@ -16,7 +16,7 @@ from sql_databricks_bridge.api.schemas import JobStatus, QueryResult
 from sql_databricks_bridge.core.config import get_settings
 from sql_databricks_bridge.core.delta_writer import DeltaTableWriter
 from sql_databricks_bridge.core.country_query_loader import CountryAwareQueryLoader
-from sql_databricks_bridge.core.extractor import Extractor, ExtractionJob
+from sql_databricks_bridge.core.extractor import Extractor, ExtractionJob, concat_chunks
 from sql_databricks_bridge.core.stages import build_tag
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db import local_store
@@ -333,7 +333,7 @@ def _run_trigger_extraction(
                 )
 
                 if chunks:
-                    combined = pl.concat(chunks)
+                    combined = concat_chunks(chunks)
                     writer.write_dataframe(combined, query_name, job.country, tag=tag)
                     result.rows_extracted = len(combined)
                     result.table_name = writer.resolve_table_name(
@@ -487,7 +487,7 @@ async def trigger_extraction(
         )
 
     # Check for skip-sync mode (for e2e testing without SQL Server)
-    skip_sync = os.environ.get("SKIP_SYNC_DATA", "").lower() in ("1", "true", "yes")
+    skip_sync = get_settings().skip_sync_data
 
     if skip_sync:
         job_id = str(_uuid.uuid4())
@@ -517,6 +517,31 @@ async def trigger_extraction(
             period=request.period,
             aggregations=aggregations_dict,
         )
+
+        # Persist to SQLite for fast reads
+        db_path = _get_db_path(raw_request)
+        if db_path:
+            try:
+                local_store.insert_job(
+                    db_path,
+                    job_id=job_id,
+                    country=request.country,
+                    stage=request.stage,
+                    tag=tag,
+                    queries=queries,
+                    triggered_by=user.email,
+                    created_at=now.isoformat(),
+                    period=request.period,
+                )
+                # Mark as completed immediately for skip_sync jobs
+                local_store.update_job(
+                    db_path, job_id,
+                    status="completed",
+                    started_at=now.isoformat(),
+                    completed_at=now.isoformat(),
+                )
+            except Exception as sqlite_err:
+                logger.warning(f"Failed to insert skip_sync job into SQLite: {sqlite_err}")
 
         # Create calibration tracking - immediately complete sync_data
         calibration_tracker.create(job_id, country=request.country)
@@ -596,7 +621,7 @@ async def trigger_extraction(
         aggregations=aggregations_dict,
     )
 
-    # Persist to local SQLite for crash recovery
+    # Persist to local SQLite for crash recovery and fast reads
     db_path = _get_db_path(raw_request)
     if db_path:
         try:
@@ -609,6 +634,7 @@ async def trigger_extraction(
                 queries=job.queries,
                 triggered_by=user.email,
                 created_at=job.created_at.isoformat(),
+                period=request.period,
             )
         except Exception as sqlite_err:
             logger.warning(f"Failed to insert job into SQLite: {sqlite_err}")
@@ -669,11 +695,115 @@ async def list_events(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> EventListResponse:
-    """List extraction events visible to the current user."""
-    db_client = _get_databricks_client(raw_request)
-    jobs_tbl = get_settings().jobs_table
+    """List extraction events visible to the current user.
+
+    Read order: in-memory (fastest) → SQLite (sub-ms) → Delta (slow, async fallback).
+    """
     db_path = _get_db_path(raw_request)
 
+    # --- Phase 1: Try SQLite as primary source (sub-millisecond) ---
+    sqlite_jobs: list[dict] = []
+    sqlite_total = 0
+    if db_path:
+        try:
+            sqlite_jobs, sqlite_total = local_store.list_jobs(
+                db_path,
+                country=country,
+                status=status_filter.value if status_filter else None,
+                stage=stage,
+                triggered_by=None if user.is_admin else user.email,
+                period=period,
+                limit=limit,
+                offset=offset,
+            )
+        except Exception:
+            logger.warning("SQLite list_jobs failed, will fall back to Delta", exc_info=True)
+
+    if sqlite_jobs:
+        # SQLite has data — build response from it, overlay in-memory live data
+        items: list[EventSummary] = []
+        seen_ids: set[str] = set()
+        for row in sqlite_jobs:
+            job_id = row["job_id"]
+            seen_ids.add(job_id)
+            record = _trigger_jobs.get(job_id)
+            if record:
+                # In-flight record: use live progress from memory
+                job = record.job
+                running_queries = sorted(record.running_queries)
+                steps, current_step = _build_steps_for_job(job_id)
+                items.append(EventSummary(
+                    job_id=job_id,
+                    status=job.status,
+                    country=job.country,
+                    stage=record.stage,
+                    period=record.period,
+                    tag=record.tag,
+                    queries_total=len(job.queries),
+                    queries_completed=job.queries_completed,
+                    queries_failed=job.queries_failed,
+                    queries_running=len(running_queries),
+                    running_queries=running_queries,
+                    total_rows_extracted=sum(r.rows_extracted or 0 for r in job.results),
+                    created_at=job.created_at,
+                    started_at=job.started_at,
+                    completed_at=job.completed_at,
+                    triggered_by=record.triggered_by,
+                    error=job.error,
+                    current_query=job.current_query,
+                    steps=steps,
+                    current_step=current_step,
+                ))
+            else:
+                # No in-flight record: build from SQLite row
+                items.append(_build_event_summary(row, _results_from_row(row)))
+
+        # Include in-flight jobs not yet in SQLite
+        for job_id, record in _trigger_jobs.items():
+            if job_id in seen_ids:
+                continue
+            job = record.job
+            if country and job.country != country:
+                continue
+            if status_filter and job.status != status_filter:
+                continue
+            if stage and record.stage != stage:
+                continue
+            if period and record.period != period:
+                continue
+            if not user.is_admin and record.triggered_by != user.email:
+                continue
+            inflight_running = sorted(record.running_queries)
+            inflight_steps, inflight_current = _build_steps_for_job(job_id)
+            items.insert(0, EventSummary(
+                job_id=job_id,
+                status=job.status,
+                country=job.country,
+                stage=record.stage,
+                period=record.period,
+                tag=record.tag,
+                queries_total=len(job.queries),
+                queries_completed=job.queries_completed,
+                queries_failed=job.queries_failed,
+                queries_running=len(inflight_running),
+                running_queries=inflight_running,
+                total_rows_extracted=sum(r.rows_extracted or 0 for r in job.results),
+                created_at=job.created_at,
+                started_at=job.started_at,
+                completed_at=job.completed_at,
+                triggered_by=record.triggered_by,
+                error=job.error,
+                current_query=job.current_query,
+                steps=inflight_steps,
+                current_step=inflight_current,
+            ))
+            sqlite_total += 1
+
+        return EventListResponse(items=items, total=sqlite_total, limit=limit, offset=offset)
+
+    # --- Phase 2: SQLite empty — fall back to Delta (cold start path) ---
+    db_client = _get_databricks_client(raw_request)
+    jobs_tbl = get_settings().jobs_table
     try:
         db_jobs, total = list_jobs(
             db_client,
@@ -690,90 +820,67 @@ async def list_events(
         logger.error("Failed to query jobs from Delta table", exc_info=True)
         db_jobs, total = [], 0
 
-    if not db_jobs and total == 0:
-        logger.debug("No Delta table results found for list_events query")
-
-    items: list[EventSummary] = []
+    items = []
     db_job_ids = set()
     for row in db_jobs:
         db_job_ids.add(row["job_id"])
-        # If there's an in-flight record, use live progress data
         record = _trigger_jobs.get(row["job_id"])
         if record:
             job = record.job
-            queries_completed = job.queries_completed
-            queries_failed = job.queries_failed
-            live_status = job.status
-            started_at = job.started_at
-            completed_at = job.completed_at
-            error = job.error
-            current_query = job.current_query
             running_queries = sorted(record.running_queries)
             total_rows = sum(r.rows_extracted or 0 for r in job.results)
-        else:
-            # Try SQLite for live state on running jobs
-            sqlite_row = None
-            if db_path and row.get("status") in ("running", "pending"):
-                try:
-                    sqlite_row = local_store.get_job(db_path, row["job_id"])
-                except Exception:
-                    pass
-            if sqlite_row:
-                sqlite_results = _results_from_row(sqlite_row)
-                c, f = _compute_counts(sqlite_results)
-                queries_completed = c
-                queries_failed = f
-                live_status = sqlite_row["status"]
-                started_at = sqlite_row.get("started_at")
-                completed_at = sqlite_row.get("completed_at")
-                error = sqlite_row.get("error")
-                current_query = sqlite_row.get("current_query")
-                rq = sqlite_row.get("running_queries", [])
-                running_queries = rq if isinstance(rq, list) else []
-                total_rows = _total_rows(sqlite_results)
-            else:
-                queries_completed = 0
-                queries_failed = 0
-                live_status = row["status"]
-                started_at = row.get("started_at")
-                completed_at = row.get("completed_at")
-                error = row.get("error")
-                current_query = None
-                running_queries = []
-                total_rows = 0
-
-        steps, current_step = _build_steps_for_job(row["job_id"])
-        items.append(
-            EventSummary(
+            steps, current_step = _build_steps_for_job(row["job_id"])
+            items.append(EventSummary(
                 job_id=row["job_id"],
-                status=live_status,
+                status=job.status,
                 country=row["country"],
                 stage=row["stage"],
                 period=row.get("period"),
                 tag=row["tag"],
                 queries_total=len(row["queries"]),
-                queries_completed=queries_completed,
-                queries_failed=queries_failed,
+                queries_completed=job.queries_completed,
+                queries_failed=job.queries_failed,
                 queries_running=len(running_queries),
                 running_queries=running_queries,
                 total_rows_extracted=total_rows,
                 created_at=row["created_at"],
-                started_at=started_at,
-                completed_at=completed_at,
+                started_at=job.started_at,
+                completed_at=job.completed_at,
                 triggered_by=row["triggered_by"],
-                error=error,
-                current_query=current_query,
+                error=job.error,
+                current_query=job.current_query,
                 steps=steps,
                 current_step=current_step,
-            )
-        )
+            ))
+        else:
+            steps, current_step = _build_steps_for_job(row["job_id"])
+            items.append(EventSummary(
+                job_id=row["job_id"],
+                status=row["status"],
+                country=row["country"],
+                stage=row["stage"],
+                period=row.get("period"),
+                tag=row["tag"],
+                queries_total=len(row["queries"]),
+                queries_completed=0,
+                queries_failed=0,
+                queries_running=0,
+                running_queries=[],
+                total_rows_extracted=0,
+                created_at=row["created_at"],
+                started_at=row.get("started_at"),
+                completed_at=row.get("completed_at"),
+                triggered_by=row["triggered_by"],
+                error=row.get("error"),
+                steps=steps,
+                current_step=current_step,
+            ))
 
-    # Include in-flight jobs not yet visible in the Delta table
+    # Include in-flight jobs not yet in Delta
     for job_id, record in _trigger_jobs.items():
         if job_id in db_job_ids:
             continue
         job = record.job
-        # Apply filters
         if country and job.country != country:
             continue
         if status_filter and job.status != status_filter:
@@ -785,41 +892,32 @@ async def list_events(
         if not user.is_admin and record.triggered_by != user.email:
             continue
         inflight_running = sorted(record.running_queries)
-        inflight_rows = sum(r.rows_extracted or 0 for r in job.results)
-        inflight_steps, inflight_current = _build_steps_for_job(job.job_id)
-        items.insert(
-            0,
-            EventSummary(
-                job_id=job.job_id,
-                status=job.status,
-                country=job.country,
-                stage=record.stage,
-                period=record.period,
-                tag=record.tag,
-                queries_total=len(job.queries),
-                queries_completed=job.queries_completed,
-                queries_failed=job.queries_failed,
-                queries_running=len(inflight_running),
-                running_queries=inflight_running,
-                total_rows_extracted=inflight_rows,
-                created_at=job.created_at,
-                started_at=job.started_at,
-                completed_at=job.completed_at,
-                triggered_by=record.triggered_by,
-                error=job.error,
-                current_query=job.current_query,
-                steps=inflight_steps,
-                current_step=inflight_current,
-            ),
-        )
+        inflight_steps, inflight_current = _build_steps_for_job(job_id)
+        items.insert(0, EventSummary(
+            job_id=job_id,
+            status=job.status,
+            country=job.country,
+            stage=record.stage,
+            period=record.period,
+            tag=record.tag,
+            queries_total=len(job.queries),
+            queries_completed=job.queries_completed,
+            queries_failed=job.queries_failed,
+            queries_running=len(inflight_running),
+            running_queries=inflight_running,
+            total_rows_extracted=sum(r.rows_extracted or 0 for r in job.results),
+            created_at=job.created_at,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            triggered_by=record.triggered_by,
+            error=job.error,
+            current_query=job.current_query,
+            steps=inflight_steps,
+            current_step=inflight_current,
+        ))
         total += 1
 
-    return EventListResponse(
-        items=items,
-        total=total,
-        limit=limit,
-        offset=offset,
-    )
+    return EventListResponse(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.get(
@@ -833,65 +931,36 @@ async def get_event_detail(
     user: CurrentAzureADUser,
     raw_request: Request,
 ) -> EventDetail:
-    """Get detailed event info including per-query progress."""
-    db_client = _get_databricks_client(raw_request)
-    jobs_tbl = get_settings().jobs_table
+    """Get detailed event info including per-query progress.
+
+    Read order: in-memory → SQLite → Delta (only if needed).
+    """
     db_path = _get_db_path(raw_request)
 
-    # Check in-flight record first (avoids Delta table read-after-write lag)
+    # 1) Check in-flight record first (fastest, avoids any I/O)
     record = _trigger_jobs.get(job_id)
-
-    db_row = get_job(db_client, jobs_tbl, job_id)
-
-    # Also try SQLite for crash-recovered or live state
-    sqlite_row = None
-    if db_path:
-        try:
-            sqlite_row = local_store.get_job(db_path, job_id)
-        except Exception:
-            pass
-
-    if not db_row and not record and not sqlite_row:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "not_found", "message": f"Job not found: {job_id}"},
-        )
-
-    # Non-admin users can only see their own jobs
-    triggered_by = (
-        record.triggered_by if record
-        else db_row["triggered_by"] if db_row
-        else sqlite_row["triggered_by"]
-    )
-    if not user.is_admin and triggered_by != user.email:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "not_found", "message": f"Job not found: {job_id}"},
-        )
-
-    # If there's an in-flight record, use live progress
     if record:
+        if not user.is_admin and record.triggered_by != user.email:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "not_found", "message": f"Job not found: {job_id}"},
+            )
         job = record.job
-        # Prefer db_row for stage/tag/period if available, fallback to in-flight data
-        detail_stage = db_row["stage"] if db_row else record.stage
-        detail_tag = db_row["tag"] if db_row else record.tag
-        detail_period = db_row.get("period") if db_row else record.period
         inflight_running = sorted(record.running_queries)
-        inflight_rows = sum(r.rows_extracted or 0 for r in job.results)
         detail_steps, detail_current = _build_steps_for_job(job.job_id)
         return EventDetail(
             job_id=job.job_id,
             status=job.status,
             country=job.country,
-            stage=detail_stage,
-            period=detail_period,
-            tag=detail_tag,
+            stage=record.stage,
+            period=record.period,
+            tag=record.tag,
             queries_total=len(job.queries),
             queries_completed=job.queries_completed,
             queries_failed=job.queries_failed,
             queries_running=len(inflight_running),
             running_queries=inflight_running,
-            total_rows_extracted=inflight_rows,
+            total_rows_extracted=sum(r.rows_extracted or 0 for r in job.results),
             created_at=job.created_at,
             started_at=job.started_at,
             completed_at=job.completed_at,
@@ -903,41 +972,66 @@ async def get_event_detail(
             results=job.results,
         )
 
-    # Try SQLite for richer detail (results, running_queries)
+    # 2) Try SQLite (sub-ms)
+    sqlite_row = None
+    if db_path:
+        try:
+            sqlite_row = local_store.get_job(db_path, job_id)
+        except Exception:
+            pass
+
     if sqlite_row:
+        if not user.is_admin and sqlite_row["triggered_by"] != user.email:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "not_found", "message": f"Job not found: {job_id}"},
+            )
         sqlite_results = _results_from_row(sqlite_row)
         completed_count, failed_count = _compute_counts(sqlite_results)
         rq = sqlite_row.get("running_queries", [])
         running_queries = rq if isinstance(rq, list) else []
-        row_total = _total_rows(sqlite_results)
-        # Use db_row fields where available, fallback to sqlite_row
-        source = db_row if db_row else sqlite_row
         sq_steps, sq_current = _build_steps_for_job(job_id)
         return EventDetail(
             job_id=job_id,
             status=sqlite_row["status"],
-            country=source["country"],
-            stage=source["stage"],
-            period=source.get("period") if db_row else None,
-            tag=source["tag"],
-            queries_total=len(source.get("queries", [])),
+            country=sqlite_row["country"],
+            stage=sqlite_row["stage"],
+            period=sqlite_row.get("period"),
+            tag=sqlite_row["tag"],
+            queries_total=len(sqlite_row.get("queries", [])),
             queries_completed=completed_count,
             queries_failed=failed_count,
             queries_running=len(running_queries),
             running_queries=running_queries,
-            total_rows_extracted=row_total,
-            created_at=source["created_at"],
-            started_at=sqlite_row.get("started_at") or source.get("started_at"),
-            completed_at=sqlite_row.get("completed_at") or source.get("completed_at"),
-            triggered_by=source["triggered_by"],
-            error=sqlite_row.get("error") or source.get("error"),
+            total_rows_extracted=_total_rows(sqlite_results),
+            created_at=sqlite_row["created_at"],
+            started_at=sqlite_row.get("started_at"),
+            completed_at=sqlite_row.get("completed_at"),
+            triggered_by=sqlite_row["triggered_by"],
+            error=sqlite_row.get("error"),
             current_query=sqlite_row.get("current_query"),
             steps=sq_steps,
             current_step=sq_current,
             results=sqlite_results,
         )
 
-    # Job completed and no longer in-flight -- return from Databricks only
+    # 3) Fall back to Delta (slow path - only for old historical jobs not in SQLite)
+    db_client = _get_databricks_client(raw_request)
+    jobs_tbl = get_settings().jobs_table
+    db_row = get_job(db_client, jobs_tbl, job_id)
+
+    if not db_row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": f"Job not found: {job_id}"},
+        )
+
+    if not user.is_admin and db_row["triggered_by"] != user.email:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": f"Job not found: {job_id}"},
+        )
+
     completed_steps, completed_current = _build_steps_for_job(db_row["job_id"])
     return EventDetail(
         job_id=db_row["job_id"],
