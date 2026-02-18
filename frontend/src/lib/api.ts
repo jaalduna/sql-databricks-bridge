@@ -11,7 +11,10 @@ import type {
   UserInfo,
 } from "@/types/api"
 
-const BASE_URL = import.meta.env.VITE_BRIDGE_API_URL ?? "http://localhost:8000/api/v1"
+const BASE_URL =
+  (window as any).__BRIDGE_CONFIG__?.API_URL ??
+  import.meta.env.VITE_BRIDGE_API_URL ??
+  "http://localhost:8000/api/v1"
 
 export const api = axios.create({
   baseURL: BASE_URL,
