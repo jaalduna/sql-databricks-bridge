@@ -24,6 +24,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusBadge } from "@/components/StatusBadge"
 import { DataTable } from "@/components/DataTable"
@@ -97,6 +98,7 @@ export default function DashboardPage() {
   // Form state
   const [selectedCountry, setSelectedCountry] = useState("")
   const [selectedStage, setSelectedStage] = useState("")
+  const [lookbackMonths, setLookbackMonths] = useState("")
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   // Fetch countries
@@ -144,7 +146,12 @@ export default function DashboardPage() {
 
   const handleConfirm = () => {
     setConfirmOpen(false)
-    trigger.mutate({ country: selectedCountry, stage: selectedStage })
+    const months = lookbackMonths ? parseInt(lookbackMonths, 10) : undefined
+    trigger.mutate({
+      country: selectedCountry,
+      stage: selectedStage,
+      lookback_months: months && months > 0 ? months : undefined,
+    })
   }
 
   return (
@@ -155,7 +162,7 @@ export default function DashboardPage() {
           <CardTitle>Trigger Data Sync</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <label htmlFor="country" className="text-sm font-medium">
                 Country
@@ -198,6 +205,20 @@ export default function DashboardPage() {
                 </Select>
               )}
             </div>
+            <div className="space-y-2">
+              <label htmlFor="lookback" className="text-sm font-medium">
+                Rolling Months
+              </label>
+              <Input
+                id="lookback"
+                type="number"
+                min={1}
+                max={120}
+                placeholder="Default"
+                value={lookbackMonths}
+                onChange={(e) => setLookbackMonths(e.target.value)}
+              />
+            </div>
           </div>
 
           {tagPreview && (
@@ -233,6 +254,8 @@ export default function DashboardPage() {
                   <dd>{capitalize(selectedStage)}</dd>
                   <dt className="font-medium">Tag:</dt>
                   <dd className="font-mono">{tagPreview}</dd>
+                  <dt className="font-medium">Rolling:</dt>
+                  <dd>{lookbackMonths ? `${lookbackMonths} months` : "Default"}</dd>
                   <dt className="font-medium">Queries:</dt>
                   <dd>All ({selectedCountryInfo?.queries_count ?? "?"} queries)</dd>
                 </dl>
