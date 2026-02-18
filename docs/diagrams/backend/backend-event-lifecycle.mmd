@@ -1,0 +1,68 @@
+stateDiagram-v2
+    [*] --> PENDING: submit_sync_event()
+
+    state "Validation Guards" as guards {
+        state validate_fork <<fork>>
+        state validate_join <<join>>
+
+        validate_fork --> PKCheck: UPDATE / DELETE
+        validate_fork --> SrcCheck: All operations
+        PKCheck --> validate_join: validate_primary_keys()
+        SrcCheck --> validate_join: validate_source_table()
+
+        state PKCheck : Primary Keys Required
+        state SrcCheck : Source Table Format<br/>catalog.schema.table
+    }
+
+    state "Delete Guard" as del_guard {
+        DelLimit : validate_delete_limit()<br/>max 10,000 rows
+    }
+
+    PENDING --> guards: poll_cycle picks up event
+
+    guards --> PROCESSING: Validation passed
+
+    guards --> FAILED: Validation failed<br/>(missing PKs, bad table format)
+
+    PROCESSING --> del_guard: DELETE operation
+    del_guard --> PROCESSING: Within limit
+
+    state "Operation Execution" as ops {
+        state op_choice <<choice>>
+        op_choice --> INSERT: Bulk insert to SQL Server
+        op_choice --> UPDATE: UPDATE ... WHERE pk = ?
+        op_choice --> DELETE_OP: DELETE ... WHERE pk IN (...)
+    }
+
+    PROCESSING --> ops: Execute operation
+
+    ops --> COMPLETED: rows_affected > 0<br/>Success
+    ops --> FAILED: Exception or<br/>SQL Server error
+
+    COMPLETED --> [*]
+
+    state "Retry Logic" as retry {
+        RetryCheck : Check retry_count<br/>vs max_retries
+        Backoff : Exponential backoff<br/>delay = 2^n seconds
+    }
+
+    FAILED --> retry: Automatic retry evaluation
+
+    retry --> PENDING: retry_count < max_retries<br/>(reset to PENDING after backoff)
+    retry --> FAILED_FINAL: retry_count >= max_retries
+
+    state FAILED_FINAL : Permanently Failed<br/>WebSocket broadcast
+
+    FAILED_FINAL --> [*]
+
+    note right of PENDING
+        Events stored in Databricks
+        Delta table. Poller reads
+        pending events periodically.
+    end note
+
+    note right of COMPLETED
+        Event status updated in
+        Delta table. WebSocket
+        broadcast to subscribers.
+    end note
