@@ -23,7 +23,7 @@ class SQLServerSettings(BaseSettings):
     username: str = Field(default="sa", description="Username")
     password: SecretStr = Field(default=SecretStr(""), description="Password")
     driver: str = Field(
-        default="ODBC Driver 18 for SQL Server",
+        default="ODBC Driver 17 for SQL Server",
         description="ODBC driver name",
     )
     trust_server_certificate: bool = Field(
@@ -31,7 +31,7 @@ class SQLServerSettings(BaseSettings):
         description="Trust server certificate",
     )
     use_windows_auth: bool = Field(
-        default=False,
+        default=True,
         description="Use Windows Authentication (Trusted_Connection)",
     )
 
