@@ -16,6 +16,16 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/metadata", tags=["Metadata"])
 
+# Module-level cached loader — avoids re-discovering queries on every request.
+_loader: CountryAwareQueryLoader | None = None
+
+
+def _get_loader() -> CountryAwareQueryLoader:
+    global _loader
+    if _loader is None:
+        _loader = CountryAwareQueryLoader(Path(get_settings().queries_path))
+    return _loader
+
 
 class CountryInfo(BaseModel):
     code: str
@@ -45,21 +55,29 @@ class StagesResponse(BaseModel):
 )
 async def list_countries() -> CountriesResponse:
     """List all available countries, servers, and their queries."""
-    queries_base = Path(get_settings().queries_path)
+    import asyncio
 
-    loader = CountryAwareQueryLoader(queries_base)
-    result = []
+    loader = _get_loader()
+    entries = loader.list_all_entries()
 
-    for name, entry_type in loader.list_all_entries():
-        queries = loader.list_queries(name)
-        result.append(
-            CountryInfo(
-                code=name,
-                queries=queries,
-                queries_count=len(queries),
-                type=entry_type,
-            )
+    # Discover queries in parallel — each hit to the network share can take
+    # ~10 s to timeout, so sequential discovery for 14 entries is too slow.
+    def _discover(name: str) -> list[str]:
+        return loader.list_queries(name)
+
+    loop = asyncio.get_running_loop()
+    tasks = [loop.run_in_executor(None, _discover, name) for name, _ in entries]
+    query_lists = await asyncio.gather(*tasks)
+
+    result = [
+        CountryInfo(
+            code=name,
+            queries=queries,
+            queries_count=len(queries),
+            type=entry_type,
         )
+        for (name, entry_type), queries in zip(entries, query_lists)
+    ]
 
     return CountriesResponse(countries=result)
 
