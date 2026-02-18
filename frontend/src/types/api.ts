@@ -14,6 +14,9 @@ export interface TriggerRequest {
   country: string
   stage: string
   queries?: string[] | null
+  lookback_months?: number | null
+  row_limit?: number | null
+  period?: string | null
 }
 
 /** Response from POST /trigger */
