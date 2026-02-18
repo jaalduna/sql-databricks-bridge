@@ -17,6 +17,37 @@ from sql_databricks_bridge.db.sql_server import SQLServerClient
 logger = logging.getLogger(__name__)
 
 
+def concat_chunks(chunks: list[pl.DataFrame]) -> pl.DataFrame:
+    """Concatenate DataFrame chunks with schema unification.
+
+    Handles the case where a column is Null type in some chunks (all values
+    null in that chunk) but has a real type (e.g. Datetime) in others.
+    """
+    if not chunks:
+        return pl.DataFrame()
+    if len(chunks) == 1:
+        return chunks[0]
+
+    # Build unified schema: for each column, pick the first non-Null type
+    unified: dict[str, pl.DataType] = {}
+    for chunk in chunks:
+        for col, dtype in chunk.schema.items():
+            if col not in unified or unified[col] == pl.Null:
+                unified[col] = dtype
+
+    # Cast Null-typed columns to the real type discovered in other chunks
+    result = []
+    for chunk in chunks:
+        exprs = [
+            pl.col(col).cast(target, strict=False)
+            for col, target in unified.items()
+            if col in chunk.columns and chunk[col].dtype != target
+        ]
+        result.append(chunk.with_columns(exprs) if exprs else chunk)
+
+    return pl.concat(result)
+
+
 @dataclass
 class ExtractionJob:
     """Represents an extraction job."""
@@ -211,7 +242,7 @@ class Extractor:
 
                 # Combine all chunks
                 if chunks:
-                    combined = pl.concat(chunks)
+                    combined = concat_chunks(chunks)
                     result.rows_extracted = len(combined)
                 else:
                     combined = pl.DataFrame()
