@@ -161,10 +161,40 @@ class _TriggerJobRecord:
 _trigger_jobs: dict[str, _TriggerJobRecord] = {}
 
 
-def _build_steps_for_job(job_id: str) -> tuple[list[CalibrationStepResponse] | None, str | None]:
-    """Get calibration steps and current_step for a job."""
+def _persist_steps(job_id: str, db_path: str) -> None:
+    """Read current calibration steps from tracker and persist to SQLite."""
+    steps_data = calibration_tracker.get_steps_for_response(job_id)
+    if steps_data is None:
+        return
+    try:
+        local_store.update_steps(db_path, job_id, steps_data)
+    except Exception as exc:
+        logger.warning("Failed to persist steps for job %s: %s", job_id, exc)
+
+
+def _build_steps_for_job(
+    job_id: str, db_path: str | None = None
+) -> tuple[list[CalibrationStepResponse] | None, str | None]:
+    """Get calibration steps and current_step for a job.
+
+    Tries calibration_tracker first (in-memory, fast). Falls back to SQLite
+    steps_json when the tracker has no data (e.g., after a server restart).
+    """
     steps_data = calibration_tracker.get_steps_for_response(job_id)
     current = calibration_tracker.get_current_step(job_id)
+    if steps_data is None and db_path:
+        # Cold-read from SQLite after restart
+        try:
+            row = local_store.get_job(db_path, job_id)
+            if row and row.get("steps_json"):
+                steps_data = row["steps_json"]
+                # Derive current step: last running step, or None if all settled
+                current = next(
+                    (s["name"] for s in steps_data if s.get("status") == "running"),
+                    None,
+                )
+        except Exception as exc:
+            logger.warning("Failed to read steps_json from SQLite for job %s: %s", job_id, exc)
     if steps_data is None:
         return None, None
     steps = [CalibrationStepResponse(**s) for s in steps_data]
@@ -433,10 +463,14 @@ def _run_trigger_extraction(
                 "sync_data",
                 error=f"{job.queries_failed} query(ies) failed during sync",
             )
+            if db_path:
+                _persist_steps(job.job_id, db_path)
         else:
             calibration_tracker.complete_step(job.job_id, "sync_data")
             # Auto-advance to copy_to_calibration
             next_step = calibration_tracker.advance_after_sync(job.job_id)
+            if db_path:
+                _persist_steps(job.job_id, db_path)
             # Launch the Databricks job for copy_to_calibration
             if next_step:
                 _launch_calibration_step(job.job_id, next_step, job.country)
@@ -451,6 +485,8 @@ def _run_trigger_extraction(
             local_store.update_job(db_path, job.job_id, status="failed", error=str(e), running_queries="[]", current_query=None)
         # Mark sync_data as failed
         calibration_tracker.complete_step(job.job_id, "sync_data", error=str(e))
+        if db_path:
+            _persist_steps(job.job_id, db_path)
 
 
 # --- Endpoints ---
@@ -459,7 +495,7 @@ def _run_trigger_extraction(
 @router.post(
     "/trigger",
     response_model=TriggerResponse,
-    status_code=status.HTTP_202_ACCEPTED,
+    status_code=status.HTTP_201_CREATED,
     summary="Trigger extraction",
     description="Trigger a data extraction (SQL Server -> Databricks) for a country.",
 )
@@ -594,6 +630,9 @@ async def trigger_extraction(
 
         # Advance to copy_to_calibration and launch Databricks job
         next_step = calibration_tracker.advance_after_sync(job_id)
+        # Persist steps to SQLite after state transitions
+        if db_path:
+            _persist_steps(job_id, db_path)
         if next_step:
             _launch_calibration_step(job_id, next_step, request.country)
 
@@ -686,6 +725,9 @@ async def trigger_extraction(
     # Create calibration step tracking
     calibration_tracker.create(job.job_id, country=request.country)
     calibration_tracker.start_step(job.job_id, "sync_data")
+    # Persist initial step state to SQLite
+    if db_path:
+        _persist_steps(job.job_id, db_path)
 
     # Store in-flight record (needed for background task reference)
     record = _TriggerJobRecord(
@@ -1034,7 +1076,7 @@ async def get_event_detail(
         completed_count, failed_count = _compute_counts(sqlite_results)
         rq = sqlite_row.get("running_queries", [])
         running_queries = rq if isinstance(rq, list) else []
-        sq_steps, sq_current = _build_steps_for_job(job_id)
+        sq_steps, sq_current = _build_steps_for_job(job_id, db_path)
         return EventDetail(
             job_id=job_id,
             status=sqlite_row["status"],
@@ -1076,7 +1118,7 @@ async def get_event_detail(
             detail={"error": "not_found", "message": f"Job not found: {job_id}"},
         )
 
-    completed_steps, completed_current = _build_steps_for_job(db_row["job_id"])
+    completed_steps, completed_current = _build_steps_for_job(db_row["job_id"], db_path)
     return EventDetail(
         job_id=db_row["job_id"],
         status=db_row["status"],

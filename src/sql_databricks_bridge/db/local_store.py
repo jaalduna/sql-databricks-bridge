@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS trigger_jobs (
     failed_queries TEXT DEFAULT '[]',
     results TEXT DEFAULT '[]',
     running_queries TEXT DEFAULT '[]',
-    period TEXT
+    period TEXT,
+    steps_json TEXT DEFAULT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON trigger_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_created ON trigger_jobs(created_at DESC);
@@ -37,6 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_stage ON trigger_jobs(stage);
 _MIGRATIONS = [
     "ALTER TABLE trigger_jobs ADD COLUMN running_queries TEXT DEFAULT '[]'",
     "ALTER TABLE trigger_jobs ADD COLUMN period TEXT",
+    "ALTER TABLE trigger_jobs ADD COLUMN steps_json TEXT DEFAULT NULL",
 ]
 
 # JSON fields that need deserialization when reading rows
@@ -62,6 +64,13 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
                 d[key] = [] if key != "queries" else []
         else:
             d[key] = []
+    # Deserialize steps_json if present
+    raw_steps = d.get("steps_json")
+    if raw_steps is not None:
+        try:
+            d["steps_json"] = json.loads(raw_steps)
+        except (json.JSONDecodeError, TypeError):
+            d["steps_json"] = None
     return d
 
 
@@ -140,6 +149,19 @@ def update_job(db_path: str, job_id: str, **fields: Any) -> None:
         conn.execute(
             f"UPDATE trigger_jobs SET {', '.join(set_clauses)} WHERE job_id = ?",
             values,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_steps(db_path: str, job_id: str, steps: list[dict]) -> None:
+    """Serialize calibration steps to JSON and persist to SQLite."""
+    conn = _connect(db_path)
+    try:
+        conn.execute(
+            "UPDATE trigger_jobs SET steps_json = ? WHERE job_id = ?",
+            (json.dumps(steps), job_id),
         )
         conn.commit()
     finally:
