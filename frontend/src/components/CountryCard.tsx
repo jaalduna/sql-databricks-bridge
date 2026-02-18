@@ -1,0 +1,178 @@
+import { useState } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
+import { Loader2, Eye } from "lucide-react"
+import { toast } from "sonner"
+import { DataAvailabilityBadge } from "./DataAvailabilityBadge"
+import { CalibrationProgress } from "./CalibrationProgress"
+import { CalibrationDetailModal } from "./CalibrationDetailModal"
+import { useCalibration } from "@/hooks/useCalibration"
+import type { CountryInfo, DataAvailability, CalibrationConfig } from "@/types/api"
+
+const COUNTRY_LABELS: Record<string, string> = {
+  argentina: "Argentina",
+  bolivia: "Bolivia",
+  brasil: "Brasil",
+  brazil: "Brazil",
+  cam: "Centroamerica",
+  chile: "Chile",
+  colombia: "Colombia",
+  ecuador: "Ecuador",
+  mexico: "Mexico",
+  peru: "Peru",
+}
+
+interface CountryCardProps {
+  country: CountryInfo
+  period: string
+  availability: DataAvailability
+  calibrationConfig: CalibrationConfig
+}
+
+export function CountryCard({ country, period, availability, calibrationConfig }: CountryCardProps) {
+  const [showDetail, setShowDetail] = useState(false)
+  const { job, isPending, startCalibration } = useCalibration(country.code, period)
+
+  const isRunning = job?.status === "running" || job?.status === "pending"
+  const isCompleted = job?.status === "completed"
+  const isFailed = job?.status === "failed"
+  const canTrigger = availability.elegibilidad && availability.pesaje && !isRunning && !isPending
+
+  const countryLabel = COUNTRY_LABELS[country.code] ?? country.code
+
+  return (
+    <>
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">
+              {countryLabel}
+            </CardTitle>
+            <Badge variant="outline" className="text-xs">
+              {country.queries_count} queries
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {/* Data availability */}
+          <div className="flex gap-4">
+            <DataAvailabilityBadge label="Elegibilidad" available={availability.elegibilidad} />
+            <DataAvailabilityBadge label="Pesaje" available={availability.pesaje} />
+          </div>
+
+          {/* Progress bar with step indicators */}
+          {job && (isRunning || isCompleted || isFailed) && (
+            <CalibrationProgress job={job} />
+          )}
+
+          {/* Status badges */}
+          {isCompleted && (
+            <Badge variant="default" className="bg-green-600">
+              Completed
+            </Badge>
+          )}
+          {isFailed && <Badge variant="destructive">Failed</Badge>}
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  size="sm"
+                  disabled={!canTrigger}
+                  className="flex-1"
+                  title={!canTrigger ? "Data extraction (Elegibilidad and Pesaje) required before calibration" : undefined}
+                >
+                  {isPending || isRunning ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      {isPending ? "Starting..." : "Running..."}
+                    </>
+                  ) : (
+                    "Calibrar"
+                  )}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Confirm Calibration</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="text-sm text-muted-foreground">
+                      <p>
+                        Start calibration for{" "}
+                        <strong>{countryLabel}</strong> period{" "}
+                        <strong>{period}</strong>? This will trigger{" "}
+                        {country.queries_count} queries.
+                      </p>
+                      {(calibrationConfig.aggregations.region || calibrationConfig.aggregations.nivel_2) && (
+                        <p className="mt-2">
+                          Aggregations:{" "}
+                          {[calibrationConfig.aggregations.region && "Region", calibrationConfig.aggregations.nivel_2 && "Nivel 2"]
+                            .filter(Boolean)
+                            .join(", ")}
+                        </p>
+                      )}
+                      {(calibrationConfig.row_limit != null || calibrationConfig.lookback_months != null) && (
+                        <p className="mt-2">
+                          Overrides:{" "}
+                          {[
+                            calibrationConfig.row_limit != null && `Top ${calibrationConfig.row_limit} rows`,
+                            calibrationConfig.lookback_months != null && `${calibrationConfig.lookback_months} months lookback`,
+                          ]
+                            .filter(Boolean)
+                            .join(", ")}
+                        </p>
+                      )}
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => {
+                    startCalibration({
+                      aggregations: calibrationConfig.aggregations,
+                      row_limit: calibrationConfig.row_limit,
+                      lookback_months: calibrationConfig.lookback_months,
+                    });
+                    toast.success(`Calibration started for ${countryLabel}`);
+                  }}>
+                    Confirm
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            {job && (
+              <Button
+                size="sm"
+                variant="outline"
+                aria-label="View calibration details"
+                onClick={() => setShowDetail(true)}
+              >
+                <Eye className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <CalibrationDetailModal
+        job={job}
+        open={showDetail}
+        onClose={() => setShowDetail(false)}
+      />
+    </>
+  )
+}

@@ -143,7 +143,7 @@ describe("EventDetailPage", () => {
     renderEventDetail()
 
     await waitFor(() => {
-      expect(screen.getByText("Progress: 3/10 queries")).toBeInTheDocument()
+      expect(screen.getByText(/3\/10 queries/)).toBeInTheDocument()
       expect(screen.getByText("30%")).toBeInTheDocument()
     })
   })
