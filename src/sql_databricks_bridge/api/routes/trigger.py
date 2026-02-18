@@ -1,5 +1,7 @@
 """Trigger API endpoints -- frontend-facing sync trigger and event views."""
 
+import csv
+import io
 import json
 import logging
 import os
@@ -9,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from sql_databricks_bridge.api.dependencies import CurrentAzureADUser
@@ -502,21 +505,62 @@ async def trigger_extraction(
         # Use a minimal query list for the job record
         queries = request.queries or ["skip_sync_placeholder"]
 
-        # Persist to Databricks Delta table
+        # Persist to Databricks Delta table (best-effort, may fail if table missing)
         aggregations_dict = request.aggregations.model_dump() if request.aggregations else None
-        insert_job(
-            db_client,
-            jobs_tbl,
+        try:
+            insert_job(
+                db_client,
+                jobs_tbl,
+                job_id=job_id,
+                country=request.country,
+                stage=request.stage,
+                tag=tag,
+                queries=queries,
+                triggered_by=user.email,
+                created_at=now,
+                period=request.period,
+                aggregations=aggregations_dict,
+            )
+        except Exception as e:
+            logger.warning("SKIP_SYNC_DATA: insert_job to Delta table failed: %s", e)
+
+        # Persist to local SQLite for crash recovery
+        db_path = _get_db_path(raw_request)
+        if db_path:
+            try:
+                local_store.insert_job(
+                    db_path,
+                    job_id=job_id,
+                    country=request.country,
+                    stage=request.stage,
+                    tag=tag,
+                    queries=queries,
+                    triggered_by=user.email,
+                    created_at=now.isoformat(),
+                )
+            except Exception as sqlite_err:
+                logger.warning("SKIP_SYNC_DATA: SQLite insert failed: %s", sqlite_err)
+
+        # Create synthetic ExtractionJob and store in _trigger_jobs so
+        # GET /events/{job_id} can serve live progress from memory
+        job = ExtractionJob(
             job_id=job_id,
             country=request.country,
+            queries=queries,
+            status=JobStatus.RUNNING,
+            created_at=now,
+            started_at=now,
+        )
+        record = _TriggerJobRecord(
+            extractor=None,
+            job=job,
+            triggered_by=user.email,
             stage=request.stage,
             tag=tag,
-            queries=queries,
-            triggered_by=user.email,
-            created_at=now,
             period=request.period,
-            aggregations=aggregations_dict,
+            aggregations=request.aggregations,
         )
+        _trigger_jobs[job_id] = record
 
         # Create calibration tracking - immediately complete sync_data
         calibration_tracker.create(job_id, country=request.country)
@@ -960,4 +1004,107 @@ async def get_event_detail(
         steps=completed_steps,
         current_step=completed_current,
         results=[],
+    )
+
+
+# --- Download CSV ---
+
+
+@router.get(
+    "/events/{job_id}/download",
+    summary="Download job results as CSV",
+    responses={
+        200: {"content": {"text/csv": {}}, "description": "CSV file"},
+        404: {"description": "Job not found"},
+        409: {"description": "Job not yet completed"},
+    },
+)
+async def download_event_csv(
+    job_id: str,
+    user: CurrentAzureADUser,
+    raw_request: Request,
+) -> StreamingResponse:
+    """Generate and return a CSV report for a completed calibration job."""
+    # Reuse get_event_detail to gather all data
+    detail = await get_event_detail(job_id, user, raw_request)
+
+    job_status = detail.status if isinstance(detail.status, str) else detail.status.value
+
+    # Also allow download when all steps are completed (overall status may lag)
+    all_steps_done = all(
+        (s.status if isinstance(s.status, str) else s.status.value) in ("completed", "failed")
+        for s in detail.steps
+    ) if detail.steps else False
+
+    if job_status not in ("completed", "failed") and not all_steps_done:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "job_not_finished",
+                "message": f"Job is still {job_status}. Download available after completion.",
+            },
+        )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Section 1: Job metadata
+    writer.writerow(["# Calibration Job Report"])
+    writer.writerow(["job_id", job_id])
+    writer.writerow(["country", detail.country])
+    writer.writerow(["stage", detail.stage])
+    writer.writerow(["period", detail.period or ""])
+    writer.writerow(["tag", detail.tag])
+    writer.writerow(["status", job_status])
+    writer.writerow(["triggered_by", detail.triggered_by])
+    writer.writerow(["started_at", str(detail.started_at) if detail.started_at else ""])
+    writer.writerow(["completed_at", str(detail.completed_at) if detail.completed_at else ""])
+    writer.writerow(["error", detail.error or ""])
+    writer.writerow([])
+
+    # Section 2: Pipeline steps
+    writer.writerow(["# Pipeline Steps"])
+    writer.writerow(["step_name", "status", "started_at", "completed_at", "duration_seconds", "error"])
+    for s in detail.steps:
+        s_status = s.status if isinstance(s.status, str) else s.status.value
+        s_start = str(s.started_at) if s.started_at else ""
+        s_end = str(s.completed_at) if s.completed_at else ""
+        duration = ""
+        if s.started_at and s.completed_at:
+            try:
+                duration = str(round((s.completed_at - s.started_at).total_seconds(), 2))
+            except Exception:
+                pass
+        writer.writerow([s.name, s_status, s_start, s_end, duration, s.error or ""])
+    writer.writerow([])
+
+    # Section 3: Query results
+    writer.writerow(["# Query Results"])
+    writer.writerow(["query_name", "status", "rows_extracted", "table_name", "duration_seconds", "error"])
+    for r in detail.results:
+        if isinstance(r, QueryResult):
+            r_status = r.status.value if hasattr(r.status, "value") else str(r.status)
+            writer.writerow([
+                r.query_name, r_status, r.rows_extracted,
+                r.table_name or "", round(r.duration_seconds, 2),
+                r.error or "",
+            ])
+        elif isinstance(r, dict):
+            writer.writerow([
+                r.get("query_name", ""), r.get("status", ""),
+                r.get("rows_extracted", 0), r.get("table_name", ""),
+                round(r.get("duration_seconds", 0), 2), r.get("error", ""),
+            ])
+
+    csv_content = output.getvalue()
+    output.close()
+
+    country = detail.country
+    period = detail.period or "no-period"
+    filename = f"calibration_{country}_{period}_{job_id[:8]}.csv"
+
+    return StreamingResponse(
+        iter([csv_content]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
