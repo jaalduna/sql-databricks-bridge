@@ -214,7 +214,7 @@ export default function DashboardPage() {
                 type="number"
                 min={1}
                 max={120}
-                placeholder="Default"
+                placeholder="24"
                 value={lookbackMonths}
                 onChange={(e) => setLookbackMonths(e.target.value)}
               />
@@ -255,7 +255,7 @@ export default function DashboardPage() {
                   <dt className="font-medium">Tag:</dt>
                   <dd className="font-mono">{tagPreview}</dd>
                   <dt className="font-medium">Rolling:</dt>
-                  <dd>{lookbackMonths ? `${lookbackMonths} months` : "Default"}</dd>
+                  <dd>{lookbackMonths ? `${lookbackMonths} months` : "24 months (default)"}</dd>
                   <dt className="font-medium">Queries:</dt>
                   <dd>All ({selectedCountryInfo?.queries_count ?? "?"} queries)</dd>
                 </dl>
