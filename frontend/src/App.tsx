@@ -9,6 +9,7 @@ import LoginPage from "@/pages/LoginPage"
 import DashboardPage from "@/pages/DashboardPage"
 import HistoryPage from "@/pages/HistoryPage"
 import EventDetailPage from "@/pages/EventDetailPage"
+import { CalibrationPage } from "@/pages/CalibrationPage"
 
 const AUTH_BYPASS = import.meta.env.VITE_AUTH_BYPASS === "true"
 
@@ -42,6 +43,7 @@ export default function App() {
             >
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/history" element={<HistoryPage />} />
+              <Route path="/calibration" element={<CalibrationPage />} />
               <Route path="/events/:jobId" element={<EventDetailPage />} />
             </Route>
           </Routes>

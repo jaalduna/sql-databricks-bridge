@@ -1,0 +1,72 @@
+import { useState } from "react"
+import { PeriodSelector } from "@/components/PeriodSelector"
+import { CalibrationConfigDialog } from "@/components/CalibrationConfigDialog"
+import { CountryCard } from "@/components/CountryCard"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useCountries } from "@/hooks/useCountries"
+import { useDataAvailability } from "@/hooks/useDataAvailability"
+import type { DataAvailability, CalibrationConfig } from "@/types/api"
+import { DEFAULT_CALIBRATION_CONFIG } from "@/types/api"
+
+function currentPeriod(): string {
+  const now = new Date()
+  const yyyy = now.getFullYear()
+  const mm = String(now.getMonth() + 1).padStart(2, "0")
+  return `${yyyy}${mm}`
+}
+
+const NO_DATA: DataAvailability = { elegibilidad: false, pesaje: false }
+
+export function CalibrationPage() {
+  const [period, setPeriod] = useState(currentPeriod)
+  const [calibrationConfig, setCalibrationConfig] = useState<CalibrationConfig>(DEFAULT_CALIBRATION_CONFIG)
+  const { data, isLoading, error } = useCountries()
+  const { data: availability } = useDataAvailability(period)
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Calibration</h1>
+          <p className="text-sm text-muted-foreground">
+            Trigger and monitor calibration jobs per country
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <PeriodSelector value={period} onChange={setPeriod} />
+          <CalibrationConfigDialog config={calibrationConfig} onChange={setCalibrationConfig} />
+        </div>
+      </div>
+
+      {/* Country grid */}
+      {isLoading && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-48 rounded-xl" />
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
+          Failed to load countries: {(error as Error).message}
+        </div>
+      )}
+
+      {data && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {data.countries.map((c) => (
+            <CountryCard
+              key={c.code}
+              country={c}
+              period={period}
+              availability={availability?.[c.code] ?? NO_DATA}
+              calibrationConfig={calibrationConfig}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}

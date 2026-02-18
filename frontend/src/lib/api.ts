@@ -2,6 +2,7 @@ import axios from "axios"
 import type {
   ApiError,
   CountriesResponse,
+  DataAvailabilityResponse,
   EventDetail,
   EventListResponse,
   StagesResponse,
@@ -56,11 +57,16 @@ export function triggerSync(body: TriggerRequest) {
   return api.post<TriggerResponse>("/trigger", body).then((r) => r.data)
 }
 
+/** Alias for triggerSync for calibration_frontend compatibility. */
+export const triggerCalibration = triggerSync
+
 // -- Events --
 
 export function getEvents(params?: {
   country?: string
   status?: string
+  stage?: string
+  period?: string
   limit?: number
   offset?: number
 }) {
@@ -79,4 +85,22 @@ export function getCountries() {
 
 export function getStages() {
   return api.get<StagesResponse>("/metadata/stages").then((r) => r.data)
+}
+
+export function getDataAvailability(period: string) {
+  return api
+    .get<DataAvailabilityResponse>("/metadata/data-availability", { params: { period } })
+    .then((r) => r.data)
+}
+
+// -- Downloads --
+
+export async function downloadCSV(jobId: string): Promise<void> {
+  const response = await api.get(`/events/${jobId}/download`, { responseType: "blob" })
+  const url = URL.createObjectURL(new Blob([response.data]))
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `calibration-${jobId}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
 }
