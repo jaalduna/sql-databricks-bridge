@@ -48,21 +48,16 @@ deploy/
 copy .env.template .env
 ```
 
-2. Edit `.env` and fill in the actual values:
+2. Edit `.env` and fill in the 4 required Databricks variables:
 
-| Variable | Description | Default |
-|---|---|---|
-| `SQLSERVER_HOST` | SQL Server hostname (e.g. `KTCLSQL002.KT.group.local`) | — |
-| `SQLSERVER_DATABASE` | Database name (e.g. `BO_KWP`) | — |
-| `DATABRICKS_HOST` | Databricks workspace URL | — |
-| `DATABRICKS_TOKEN` | Databricks personal access token | — |
-| `DATABRICKS_WAREHOUSE_ID` | SQL Warehouse ID | — |
-| `DATABRICKS_SCHEMA` | Target schema in Unity Catalog | — |
-| `LOOKBACK_MONTHS` | Default rolling lookback months for time-filtered queries | `24` |
-| `MAX_PARALLEL_QUERIES` | Max concurrent SQL Server queries per sync job | `4` |
-| `QUERY_ROW_LIMIT` | Default TOP N row limit per query (0 = unlimited) | `0` |
+| Variable | Requerida | Descripcion | Default |
+|---|---|---|---|
+| `DATABRICKS_HOST` | Si | URL del workspace Databricks | — |
+| `DATABRICKS_TOKEN` | Si | Personal access token de Databricks | — |
+| `DATABRICKS_WAREHOUSE_ID` | Si | ID del SQL Warehouse | — |
+| `DATABRICKS_CATALOG` | Si | Nombre del catalogo Unity Catalog | — |
 
-The remaining defaults should work without changes. See `.env.template` for all available options.
+Las demas variables son opcionales y tienen defaults de produccion. SQL Server host y database se resuelven automaticamente por pais via kantar_db_handler. Ver `.env.template` para la lista completa.
 
 ## Running the Service
 
