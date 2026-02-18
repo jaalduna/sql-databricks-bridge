@@ -39,17 +39,12 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y unixodbc-dev
 
-      - name: Clone kantar_db_handler
-        shell: bash
-        run: |
-          git clone "https://${{ secrets.AZURE_DEVOPS_PATH }}@dev.azure.com/kantarware/KWP-TechnologySolutionsLATAM/_git/kantar_db_handler" ../kantar_db_handler
-
       - name: Install dependencies
         shell: bash
         run: |
           python -m pip install --upgrade pip
           python -m pip install pyinstaller
-          python -m pip install ../kantar_db_handler
+          python -m pip install vendor/kantar_db_handler-0.1.1-py3-none-any.whl
           python -m pip install .
 
       - name: Build executable
