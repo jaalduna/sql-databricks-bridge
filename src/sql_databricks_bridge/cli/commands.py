@@ -20,7 +20,7 @@ from rich.table import Table
 from sql_databricks_bridge import __version__
 from sql_databricks_bridge.core.config import get_settings
 from sql_databricks_bridge.core.delta_writer import DeltaTableWriter
-from sql_databricks_bridge.core.extractor import Extractor
+from sql_databricks_bridge.core.extractor import Extractor, concat_chunks
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 
@@ -233,7 +233,7 @@ def extract(
                     _dl_secs = (_dt.utcnow() - _dl_start).total_seconds()
 
                     if chunks:
-                        combined = pl.concat(chunks)
+                        combined = concat_chunks(chunks)
                         logging.getLogger(__name__).info(
                             f"SQL download complete: {query_name} - "
                             f"{len(combined):,} rows in {_dl_secs:.1f}s"

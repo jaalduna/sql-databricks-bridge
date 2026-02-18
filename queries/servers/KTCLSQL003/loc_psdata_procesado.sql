@@ -6,3 +6,4 @@
 
 SELECT *
 FROM [PS_LATAM].dbo.loc_psdata_procesado
+WHERE feviaje >= DATEADD(MONTH, -{lookback_months}, GETDATE())

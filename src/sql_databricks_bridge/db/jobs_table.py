@@ -129,22 +129,20 @@ def list_jobs(
 
     where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
-    count_sql = f"SELECT COUNT(*) AS cnt FROM {table}{where_sql}"
-    logger.debug("list_jobs COUNT query: %s", count_sql)
-    count_rows = client.execute_sql(count_sql)
-    if not count_rows:
-        logger.warning("list_jobs COUNT query returned no results for table %s", table)
-        total = 0
-    else:
-        total = int(count_rows[0]["cnt"])
-    logger.debug("list_jobs total count: %d", total)
-
-    select_sql = f"SELECT * FROM {table}{where_sql} ORDER BY created_at DESC LIMIT {limit} OFFSET {offset}"
-    logger.debug("list_jobs SELECT query: %s", select_sql)
+    # Single query with COUNT(*) OVER() to get total alongside rows (halves Databricks round-trips)
+    select_sql = (
+        f"SELECT *, COUNT(*) OVER() AS _total_count FROM {table}{where_sql} "
+        f"ORDER BY created_at DESC LIMIT {limit} OFFSET {offset}"
+    )
+    logger.debug("list_jobs query: %s", select_sql)
     rows = client.execute_sql(select_sql)
 
+    total = 0
     items = []
     for row in rows:
+        if total == 0 and "_total_count" in row:
+            total = int(row["_total_count"])
+        row.pop("_total_count", None)
         if row.get("queries"):
             row["queries"] = json.loads(row["queries"])
         if row.get("failed_queries"):
@@ -153,7 +151,7 @@ def list_jobs(
             row["failed_queries"] = []
         items.append(row)
 
-    logger.debug("list_jobs returned %d rows", len(items))
+    logger.debug("list_jobs returned %d rows (total=%d)", len(items), total)
 
     return items, total
 

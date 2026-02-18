@@ -156,6 +156,9 @@ class BridgeSettings(BaseSettings):
     azure_ad_client_id: str = Field(default="", description="Azure AD app client ID (audience)")
     authorized_users_file: str = Field(default="", description="Override path to authorized users YAML (empty = bundled default)")
 
+    # E2E testing
+    skip_sync_data: bool = Field(default=False, description="Skip SQL Server sync, jump to Databricks steps (e2e testing)")
+
     # CORS settings
     cors_allowed_origins: str = Field(
         default="",

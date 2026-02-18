@@ -17,3 +17,4 @@ SELECT
     vol,
     wt
 FROM [PS_LATAM].dbo.loc_psdata_compras
+WHERE feviaje >= DATEADD(MONTH, -{lookback_months}, GETDATE())
