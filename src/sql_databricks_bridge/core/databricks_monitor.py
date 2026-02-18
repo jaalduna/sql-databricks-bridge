@@ -78,7 +78,8 @@ class DatabricksJobMonitor:
         logger.info("DatabricksJobMonitor started (interval=%.1fs)", self._poll_interval)
         while self._running:
             try:
-                self._poll_once()
+                # Run sync Databricks API calls in a thread to avoid blocking the event loop
+                await asyncio.to_thread(self._poll_once)
             except Exception as e:
                 logger.error("Monitor poll error: %s", e)
             await asyncio.sleep(self._poll_interval)

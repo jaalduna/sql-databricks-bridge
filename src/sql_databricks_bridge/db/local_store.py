@@ -24,15 +24,19 @@ CREATE TABLE IF NOT EXISTS trigger_jobs (
     current_query TEXT,
     failed_queries TEXT DEFAULT '[]',
     results TEXT DEFAULT '[]',
-    running_queries TEXT DEFAULT '[]'
+    running_queries TEXT DEFAULT '[]',
+    period TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON trigger_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_created ON trigger_jobs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_triggered_by ON trigger_jobs(triggered_by);
+CREATE INDEX IF NOT EXISTS idx_jobs_country ON trigger_jobs(country);
+CREATE INDEX IF NOT EXISTS idx_jobs_stage ON trigger_jobs(stage);
 """
 
 _MIGRATIONS = [
     "ALTER TABLE trigger_jobs ADD COLUMN running_queries TEXT DEFAULT '[]'",
+    "ALTER TABLE trigger_jobs ADD COLUMN period TEXT",
 ]
 
 # JSON fields that need deserialization when reading rows
@@ -95,14 +99,15 @@ def insert_job(
     queries: list[str],
     triggered_by: str,
     created_at: str,
+    period: str | None = None,
 ) -> None:
     """Insert a new pending job."""
     conn = _connect(db_path)
     try:
         conn.execute(
             """INSERT INTO trigger_jobs
-               (job_id, country, stage, tag, status, queries, triggered_by, created_at)
-               VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)""",
+               (job_id, country, stage, tag, status, queries, triggered_by, created_at, period)
+               VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)""",
             (
                 job_id,
                 country,
@@ -111,6 +116,7 @@ def insert_job(
                 json.dumps(queries),
                 triggered_by,
                 created_at,
+                period,
             ),
         )
         conn.commit()
@@ -157,7 +163,9 @@ def list_jobs(
     *,
     country: str | None = None,
     status: str | None = None,
+    stage: str | None = None,
     triggered_by: str | None = None,
+    period: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict[str, Any]], int]:
@@ -170,9 +178,15 @@ def list_jobs(
     if status:
         where_parts.append("status = ?")
         params.append(status)
+    if stage:
+        where_parts.append("stage = ?")
+        params.append(stage)
     if triggered_by:
         where_parts.append("triggered_by = ?")
         params.append(triggered_by)
+    if period:
+        where_parts.append("period = ?")
+        params.append(period)
 
     where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
