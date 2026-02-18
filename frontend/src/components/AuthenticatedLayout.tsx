@@ -79,6 +79,19 @@ export function AuthenticatedLayout() {
               >
                 History
               </NavLink>
+              <NavLink
+                to="/calibration"
+                className={({ isActive }) =>
+                  cn(
+                    "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                  )
+                }
+              >
+                Calibration
+              </NavLink>
             </nav>
           </div>
           <div className="flex items-center gap-3">

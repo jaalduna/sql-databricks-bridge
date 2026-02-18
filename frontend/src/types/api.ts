@@ -1,6 +1,75 @@
 /** Job execution status. */
 export type JobStatus = "pending" | "running" | "completed" | "failed" | "cancelled"
 
+/** Calibration pipeline step names (ordered). */
+export type CalibrationStepName =
+  | "sync_data"
+  | "copy_to_calibration"
+  | "merge_data"
+  | "simulate_kpis"
+  | "calculate_penetration"
+  | "download_csv"
+
+/** Human-readable labels for each calibration step. */
+export const CALIBRATION_STEP_LABELS: Record<CalibrationStepName, string> = {
+  sync_data: "Sync Data",
+  copy_to_calibration: "Copy to Calibration",
+  merge_data: "Merge Data",
+  simulate_kpis: "Simulate KPIs",
+  calculate_penetration: "Calculate Penetration",
+  download_csv: "Download CSV",
+}
+
+/** Ordered list of calibration steps for iteration. */
+export const CALIBRATION_STEPS: CalibrationStepName[] = [
+  "sync_data",
+  "copy_to_calibration",
+  "merge_data",
+  "simulate_kpis",
+  "calculate_penetration",
+  "download_csv",
+]
+
+/** Status of a single calibration sub-step. */
+export interface CalibrationStep {
+  name: CalibrationStepName
+  status: JobStatus
+  started_at: string | null
+  completed_at: string | null
+  error: string | null
+}
+
+/** Aggregation level options for calibration */
+export interface AggregationOptions {
+  region: boolean
+  nivel_2: boolean
+}
+
+/** Global calibration configuration applied to all countries */
+export interface CalibrationConfig {
+  aggregations: AggregationOptions
+  row_limit: number | null
+  lookback_months: number | null
+}
+
+export const DEFAULT_CALIBRATION_CONFIG: CalibrationConfig = {
+  aggregations: { region: false, nivel_2: false },
+  row_limit: null,
+  lookback_months: null,
+}
+
+/** Data availability for a country+period */
+export interface DataAvailability {
+  elegibilidad: boolean
+  pesaje: boolean
+}
+
+/** Response from GET /metadata/data-availability */
+export interface DataAvailabilityResponse {
+  period: string
+  countries: Record<string, DataAvailability>
+}
+
 /** User profile returned by GET /auth/me */
 export interface UserInfo {
   email: string
@@ -17,6 +86,7 @@ export interface TriggerRequest {
   lookback_months?: number | null
   row_limit?: number | null
   period?: string | null
+  aggregations?: AggregationOptions
 }
 
 /** Response from POST /trigger */
@@ -50,6 +120,7 @@ export interface EventSummary {
   country: string
   stage: string
   tag: string
+  period?: string
   queries_total: number
   queries_completed: number
   queries_failed: number
@@ -63,6 +134,8 @@ export interface EventSummary {
   running_queries: string[]
   queries_running: number
   total_rows_extracted: number
+  steps?: CalibrationStep[]
+  current_step?: CalibrationStepName | null
 }
 
 /** Detailed job info including per-query results */

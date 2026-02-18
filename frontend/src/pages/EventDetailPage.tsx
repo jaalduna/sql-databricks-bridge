@@ -318,7 +318,7 @@ export default function EventDetailPage() {
         queries: failedQueries,
       })
       toast.success(`Retrying ${failedQueries.length} failed queries`)
-      navigate(`/history/${resp.job_id}`)
+      navigate(`/events/${resp.job_id}`)
     } catch (err: unknown) {
       const message =
         err && typeof err === "object" && "message" in err
