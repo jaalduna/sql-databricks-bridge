@@ -63,7 +63,7 @@ INVESTIGATION_*.md
 # Debug/temporary files
 debug_*.py
 debug_*.txt
-test_*.py
+/test_*.py
 test_*.txt
 *_output/
 *_output.txt
