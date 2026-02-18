@@ -1,7 +1,10 @@
 # Tasks
 
 ## Backlog
-- [ ] Probar ejecutable en windows + front end | priority:medium | tags:windows,test
+- [ ] parametrizar visibilidad de pestañas del Front | priority:high
+  Los usuarios solo deberian poder ver las pestañas que les atañe
+  **Acceptance Criteria:**
+  - [ ] Los usuarios solo pueden ver las pestañas que les atañe
 - [ ] Implementar parametro para saber quien hizo una solicitud en la api | priority:low | tags:feature,api
 - [ ] Evaluar hacer el delta en bridge y solo upload de incremento | priority:medium | tags:optimization
 - [ ] Ver donde se esta guardando el estado de las tareas | priority:medium | tags:frontend,m1
@@ -9,16 +12,25 @@
   Milestone 2 - 23 febrero
 
 ## Todo
-- [ ] Revisar como correr el server con el ejecutable | priority:high | tags:server,deploy
-- [ ] sql-databricks-bridge corriendo en servidor | priority:high | tags:deploy,server
+- [ ] Probar ejecutable en windows + front end | priority:medium | tags:windows,test
 
 ## In Progress
+- [-] Documentar App y compartir con fernando | priority:high | due:2026-02-18
+  Documentar el front y el App para flujo de aprobación Numerator.
+  
+  La documentación debe tener al menos:
+  - Especificar si el aplicativo es web o ejecutable de escritorio (es un desktop App)
+  - Especificar las funcionalidades del aplicativo y como sería el flujo de trabajo de los usuarios, configuraciones, stack tecnológico, etc.
+   
+  crear una documentación separada para el front y otra para el backend. Utilizar diagramas para explicar los flujos, interacciones, estructura de datos, etc y todo lo que aplique y pueda ayudar a comprender mejor. Coordinar un agents team de 5 colaboradores.
 
 ## Review
 
 ## Done
+- [x] sql-databricks-bridge corriendo en servidor | priority:high | tags:deploy,server
 - [x] busqueda en dashboard | priority:medium
   /pancha incorporar la opción de buscar/filtrar tareas por nombre en el titulo
+- [x] Revisar como correr el server con el ejecutable | priority:high | tags:server,deploy
 - [x] Merge kpioe queries to databricks 000 | priority:high | tags:queries,databricks
 - [x] Compilar en ejecutable en windows | priority:medium | tags:build,windows
 - [x] Jobs with partial failed queries should not be marked as complete | priority:high | tags:frontend,bug,m1
