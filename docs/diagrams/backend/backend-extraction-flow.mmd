@@ -1,0 +1,54 @@
+sequenceDiagram
+    autonumber
+    participant FE as Desktop App
+    participant API as POST /trigger
+    participant Auth as AzureAD Auth
+    participant Ext as Extractor
+    participant SQL as SQL Server
+    participant PL as Polars DataFrame
+    participant DW as DeltaTableWriter
+    participant DB as Databricks<br/>Unity Catalog
+    participant SQLite as SQLite Cache
+
+    FE->>API: POST /trigger {country, stage, queries}
+    API->>Auth: Validate JWT token
+    Auth-->>API: AuthorizedUser (roles, countries)
+
+    API->>API: Check permissions (can_trigger_sync, can_access_country)
+
+    API->>Ext: create_job(country, queries)
+    Ext-->>API: ExtractionJob (job_id, queries[])
+
+    par Persist job metadata
+        API->>DB: insert_job() to Delta table
+        API->>SQLite: insert_job() for fast reads
+    end
+
+    API->>API: CalibrationTracker.create(job_id)
+    API->>API: CalibrationTracker.start_step("sync_data")
+
+    API-->>FE: 201 {job_id, status: "pending", tag}
+
+    Note over API,SQL: Background Task (ThreadPoolExecutor)
+
+    loop For each query (max 4 parallel)
+        API->>Ext: execute_query(query_name, country)
+        Ext->>SQL: SELECT ... FROM {table} (chunked)
+        SQL-->>Ext: ResultSet (rows)
+        Ext-->>PL: Polars DataFrame (chunk)
+        PL->>PL: concat_chunks()
+        PL->>DW: write_dataframe(df, query_name, country, tag)
+        DW->>DB: CREATE OR REPLACE TABLE ... AS SELECT
+        DB-->>DW: Table written
+        DW-->>API: QueryResult {rows_extracted, table_name}
+
+        API->>DB: insert_version_tag(table, version, tag)
+        API->>SQLite: update_job(results, running_queries)
+    end
+
+    API->>DB: update_job_status("completed")
+    API->>SQLite: update_job(status="completed")
+
+    API->>API: CalibrationTracker.complete_step("sync_data")
+    API->>API: advance_after_sync() → "copy_to_calibration"
+    API->>API: launch_calibration_step(job_id, "copy_to_calibration")

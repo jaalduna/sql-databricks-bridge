@@ -1,0 +1,43 @@
+flowchart LR
+    Login["Login Page<br/><i>Sign in with Microsoft</i>"]
+    Dash["Dashboard<br/><i>Trigger Data Sync</i>"]
+    Hist["History<br/><i>All Jobs</i>"]
+    Calib["Calibration<br/><i>Per-Country Grid</i>"]
+    ED["Event Detail<br/><i>Job Progress</i>"]
+
+    Login -->|"Authenticate"| Dash
+
+    Dash -->|"Select Country + Stage"| Confirm["Confirm Dialog"]
+    Confirm -->|"Trigger Sync"| ED
+    Dash -->|"Click recent job row"| ED
+
+    Dash <-->|"NavBar"| Hist
+    Dash <-->|"NavBar"| Calib
+
+    Hist -->|"Filter by country/status"| Hist
+    Hist -->|"Click job row"| ED
+
+    ED -->|"Poll every 3s while running"| ED
+    ED -->|"Click query row"| QD["Query Detail<br/><i>Rows, Duration, Error</i>"]
+    ED -->|"Retry Failed"| ED2["New Event Detail<br/><i>Retried queries only</i>"]
+    ED -->|"Back to History"| Hist
+
+    Calib -->|"Select Period"| Calib
+    Calib -->|"Configure Aggregations"| Calib
+    Calib -->|"Click Calibrar on CountryCard"| CalConf["Confirm Calibration"]
+    CalConf -->|"Confirm"| CalProg["CalibrationProgress<br/><i>6-Step Pipeline</i>"]
+    CalProg -->|"Poll every 2s"| CalProg
+    CalProg -->|"View Details"| CalDetail["CalibrationDetailModal"]
+    CalProg -->|"Completed"| Done["Download CSV"]
+
+    Dash -->|"Sign out"| Login
+
+    classDef entry fill:#e8f0fe,stroke:#4285f4,stroke-width:2px,color:#1a73e8
+    classDef page fill:#e6f4ea,stroke:#34a853,stroke-width:2px,color:#137333
+    classDef action fill:#fef7e0,stroke:#f9ab00,stroke-width:1px,color:#b06000
+    classDef dialog fill:#fce8e6,stroke:#ea4335,stroke-width:1px,color:#c5221f
+
+    class Login entry
+    class Dash,Hist,Calib,ED page
+    class QD,CalProg,CalDetail,Done,ED2 action
+    class Confirm,CalConf dialog
