@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Loader2, Eye } from "lucide-react"
+import { Loader2, Eye, Square } from "lucide-react"
 import { toast } from "sonner"
 import { DataAvailabilityBadge } from "./DataAvailabilityBadge"
 import { CalibrationProgress } from "./CalibrationProgress"
@@ -45,11 +45,12 @@ interface CountryCardProps {
 export function CountryCard({ country, period, availability, calibrationConfig }: CountryCardProps) {
   const [showDetail, setShowDetail] = useState(false)
   const [skipSync, setSkipSync] = useState(false)
-  const { job, isPending, startCalibration } = useCalibration(country.code, period)
+  const { job, isPending, isCancelling, startCalibration, cancelCalibration } = useCalibration(country.code, period)
 
   const isRunning = job?.status === "running" || job?.status === "pending"
   const isCompleted = job?.status === "completed"
   const isFailed = job?.status === "failed"
+  const isCancelled = job?.status === "cancelled"
   const canTrigger = availability.elegibilidad && availability.pesaje && !isRunning && !isPending
 
   const countryLabel = COUNTRY_LABELS[country.code] ?? country.code
@@ -75,7 +76,7 @@ export function CountryCard({ country, period, availability, calibrationConfig }
           </div>
 
           {/* Progress bar with step indicators */}
-          {job && (isRunning || isCompleted || isFailed) && (
+          {job && (isRunning || isCompleted || isFailed || isCancelled) && (
             <CalibrationProgress job={job} />
           )}
 
@@ -86,6 +87,7 @@ export function CountryCard({ country, period, availability, calibrationConfig }
             </Badge>
           )}
           {isFailed && <Badge variant="destructive">Failed</Badge>}
+          {isCancelled && <Badge variant="secondary">Cancelled</Badge>}
 
           {/* Actions */}
           <div className="flex gap-2">
@@ -166,6 +168,45 @@ export function CountryCard({ country, period, availability, calibrationConfig }
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+
+            {isRunning && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    aria-label="Stop calibration"
+                    disabled={isCancelling}
+                  >
+                    {isCancelling ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Square className="h-4 w-4" />
+                    )}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Stop Calibration</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Stop the running calibration for <strong>{countryLabel}</strong>? This will cancel all pending steps.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep Running</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={() => {
+                        cancelCalibration()
+                        toast.info(`Calibration stopped for ${countryLabel}`)
+                      }}
+                    >
+                      Stop
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
 
             {job && (
               <Button

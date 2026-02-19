@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { triggerCalibration, getEvent } from "@/lib/api"
+import { triggerCalibration, getEvent, cancelJob } from "@/lib/api"
 import type { AggregationOptions, EventDetail, TriggerRequest } from "@/types/api"
 
 export interface CalibrationOverrides {
@@ -45,6 +45,19 @@ export function useCalibration(country: string, stage: string) {
     })
   }, [trigger, country, stage])
 
+  const cancel = useMutation({
+    mutationFn: (jobId: string) => cancelJob(jobId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["calibration-job", activeJobId] })
+    },
+  })
+
+  const cancelCalibration = useCallback(() => {
+    if (activeJobId) {
+      cancel.mutate(activeJobId)
+    }
+  }, [cancel, activeJobId])
+
   const reset = useCallback(() => {
     setActiveJobId(null)
     queryClient.removeQueries({ queryKey: ["calibration-job", activeJobId] })
@@ -55,8 +68,10 @@ export function useCalibration(country: string, stage: string) {
     job: job.data as EventDetail | undefined,
     isPolling: job.isFetching && !!activeJobId,
     isPending: trigger.isPending,
+    isCancelling: cancel.isPending,
     triggerError: trigger.error,
     startCalibration,
+    cancelCalibration,
     reset,
   }
 }
