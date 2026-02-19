@@ -51,7 +51,7 @@ export function CountryCard({ country, period, availability, calibrationConfig }
   const isCompleted = job?.status === "completed"
   const isFailed = job?.status === "failed"
   const isCancelled = job?.status === "cancelled"
-  const canTrigger = availability.elegibilidad && availability.pesaje && !isRunning && !isPending
+  const canTrigger = availability.elegibilidad && !isRunning && !isPending
 
   const countryLabel = COUNTRY_LABELS[country.code] ?? country.code
 
@@ -141,17 +141,17 @@ export function CountryCard({ country, period, availability, calibrationConfig }
                       )}
                     </div>
                   </AlertDialogDescription>
-                  <label className="flex items-center gap-2 text-sm mt-3">
-                    <Checkbox
-                      checked={skipSync}
-                      onCheckedChange={(v) => setSkipSync(v === true)}
-                    />
-                    <span>Skip data sync</span>
-                  </label>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Use when data is already synced for this country
-                  </p>
                 </AlertDialogHeader>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={skipSync}
+                    onCheckedChange={(v) => setSkipSync(v === true)}
+                  />
+                  <span>Skip data sync</span>
+                </label>
+                <p className="text-xs text-muted-foreground -mt-2">
+                  Use when data is already synced for this country
+                </p>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction onClick={() => {
