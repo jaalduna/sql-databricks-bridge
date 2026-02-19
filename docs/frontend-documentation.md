@@ -16,11 +16,6 @@
   - [HistoryPage (/history)](#historypage-history)
   - [CalibrationPage (/calibration)](#calibrationpage-calibration)
   - [EventDetailPage (/events/:jobId)](#eventdetailpage-eventsjobid)
-- [Autenticacion y Seguridad](#autenticacion-y-seguridad)
-  - [Flujo de Autenticacion Azure AD](#flujo-de-autenticacion-azure-ad)
-  - [Proveedores de Autenticacion](#proveedores-de-autenticacion)
-  - [Proteccion de Rutas](#proteccion-de-rutas)
-  - [Vinculacion de Tokens](#vinculacion-de-tokens)
 - [Comunicacion con el Backend](#comunicacion-con-el-backend)
   - [Flujo de Datos con React Query](#flujo-de-datos-con-react-query)
   - [Configuracion de Axios](#configuracion-de-axios)
@@ -50,7 +45,7 @@
 
 SQL-Databricks Bridge es una **aplicacion de escritorio** desarrollada para Kantar Worldpanel LATAM que permite la sincronizacion bidireccional de datos entre SQL Server on-premise y Databricks Unity Catalog. La aplicacion proporciona una interfaz grafica para que los ingenieros de datos y analistas de Numerator/Kantar ejecuten y monitoreen trabajos de extraccion de datos y calibracion de paneles de consumidores para 8 paises de Latinoamerica. El frontend se comunica con un servicio backend FastAPI (ver [documentacion backend](backend-documentation.md)) que orquesta las operaciones de extraccion, sincronizacion y calibracion.
 
-La aplicacion esta construida como un cliente de escritorio nativo usando Tauri 2.x, lo que permite su distribucion como instalable para Windows (NSIS). La autenticacion se realiza mediante Azure Active Directory (OAuth 2.0), garantizando que solo usuarios autorizados de la organizacion puedan acceder al sistema.
+La aplicacion esta construida como un cliente de escritorio nativo usando Tauri 2.x, lo que permite su distribucion como instalable para Windows (NSIS).
 
 **Funcionalidades principales:**
 - Disparar trabajos de sincronizacion SQL Server hacia Databricks por pais y etapa
@@ -91,7 +86,6 @@ La aplicacion esta construida como un cliente de escritorio nativo usando Tauri 
 | Estilos | Tailwind CSS | 4.1 |
 | Componentes UI | Shadcn/ui + Radix UI | 1.4 |
 | Iconos | Lucide React | 0.563 |
-| Autenticacion | Azure MSAL Browser + MSAL React | 5.1 / 5.0 |
 | HTTP Client | Axios | 1.13.5 |
 | Notificaciones | Sonner | 2.0 |
 | Routing | React Router DOM | 7.13 |
@@ -106,12 +100,9 @@ La aplicacion esta construida como un cliente de escritorio nativo usando Tauri 
 ```mermaid
 flowchart TD
     App["App"]
-    Auth["AuthProvider<br/><i>MsalAuthProvider | DevAuthProvider</i>"]
     QCP["QueryClientProvider<br/><i>React Query</i>"]
     BR["BrowserRouter"]
-    PR["ProtectedRoute"]
-    AL["AuthenticatedLayout<br/><i>NavBar + Outlet</i>"]
-    ATB["ApiTokenBinder<br/><i>Axios interceptor</i>"]
+    AL["AppLayout<br/><i>NavBar + Outlet</i>"]
 
     LP["LoginPage"]
     DP["DashboardPage"]
@@ -139,14 +130,11 @@ flowchart TD
     EDP_DT["DataTable<br/><i>Query Results</i>"]
     EDP_QD["QueryDetailDialog"]
 
-    App --> Auth
-    Auth --> ATB
-    Auth --> QCP
+    App --> QCP
     QCP --> BR
 
     BR -->|"/"| LP
-    BR --> PR
-    PR --> AL
+    BR --> AL
 
     AL -->|"/dashboard"| DP
     AL -->|"/history"| HP
@@ -178,8 +166,8 @@ flowchart TD
     classDef page fill:#e6f4ea,stroke:#34a853,stroke-width:2px,color:#137333
     classDef component fill:#fef7e0,stroke:#f9ab00,stroke-width:1px,color:#b06000
 
-    class App,Auth,QCP,BR provider
-    class PR,AL,ATB layout
+    class App,QCP,BR provider
+    class AL layout
     class LP,DP,HP,CP,EDP page
     class DP_CS,DP_SS,DP_DT,DP_AD,HP_FLT,HP_DT,CP_PS,CP_CFG,CP_CC,CC_DAB,CC_CP,CC_CDM,EDP_SC,EDP_DT,EDP_QD component
 ```
@@ -188,12 +176,8 @@ flowchart TD
 
 | Componente | Archivo | Responsabilidad |
 |-----------|---------|-----------------|
-| `App` | `src/App.tsx` | Raiz de la aplicacion. Configura providers (Auth, QueryClient, Router) |
-| `MsalAuthProvider` | `src/components/MsalAuthProvider.tsx` | Proveedor de autenticacion con Azure MSAL |
-| `DevAuthProvider` | `src/components/DevAuthProvider.tsx` | Proveedor de autenticacion simulado para desarrollo local |
-| `ProtectedRoute` | `src/components/ProtectedRoute.tsx` | Guard de rutas que redirige a `/` si no hay sesion |
-| `AuthenticatedLayout` | `src/components/AuthenticatedLayout.tsx` | Layout con barra de navegacion, usuario y version |
-| `ApiTokenBinder` | `src/components/ApiTokenBinder.tsx` | Vincula el token MSAL al interceptor de Axios (se ejecuta una sola vez) |
+| `App` | `src/App.tsx` | Raiz de la aplicacion. Configura providers (QueryClient, Router) |
+| `AppLayout` | `src/components/AuthenticatedLayout.tsx` | Layout con barra de navegacion y version |
 | `DataTable` | `src/components/DataTable.tsx` | Wrapper generico sobre TanStack Table con sorting y click en filas |
 | `StatusBadge` | `src/components/StatusBadge.tsx` | Badge coloreado segun estado del job (pending, running, completed, failed, cancelled) |
 | `CountryCard` | `src/components/CountryCard.tsx` | Tarjeta por pais con disponibilidad de datos, progreso y acciones de calibracion |
@@ -230,13 +214,13 @@ La aplicacion utiliza Shadcn/ui como sistema de componentes base, construido sob
 
 ```mermaid
 flowchart LR
-    Login["Login Page<br/><i>Sign in with Microsoft</i>"]
+    Login["Login Page"]
     Dash["Dashboard<br/><i>Trigger Data Sync</i>"]
     Hist["History<br/><i>All Jobs</i>"]
     Calib["Calibration<br/><i>Per-Country Grid</i>"]
     ED["Event Detail<br/><i>Job Progress</i>"]
 
-    Login -->|"Authenticate"| Dash
+    Login -->|"Ingresar"| Dash
 
     Dash -->|"Select Country + Stage"| Confirm["Confirm Dialog"]
     Confirm -->|"Trigger Sync"| ED
@@ -261,7 +245,7 @@ flowchart LR
     CalProg -->|"View Details"| CalDetail["CalibrationDetailModal"]
     CalProg -->|"Completed"| Done["Download CSV"]
 
-    Dash -->|"Sign out"| Login
+    Dash -->|"Salir"| Login
 
     classDef entry fill:#e8f0fe,stroke:#4285f4,stroke-width:2px,color:#1a73e8
     classDef page fill:#e6f4ea,stroke:#34a853,stroke-width:2px,color:#137333
@@ -278,18 +262,18 @@ flowchart LR
 
 **Archivo:** `src/pages/LoginPage.tsx`
 
-Pagina de inicio de sesion. Presenta una tarjeta centrada con el titulo de la aplicacion y un boton "Sign in with Microsoft". Si el usuario ya esta autenticado, redirige automaticamente a `/dashboard`.
+Pagina de inicio de sesion. Presenta una tarjeta centrada con el titulo de la aplicacion y un boton de acceso. Redirige automaticamente a `/dashboard` si el usuario ya ingreso.
 
 **Comportamiento:**
 - Muestra subtitulo: "Data sync operations for LATAM countries"
 - Boton deshabilitado durante el proceso de login (`loading` state)
-- Redireccion automatica via `<Navigate to="/dashboard" replace />` si `isAuthenticated === true`
+- Redireccion automatica a `/dashboard` si ya hay una sesion activa
 
 ### DashboardPage (/dashboard)
 
 **Archivo:** `src/pages/DashboardPage.tsx`
 
-Pagina principal tras autenticacion. Permite disparar trabajos de sincronizacion y ver los jobs mas recientes.
+Pagina principal de la aplicacion. Permite disparar trabajos de sincronizacion y ver los jobs mas recientes.
 
 **Secciones:**
 1. **Trigger Data Sync Card**: Formulario con tres campos:
@@ -355,89 +339,6 @@ Vista detallada de un trabajo de sincronizacion con monitoreo en tiempo real.
 
 ---
 
-## Autenticacion y Seguridad
-
-### Flujo de Autenticacion Azure AD
-
-```mermaid
-sequenceDiagram
-    actor User
-    participant LP as LoginPage
-    participant MSAL as MsalAuthProvider
-    participant AAD as Azure AD
-    participant ATB as ApiTokenBinder
-    participant Axios as Axios Instance
-    participant API as Backend API
-
-    User->>LP: Click "Sign in with Microsoft"
-    LP->>MSAL: login()
-    MSAL->>AAD: loginRedirect(scopes)
-    AAD-->>User: Microsoft login prompt
-    User->>AAD: Enter credentials + MFA
-    AAD-->>MSAL: Auth code + tokens
-    MSAL->>MSAL: Store account in cache
-
-    Note over MSAL: isAuthenticated = true
-
-    MSAL->>ATB: Render ApiTokenBinder
-    ATB->>Axios: setTokenProvider(getAccessToken)
-    Note over Axios: Interceptor registered
-
-    User->>LP: Redirect to /dashboard
-    Note over LP: ProtectedRoute checks isAuthenticated
-
-    User->>API: Navigate to protected page
-    activate Axios
-    Axios->>MSAL: getAccessToken()
-    MSAL->>AAD: acquireTokenSilent(account)
-    AAD-->>MSAL: Access token (cached or refreshed)
-    MSAL-->>Axios: Bearer token
-    Axios->>API: GET /api/v1/events<br/>Authorization: Bearer {token}
-    API-->>Axios: 200 OK + JSON data
-    Axios-->>User: Render data
-    deactivate Axios
-
-    Note over MSAL,AAD: Token refresh (silent, every ~60min)
-    MSAL->>AAD: acquireTokenSilent()
-    AAD-->>MSAL: New access token
-
-    User->>MSAL: Sign out
-    MSAL->>AAD: logoutRedirect()
-    AAD-->>User: Redirect to LoginPage
-```
-
-### Proveedores de Autenticacion
-
-La aplicacion implementa dos proveedores de autenticacion intercambiables:
-
-**MsalAuthProvider** (produccion): Utiliza `@azure/msal-browser` y `@azure/msal-react` para autenticacion OAuth 2.0 con Azure Active Directory. Configurado con:
-- Authority: `https://login.microsoftonline.com/{tenantId}`
-- Scope: `api://{clientId}/access_as_user`
-- Cache: `sessionStorage`
-- Estrategia: `loginRedirect` (no popup)
-- Renovacion silenciosa: `acquireTokenSilent` con fallback a `acquireTokenRedirect`
-
-**DevAuthProvider** (desarrollo): Simula autenticacion para desarrollo local. Se activa con `VITE_AUTH_BYPASS=true`. Proporciona usuario ficticio `dev@localhost` y token `dev-bypass-token`.
-
-La seleccion del proveedor se realiza en `App.tsx`:
-```typescript
-const AUTH_BYPASS = import.meta.env.VITE_AUTH_BYPASS === "true"
-const AuthProvider = AUTH_BYPASS ? DevAuthProvider : MsalAuthProvider
-```
-
-### Proteccion de Rutas
-
-`ProtectedRoute` actua como guardia de acceso para todas las rutas excepto `/`. Comportamiento:
-- Si `loading === true`: muestra esqueleto de carga (Skeleton)
-- Si `isAuthenticated === false`: redirige a `/` con `<Navigate to="/" replace />`
-- Si `isAuthenticated === true`: renderiza las rutas hijas
-
-### Vinculacion de Tokens
-
-`ApiTokenBinder` es un componente invisible que vincula el proveedor de tokens al interceptor de Axios. Se ejecuta una unica vez cuando `isAuthenticated` cambia a `true`, utilizando una referencia (`useRef`) para evitar re-ejecuciones.
-
----
-
 ## Comunicacion con el Backend
 
 ### Flujo de Datos con React Query
@@ -448,7 +349,7 @@ flowchart TD
     Hook["useQuery / useMutation<br/><i>TanStack React Query</i>"]
     Cache["Query Cache<br/><i>staleTime: 30s</i>"]
     ApiFn["API Function<br/><i>getEvents, triggerSync, etc.</i>"]
-    Axios["Axios Instance<br/><i>+ Bearer Token Interceptor</i>"]
+    Axios["Axios Instance"]
     Backend["Backend API<br/><i>FastAPI /api/v1/*</i>"]
 
     Comp -->|"1. Render triggers hook"| Hook
@@ -458,7 +359,7 @@ flowchart TD
     Cache -->|"3b. Stale or missing"| ApiFn
 
     ApiFn -->|"4. HTTP request"| Axios
-    Axios -->|"5. Attach Bearer token"| Backend
+    Axios -->|"5. Send request"| Backend
     Backend -->|"6. JSON response"| Axios
     Axios -->|"7. Return data"| ApiFn
     ApiFn -->|"8. Update cache"| Cache
@@ -514,14 +415,12 @@ La instancia de Axios se configura con:
   2. `VITE_BRIDGE_API_URL` (variable de entorno)
   3. `http://localhost:8000/api/v1` (default)
 - **Headers**: `Content-Type: application/json`
-- **Interceptor de request**: Inyecta `Authorization: Bearer {token}` en cada peticion
 - **Interceptor de response**: Transforma errores de Axios en formato `ApiError { error, message }`
 
 ### Endpoints Consumidos
 
 | Metodo | Endpoint | Funcion TS | Uso |
 |--------|----------|-----------|-----|
-| `GET` | `/auth/me` | `getMe()` | Obtener perfil del usuario autenticado |
 | `POST` | `/trigger` | `triggerSync(body)` | Disparar job de sincronizacion o calibracion |
 | `GET` | `/events` | `getEvents(params?)` | Listar jobs con filtros y paginacion |
 | `GET` | `/events/{jobId}` | `getEvent(jobId)` | Detalle de job con resultados por query |
@@ -578,7 +477,6 @@ interface EventSummary {
 
 | Hook | Archivo | Proposito |
 |------|---------|-----------|
-| `useAuth` | `src/hooks/useAuth.ts` | Contexto de autenticacion. Expone `isAuthenticated`, `user`, `loading`, `login()`, `logout()`, `getAccessToken()` |
 | `useCalibration` | `src/hooks/useCalibration.ts` | Gestion de calibracion por pais. Combina `useMutation` (trigger) + `useQuery` (polling del job). Polling cada 2s hasta estado final |
 | `useCountries` | `src/hooks/useCountries.ts` | Carga de metadatos de paises. Cache de 5 minutos |
 | `useDataAvailability` | `src/hooks/useDataAvailability.ts` | Consulta disponibilidad de datos (elegibilidad y pesaje) por periodo. Cache de 1 minuto |
@@ -772,11 +670,7 @@ Adicionalmente, `HistoryPage` incluye `argentina` y `brazil` en sus filtros para
 
 | Variable | Requerida | Descripcion | Ejemplo |
 |----------|-----------|-------------|---------|
-| `VITE_AZURE_AD_CLIENT_ID` | Si (produccion) | Client ID de la App Registration en Azure AD | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
-| `VITE_AZURE_AD_TENANT_ID` | Si (produccion) | Tenant ID de Azure AD de Numerator | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
-| `VITE_AZURE_AD_REDIRECT_URI` | No | URI de redireccion post-login. Default: `window.location.origin` | `http://localhost:5173` |
 | `VITE_BRIDGE_API_URL` | No | URL base del backend API. Default: `http://localhost:8000/api/v1` | `http://127.0.0.1:8000/api/v1` |
-| `VITE_AUTH_BYPASS` | No | Bypass de autenticacion para desarrollo. Default: `false` | `true` |
 
 ### Configuracion Externa (config.json)
 
@@ -796,7 +690,7 @@ La prioridad de resolucion es: `config.json` > `VITE_BRIDGE_API_URL` > default (
 
 ### Caso 1: Sincronizacion de Datos
 
-1. El usuario abre la aplicacion e inicia sesion con credenciales corporativas de Microsoft
+1. El usuario abre la aplicacion e ingresa al sistema
 2. En el **Dashboard**, selecciona un pais (ej: Chile) y una etapa (ej: bronze)
 3. Opcionalmente ajusta los meses de rolling (default: 24)
 4. Revisa el tag auto-generado (ej: `chile-bronze-2026-02-18`)

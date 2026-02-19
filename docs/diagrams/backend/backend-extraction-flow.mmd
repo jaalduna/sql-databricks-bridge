@@ -2,7 +2,6 @@ sequenceDiagram
     autonumber
     participant FE as Desktop App
     participant API as POST /trigger
-    participant Auth as AzureAD Auth
     participant Ext as Extractor
     participant SQL as SQL Server
     participant PL as Polars DataFrame
@@ -11,11 +10,6 @@ sequenceDiagram
     participant SQLite as SQLite Cache
 
     FE->>API: POST /trigger {country, stage, queries}
-    API->>Auth: Validate JWT token
-    Auth-->>API: AuthorizedUser (roles, countries)
-
-    API->>API: Check permissions (can_trigger_sync, can_access_country)
-
     API->>Ext: create_job(country, queries)
     Ext-->>API: ExtractionJob (job_id, queries[])
 

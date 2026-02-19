@@ -15,44 +15,42 @@
   - [4.1. Extraccion: SQL Server a Databricks](#41-extraccion-sql-server-a-databricks)
   - [4.2. Sincronizacion: Databricks a SQL Server](#42-sincronizacion-databricks-a-sql-server)
   - [4.3. Pipeline de Calibracion](#43-pipeline-de-calibracion)
-- [5. Sistema de Autenticacion](#5-sistema-de-autenticacion)
-- [6. Referencia Completa de API](#6-referencia-completa-de-api)
-  - [6.1. Health](#61-health)
-  - [6.2. Auth](#62-auth)
-  - [6.3. Metadata](#63-metadata)
-  - [6.4. Extraction](#64-extraction)
-  - [6.5. Jobs](#65-jobs)
-  - [6.6. Trigger](#66-trigger)
-  - [6.7. Pipeline](#67-pipeline)
-  - [6.8. Sync](#68-sync)
-  - [6.9. Databricks Jobs](#69-databricks-jobs)
-  - [6.10. Tags](#610-tags)
-- [7. Modelos de Datos](#7-modelos-de-datos)
-  - [7.1. SyncEvent](#71-syncevent)
-  - [7.2. CalibrationStep](#72-calibrationstep)
-  - [7.3. PipelineStep y CalibrationPipeline](#73-pipelinestep-y-calibrationpipeline)
-  - [7.4. ExtractionJob](#74-extractionjob)
-- [8. Ciclo de Vida de Eventos](#8-ciclo-de-vida-de-eventos)
-- [9. Componentes Core](#9-componentes-core)
-  - [9.1. Extractor](#91-extractor)
-  - [9.2. DeltaTableWriter](#92-deltatablewriter)
-  - [9.3. SyncOperator](#93-syncoperator)
-  - [9.4. CalibrationLauncher](#94-calibrationlauncher)
-  - [9.5. CalibrationTracker](#95-calibrationtracker)
-  - [9.6. DatabricksJobMonitor](#96-databricksjobmonitor)
-  - [9.7. EventPoller](#97-eventpoller)
-- [10. Conexiones a Base de Datos](#10-conexiones-a-base-de-datos)
-- [11. Configuracion](#11-configuracion)
-- [12. CLI](#12-cli)
-- [13. Lifespan del Servicio](#13-lifespan-del-servicio)
-- [14. Compilacion y Distribucion](#14-compilacion-y-distribucion)
-- [15. Ejecucion de Tests](#15-ejecucion-de-tests)
+- [5. Referencia Completa de API](#5-referencia-completa-de-api)
+  - [5.1. Health](#51-health)
+  - [5.2. Metadata](#52-metadata)
+  - [5.3. Extraction](#53-extraction)
+  - [5.4. Jobs](#54-jobs)
+  - [5.5. Trigger](#55-trigger)
+  - [5.6. Pipeline](#56-pipeline)
+  - [5.7. Sync](#57-sync)
+  - [5.8. Databricks Jobs](#58-databricks-jobs)
+  - [5.9. Tags](#59-tags)
+- [6. Modelos de Datos](#6-modelos-de-datos)
+  - [6.1. SyncEvent](#61-syncevent)
+  - [6.2. CalibrationStep](#62-calibrationstep)
+  - [6.3. PipelineStep y CalibrationPipeline](#63-pipelinestep-y-calibrationpipeline)
+  - [6.4. ExtractionJob](#64-extractionjob)
+- [7. Ciclo de Vida de Eventos](#7-ciclo-de-vida-de-eventos)
+- [8. Componentes Core](#8-componentes-core)
+  - [8.1. Extractor](#81-extractor)
+  - [8.2. DeltaTableWriter](#82-deltatablewriter)
+  - [8.3. SyncOperator](#83-syncoperator)
+  - [8.4. CalibrationLauncher](#84-calibrationlauncher)
+  - [8.5. CalibrationTracker](#85-calibrationtracker)
+  - [8.6. DatabricksJobMonitor](#86-databricksjobmonitor)
+  - [8.7. EventPoller](#87-eventpoller)
+- [9. Conexiones a Base de Datos](#9-conexiones-a-base-de-datos)
+- [10. Configuracion](#10-configuracion)
+- [11. CLI](#11-cli)
+- [12. Lifespan del Servicio](#12-lifespan-del-servicio)
+- [13. Compilacion y Distribucion](#13-compilacion-y-distribucion)
+- [14. Ejecucion de Tests](#14-ejecucion-de-tests)
 
 ---
 
 ## 1. Resumen Ejecutivo
 
-**SQL-Databricks Bridge** es un servicio backend que proporciona sincronizacion bidireccional de datos entre SQL Server on-premise y Databricks Unity Catalog. El servicio expone una API REST con autenticacion Azure AD, orquesta pipelines de calibracion multi-paso sobre Databricks Asset Bundles, y ofrece actualizaciones en tiempo real via WebSocket. Esta disenado para ser consumido por una **aplicacion de escritorio Tauri** (ver [documentacion frontend](frontend-documentation.md)) utilizada por ingenieros de datos y analistas de Numerator/Kantar WorldPanel LATAM.
+**SQL-Databricks Bridge** es un servicio backend que proporciona sincronizacion bidireccional de datos entre SQL Server on-premise y Databricks Unity Catalog. El servicio expone una API REST, orquesta pipelines de calibracion multi-paso sobre Databricks Asset Bundles, y ofrece actualizaciones en tiempo real via WebSocket. Esta disenado para ser consumido por una **aplicacion de escritorio Tauri** (ver [documentacion frontend](frontend-documentation.md)) utilizada por ingenieros de datos y analistas de Numerator/Kantar WorldPanel LATAM.
 
 El servicio resuelve tres necesidades operativas criticas:
 
@@ -78,8 +76,6 @@ El sistema esta disenado para operar como un ejecutable standalone compilado con
 | DataFrames | Polars | ^1.0.0 | Procesamiento de datos columnar |
 | Arrow IPC | PyArrow | ^15.0.0 | Serializacion Parquet / interop |
 | Databricks SDK | databricks-sdk | ^0.74.0 | Unity Catalog, Jobs API, Volumes |
-| JWT Auth | PyJWT[crypto] | ^2.8.0 | Validacion de tokens Azure AD |
-| HTTP Client | httpx | ^0.27.0 | Llamadas a JWKS endpoint |
 | CLI | Typer | ^0.12.0 | Interfaz de linea de comandos |
 | Rich Output | Rich | ^13.7.0 | Tablas y progreso en terminal |
 | Config | pydantic-settings | ^2.1.0 | Configuracion desde .env |
@@ -99,7 +95,6 @@ El sistema esta disenado para operar como un ejecutable standalone compilado con
 flowchart TB
     subgraph API["api/ -- Capa de Presentacion"]
         routes_health["health.py"]
-        routes_auth["auth.py"]
         routes_metadata["metadata.py"]
         routes_extract["extract.py"]
         routes_jobs["jobs.py"]
@@ -141,15 +136,6 @@ flowchart TB
         retry["retry.py"]
     end
 
-    subgraph AUTH["auth/ -- Seguridad"]
-        azure_ad["azure_ad.py"]
-        auth_token["token.py"]
-        permissions["permissions.py"]
-        authorized_users["authorized_users.py"]
-        loader["loader.py"]
-        audit["audit.py"]
-    end
-
     subgraph MODELS["models/ -- Esquemas"]
         events["events.py"]
         calibration["calibration.py"]
@@ -157,7 +143,6 @@ flowchart TB
     end
 
     API --> CORE
-    API --> AUTH
     API --> MODELS
     CORE --> DB
     SYNC --> DB
@@ -167,11 +152,10 @@ flowchart TB
 
 La arquitectura sigue un patron de capas con separacion clara de responsabilidades:
 
-- **api/**: Endpoints FastAPI, schemas de request/response, dependencias de autenticacion.
+- **api/**: Endpoints FastAPI, schemas de request/response, dependencias.
 - **core/**: Logica de negocio: extraccion, escritura Delta, carga de queries, orquestacion de calibracion, monitoreo de jobs.
 - **db/**: Clientes de base de datos (SQL Server via pyodbc/SQLAlchemy, Databricks via SDK, SQLite para persistencia local).
 - **sync/**: Operaciones de sincronizacion inversa (Databricks -> SQL Server), validadores, poller de eventos, logica de reintentos.
-- **auth/**: Validacion JWT Azure AD, allowlist de usuarios autorizados, permisos por tabla, audit logging.
 - **models/**: Modelos Pydantic compartidos entre capas (SyncEvent, CalibrationStep, PipelineStep).
 
 ---
@@ -190,7 +174,6 @@ sequenceDiagram
     participant DB as Databricks
 
     F->>API: POST /trigger (country, stage, queries)
-    API->>API: Validar Azure AD JWT + permisos
     API->>E: create_job(country, queries)
     E->>E: CountryAwareQueryLoader.list_queries(country)
     API-->>F: 201 Created (job_id, tag)
@@ -217,8 +200,7 @@ sequenceDiagram
 **Detalles del flujo de extraccion:**
 
 1. El frontend envia un POST a `/trigger` con pais, stage y queries opcionales.
-2. Se valida el token JWT contra Azure AD y se verifica que el usuario tenga permisos para el pais solicitado.
-3. Se crea un `ExtractionJob` y se persiste en la tabla Delta `bridge.events.trigger_jobs` y en SQLite local.
+2. Se crea un `ExtractionJob` y se persiste en la tabla Delta `bridge.events.trigger_jobs` y en SQLite local.
 4. Las queries se ejecutan en paralelo usando `ThreadPoolExecutor` (configurable con `max_parallel_queries`, default 4).
 5. Cada query lee de SQL Server en chunks de `extraction_chunk_size` filas (default 100,000) y concatena los resultados con unificacion de schema (manejo de columnas Null type).
 6. Los DataFrames se escriben a tablas Delta usando el patron **stage-then-CTAS**: upload Parquet a Volume staging, luego `CREATE OR REPLACE TABLE ... AS SELECT * FROM read_files(...)`.
@@ -312,72 +294,7 @@ El `CalibrationLauncher` mapea pasos a jobs de Databricks Asset Bundles. Un solo
 
 ---
 
-## 5. Sistema de Autenticacion
-
-```mermaid
-sequenceDiagram
-    participant C as Cliente (Frontend)
-    participant API as FastAPI Middleware
-    participant AZ as Azure AD (JWKS)
-    participant AU as AuthorizedUsersStore
-    participant AL as Audit Logger
-
-    C->>API: Request + Authorization: Bearer {JWT}
-    API->>API: Extraer JWT del header
-    API->>AZ: Fetch JWKS keys (cached 24h)
-    AZ-->>API: RSA public keys
-    API->>API: jwt.decode(token, key, audience, issuer)
-
-    alt Token invalido/expirado
-        API->>AL: log_auth_failure()
-        API-->>C: 401 Unauthorized
-    else Token valido
-        API->>API: Extraer email de claims (preferred_username / email / upn)
-        API->>AU: get_user(email)
-
-        alt Usuario no esta en allowlist
-            API->>AL: log_auth_failure("User not in allowlist")
-            API-->>C: 403 Forbidden
-        else Usuario autorizado
-            API->>AL: log_auth_success()
-            API-->>API: AuthorizedUser(email, name, roles, countries)
-
-            Note over API: Verificar permisos por endpoint
-            API->>API: user.can_trigger_sync?
-            API->>API: user.can_access_country(country)?
-        end
-    end
-```
-
-**Componentes del sistema de autenticacion:**
-
-1. **AzureADTokenValidator** (`auth/azure_ad.py`): Valida tokens JWT contra las claves JWKS de Azure AD. Verifica firma RS256, audience (client_id de la app), issuer (tenant), y expiracion. Las claves JWKS se cachean por 24 horas con rotacion automatica.
-
-2. **AuthorizedUsersStore** (`auth/authorized_users.py`): Carga un allowlist desde `authorized_users.yaml` con la estructura:
-   ```yaml
-   users:
-     - email: "usuario@company.com"
-       name: "Nombre Completo"
-       roles: ["admin"]          # admin | operator | analyst | viewer
-       countries: ["*"]          # "*" = todos, o lista especifica
-   ```
-
-3. **Roles y permisos:**
-
-   | Rol | can_trigger_sync | can_access_country | is_admin |
-   |-----|-----------------|-------------------|----------|
-   | admin | Si | Todos | Si |
-   | operator | Si | Segun countries[] | No |
-   | analyst | Si | Segun countries[] | No |
-   | viewer | No | Segun countries[] | No |
-
-4. **PermissionManager** (legacy, `auth/permissions.py`): Sistema basado en tokens estaticos para acceso por tabla. Se usa en endpoints de extraccion directa (`/extract`). El sistema Azure AD es el metodo primario para el frontend.
-
-5. **Audit Logging** (`auth/audit.py`): Registra todos los intentos de autenticacion (exitosos y fallidos) con IP del cliente, email del usuario y razon del fallo.
-
----
-
-## 6. Referencia Completa de API
+## 5. Referencia Completa de API
 
 Todos los endpoints estan bajo el prefijo `/api/v1`. La documentacion interactiva esta disponible en `/docs` (Swagger UI).
 
@@ -387,10 +304,6 @@ flowchart LR
         H1["GET /health/live"]
         H2["GET /health/ready"]
         H3["GET /health/startup"]
-    end
-
-    subgraph Auth["Auth"]
-        A1["GET /auth/me"]
     end
 
     subgraph Meta["Metadata"]
@@ -454,7 +367,7 @@ flowchart LR
     end
 ```
 
-### 6.1. Health
+### 5.1. Health
 
 #### `GET /health/live`
 
@@ -501,29 +414,7 @@ Probe de startup para Kubernetes.
 
 ---
 
-### 6.2. Auth
-
-#### `GET /auth/me`
-
-Retorna la identidad del usuario autenticado, sus roles y paises autorizados.
-
-**Headers**: `Authorization: Bearer {Azure AD JWT}`
-
-**Response** `200 OK`:
-```json
-{
-  "email": "usuario@company.com",
-  "name": "Nombre Completo",
-  "roles": ["admin"],
-  "countries": ["*"]
-}
-```
-
-**Errores**: `401` si el token es invalido o expirado, `403` si el usuario no esta en el allowlist.
-
----
-
-### 6.3. Metadata
+### 5.2. Metadata
 
 #### `GET /metadata/countries`
 
@@ -582,11 +473,11 @@ Verifica disponibilidad de datos de elegibilidad y pesaje en SQL Server para un 
 
 ---
 
-### 6.4. Extraction
+### 5.3. Extraction
 
 #### `POST /extract`
 
-Inicia un job de extraccion directa (sin autenticacion Azure AD, usa token-based auth legacy).
+Inicia un job de extraccion directa.
 
 **Request Body**:
 ```json
@@ -615,7 +506,7 @@ Inicia un job de extraccion directa (sin autenticacion Azure AD, usa token-based
 
 ---
 
-### 6.5. Jobs
+### 5.4. Jobs
 
 #### `GET /jobs`
 
@@ -664,13 +555,11 @@ Cancela un job de extraccion en ejecucion.
 
 ---
 
-### 6.6. Trigger
+### 5.5. Trigger
 
 #### `POST /trigger`
 
-Endpoint principal del frontend. Dispara una extraccion autenticada con Azure AD, crea tracking de calibracion e inicia el pipeline automatico.
-
-**Headers**: `Authorization: Bearer {Azure AD JWT}`
+Endpoint principal del frontend. Dispara una extraccion, crea tracking de calibracion e inicia el pipeline automatico.
 
 **Request Body**:
 ```json
@@ -703,8 +592,6 @@ Endpoint principal del frontend. Dispara una extraccion autenticada con Azure AD
   "triggered_by": "usuario@company.com"
 }
 ```
-
-**Errores**: `403` si el usuario no tiene permisos para el pais o no puede disparar syncs.
 
 #### `GET /events`
 
@@ -770,7 +657,7 @@ Descarga un reporte CSV de un job de calibracion completado. Incluye metadatos d
 
 ---
 
-### 6.7. Pipeline
+### 5.6. Pipeline
 
 Endpoints para el sistema de pipeline detallado con substeps.
 
@@ -867,7 +754,7 @@ Elimina un pipeline. Solo disponible para usuarios con rol `admin`.
 
 ---
 
-### 6.8. Sync
+### 5.7. Sync
 
 #### `POST /sync/events`
 
@@ -960,7 +847,7 @@ WebSocket para actualizaciones en tiempo real de eventos de sincronizacion.
 
 ---
 
-### 6.9. Databricks Jobs
+### 5.8. Databricks Jobs
 
 #### `POST /databricks/jobs/{job_id}/run`
 
@@ -1011,7 +898,7 @@ Obtiene el estado de un run de Databricks, incluyendo tareas individuales.
 
 ---
 
-### 6.10. Tags
+### 5.9. Tags
 
 #### `POST /tags`
 
@@ -1080,9 +967,9 @@ Obtiene el historial de versiones de una tabla Delta anotado con tags existentes
 
 ---
 
-## 7. Modelos de Datos
+## 6. Modelos de Datos
 
-### 7.1. SyncEvent
+### 6.1. SyncEvent
 
 ```
 SyncEvent
@@ -1106,7 +993,7 @@ SyncEvent
 └── metadata: dict
 ```
 
-### 7.2. CalibrationStep
+### 6.2. CalibrationStep
 
 ```
 CalibrationStep
@@ -1119,7 +1006,7 @@ CalibrationStep
 └── databricks_run_id: int | None  # ID del run de Databricks (para polling)
 ```
 
-### 7.3. PipelineStep y CalibrationPipeline
+### 6.3. PipelineStep y CalibrationPipeline
 
 ```
 CalibrationPipeline
@@ -1147,7 +1034,7 @@ CalibrationPipeline
 └── current_step: str | None
 ```
 
-### 7.4. ExtractionJob
+### 6.4. ExtractionJob
 
 ```
 ExtractionJob
@@ -1174,7 +1061,7 @@ ExtractionJob
 
 ---
 
-## 8. Ciclo de Vida de Eventos
+## 7. Ciclo de Vida de Eventos
 
 ### Ciclo de vida de un SyncEvent
 
@@ -1219,9 +1106,9 @@ stateDiagram-v2
 
 ---
 
-## 9. Componentes Core
+## 8. Componentes Core
 
-### 9.1. Extractor
+### 8.1. Extractor
 
 **Archivo**: `core/extractor.py`
 
@@ -1233,7 +1120,7 @@ Coordina la extraccion de datos desde SQL Server. Utiliza `CountryAwareQueryLoad
 - Limite de filas configurable (`SELECT TOP N`) para testing.
 - Concatenacion de chunks con unificacion de schema (maneja columnas Null type).
 
-### 9.2. DeltaTableWriter
+### 8.2. DeltaTableWriter
 
 **Archivo**: `core/delta_writer.py`
 
@@ -1248,7 +1135,7 @@ Escribe DataFrames Polars a tablas Delta en Unity Catalog usando el patron **sta
 
 **Naming convention**: `` `{catalog}`.`{schema}`.`{query_name}` `` donde `schema` es el nombre del pais por defecto.
 
-### 9.3. SyncOperator
+### 8.3. SyncOperator
 
 **Archivo**: `sync/operations.py`
 
@@ -1266,7 +1153,7 @@ Ejecuta operaciones de sincronizacion entre Databricks y SQL Server:
 - Formato de tabla Databricks (`catalog.schema.table`).
 - Formato de tabla SQL Server (`schema.table` o solo `table` -> `dbo.table`).
 
-### 9.4. CalibrationLauncher
+### 8.4. CalibrationLauncher
 
 **Archivo**: `core/calibration_launcher.py`
 
@@ -1285,7 +1172,7 @@ Mapea pasos de calibracion a jobs de Databricks Asset Bundles y los dispara via 
 
 El launcher resuelve nombres de jobs con placeholders (`{country}`, `{Country}`), cachea IDs numericos de jobs para evitar busquedas repetidas, y gestiona el concepto de "covered steps" donde un solo job cubre multiples pasos logicos.
 
-### 9.5. CalibrationTracker
+### 8.5. CalibrationTracker
 
 **Archivo**: `core/calibration_tracker.py`
 
@@ -1297,7 +1184,7 @@ Singleton en memoria que gestiona el estado de los 6 pasos de calibracion por ca
 - Serializacion para la API (convierte a dicts para JSON response).
 - Listado de pasos con `databricks_run_id` para que el monitor haga polling.
 
-### 9.6. DatabricksJobMonitor
+### 8.6. DatabricksJobMonitor
 
 **Archivo**: `core/databricks_monitor.py`
 
@@ -1314,7 +1201,7 @@ Background task asincronico que hace polling de la Databricks Jobs API para actu
 4. Al completar un paso, auto-completa los pasos "cubiertos" y auto-avanza al siguiente.
 5. Cuando el ultimo paso se completa, actualiza el status del job en la tabla Delta a "completed".
 
-### 9.7. EventPoller
+### 8.7. EventPoller
 
 **Archivo**: `sync/poller.py`
 
@@ -1330,7 +1217,7 @@ Background task que hace polling de la tabla Delta de eventos para procesar sinc
 
 ---
 
-## 10. Conexiones a Base de Datos
+## 9. Conexiones a Base de Datos
 
 ### SQL Server
 
@@ -1363,7 +1250,7 @@ Background task que hace polling de la tabla Delta de eventos para procesar sinc
 
 ---
 
-## 11. Configuracion
+## 10. Configuracion
 
 La configuracion se gestiona via `pydantic-settings` con soporte para archivos `.env` y variables de entorno.
 
@@ -1390,9 +1277,6 @@ La configuracion se gestiona via `pydantic-settings` con soporte para archivos `
 | `QUERIES_PATH` | queries | Directorio de archivos SQL |
 | `JOBS_TABLE` | bridge.events.trigger_jobs | Tabla Delta para historial de jobs |
 | `VERSION_TAGS_TABLE` | bridge.events.version_tags | Tabla Delta para version tags |
-| `AUTH_ENABLED` | true | Habilitar autenticacion |
-| `AZURE_AD_TENANT_ID` | "" | Azure AD tenant ID |
-| `AZURE_AD_CLIENT_ID` | "" | Azure AD app client ID (audience) |
 | `SKIP_SYNC_DATA` | false | Saltar sync SQL Server (testing e2e) |
 | `CORS_ALLOWED_ORIGINS` | "" | Origins CORS separados por coma |
 
@@ -1423,7 +1307,7 @@ La configuracion se gestiona via `pydantic-settings` con soporte para archivos `
 
 ---
 
-## 12. CLI
+## 11. CLI
 
 El servicio incluye una CLI construida con Typer, accesible via el comando `bridge`.
 
@@ -1458,7 +1342,7 @@ bridge serve --host 0.0.0.0 --port 8000 --reload
 
 ---
 
-## 13. Lifespan del Servicio
+## 12. Lifespan del Servicio
 
 El ciclo de vida del servicio se gestiona via el `asynccontextmanager` de FastAPI:
 
@@ -1482,7 +1366,7 @@ El ciclo de vida del servicio se gestiona via el `asynccontextmanager` de FastAP
 
 ---
 
-## 14. Compilacion y Distribucion
+## 13. Compilacion y Distribucion
 
 El servicio se compila a un ejecutable standalone usando Nuitka, permitiendo distribucion sin necesidad de instalar Python en el servidor destino.
 
@@ -1499,7 +1383,7 @@ Las actualizaciones del servicio se realizan reemplazando el ejecutable manualme
 
 ---
 
-## 15. Ejecucion de Tests
+## 14. Ejecucion de Tests
 
 El proyecto incluye tests unitarios y de integracion usando pytest.
 
@@ -1523,5 +1407,5 @@ PYTHONPATH=src pytest tests/ -v --cov=sql_databricks_bridge --cov-report=term-mi
 - `addopts = "-v --tb=short"`
 
 **Categorias de tests:**
-- `tests/unit/`: Tests unitarios con mocks (SyncOperator, validators, API routes, auth, models).
+- `tests/unit/`: Tests unitarios con mocks (SyncOperator, validators, API routes, models).
 - `tests/integration/`: Tests con Databricks real (flujos INSERT/UPDATE/DELETE, event lifecycle).

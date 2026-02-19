@@ -3,7 +3,7 @@ flowchart TD
     Hook["useQuery / useMutation<br/><i>TanStack React Query</i>"]
     Cache["Query Cache<br/><i>staleTime: 30s</i>"]
     ApiFn["API Function<br/><i>getEvents, triggerSync, etc.</i>"]
-    Axios["Axios Instance<br/><i>+ Bearer Token Interceptor</i>"]
+    Axios["Axios Instance"]
     Backend["Backend API<br/><i>FastAPI /api/v1/*</i>"]
 
     Comp -->|"1. Render triggers hook"| Hook
@@ -13,7 +13,7 @@ flowchart TD
     Cache -->|"3b. Stale or missing"| ApiFn
 
     ApiFn -->|"4. HTTP request"| Axios
-    Axios -->|"5. Attach Bearer token"| Backend
+    Axios -->|"5. Send request"| Backend
     Backend -->|"6. JSON response"| Axios
     Axios -->|"7. Return data"| ApiFn
     ApiFn -->|"8. Update cache"| Cache
