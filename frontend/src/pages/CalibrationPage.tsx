@@ -58,7 +58,7 @@ export function CalibrationPage() {
 
       {data && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {data.countries.map((c) => (
+          {data.countries.filter((c) => c.type === "country").map((c) => (
             <CountryCard
               key={c.code}
               country={c}
