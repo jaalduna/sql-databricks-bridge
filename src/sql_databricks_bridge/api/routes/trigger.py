@@ -72,6 +72,10 @@ class TriggerRequest(BaseModel):
         default=None,
         description="Override rolling lookback months. null = use server default.",
     )
+    skip_sync: bool = Field(
+        default=False,
+        description="Skip the sync_data step (SQL Server extraction). Use when data is already synced.",
+    )
 
 
 class TriggerResponse(BaseModel):
@@ -350,6 +354,10 @@ def _run_trigger_extraction(
 
         def process_query(query_name: str) -> QueryResult:
             """Process a single query — runs inside ThreadPoolExecutor."""
+            # Skip if job was cancelled
+            if job.status == JobStatus.CANCELLED:
+                return QueryResult(query_name=query_name, status=JobStatus.CANCELLED)
+
             with results_lock:
                 if record:
                     record.running_queries.add(query_name)
@@ -429,12 +437,14 @@ def _run_trigger_extraction(
                     logger.error(f"Unexpected error processing query {qn}: {exc}")
 
         job.current_query = None
-        job.status = (
-            JobStatus.FAILED
-            if job.queries_failed > 0 and job.queries_completed == 0
-            else JobStatus.COMPLETED
-        )
-        job.completed_at = datetime.utcnow()
+        # Don't override if already cancelled by user
+        if job.status != JobStatus.CANCELLED:
+            job.status = (
+                JobStatus.FAILED
+                if job.queries_failed > 0 and job.queries_completed == 0
+                else JobStatus.COMPLETED
+            )
+        job.completed_at = job.completed_at or datetime.utcnow()
         update_job_status(
             client,
             table,
@@ -456,8 +466,12 @@ def _run_trigger_extraction(
                 results=serialized_results,
             )
 
+        # Skip calibration advancement if cancelled
+        if job.status == JobStatus.CANCELLED:
+            if db_path:
+                _persist_steps(job.job_id, db_path)
         # Update calibration sync_data step
-        if job.queries_failed > 0 and job.queries_completed == 0:
+        elif job.queries_failed > 0 and job.queries_completed == 0:
             calibration_tracker.complete_step(
                 job.job_id,
                 "sync_data",
@@ -525,8 +539,8 @@ async def trigger_extraction(
             },
         )
 
-    # Check for skip-sync mode (for e2e testing without SQL Server)
-    skip_sync = get_settings().skip_sync_data
+    # Skip sync: per-request flag OR global server setting
+    skip_sync = request.skip_sync or get_settings().skip_sync_data
 
     if skip_sync:
         job_id = str(_uuid.uuid4())
@@ -1141,6 +1155,102 @@ async def get_event_detail(
         current_step=completed_current,
         results=[],
     )
+
+
+# --- Cancel job ---
+
+
+@router.post(
+    "/events/{job_id}/cancel",
+    response_model=EventDetail,
+    summary="Cancel a running job",
+    description="Cancel a running sync or calibration job.",
+)
+async def cancel_event(
+    job_id: str,
+    user: CurrentAzureADUser,
+    raw_request: Request,
+) -> EventDetail:
+    """Cancel a running job: mark status as cancelled, stop pending steps."""
+    db_path = _get_db_path(raw_request)
+
+    # Find the in-flight record
+    record = _trigger_jobs.get(job_id)
+    if record:
+        if not user.is_admin and record.triggered_by != user.email:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "not_found", "message": f"Job not found: {job_id}"},
+            )
+        job = record.job
+        if job.status not in (JobStatus.PENDING, JobStatus.RUNNING):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "invalid_state", "message": f"Cannot cancel job with status: {job.status.value}"},
+            )
+        # Mark the job as cancelled
+        job.status = JobStatus.CANCELLED
+        job.completed_at = datetime.utcnow()
+        job.error = "Cancelled by user"
+        record.running_queries.clear()
+    else:
+        # Check SQLite for a persisted running job
+        if db_path:
+            sqlite_row = local_store.get_job(db_path, job_id)
+            if sqlite_row:
+                if not user.is_admin and sqlite_row["triggered_by"] != user.email:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail={"error": "not_found", "message": f"Job not found: {job_id}"},
+                    )
+                if sqlite_row["status"] not in ("pending", "running"):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={"error": "invalid_state", "message": f"Cannot cancel job with status: {sqlite_row['status']}"},
+                    )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={"error": "not_found", "message": f"Job not found: {job_id}"},
+                )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "not_found", "message": f"Job not found: {job_id}"},
+            )
+
+    # Cancel calibration steps
+    calibration_tracker.cancel_job(job_id)
+
+    # Persist to SQLite
+    if db_path:
+        now_str = datetime.utcnow().isoformat()
+        local_store.update_job(
+            db_path, job_id,
+            status="cancelled",
+            completed_at=now_str,
+            error="Cancelled by user",
+            running_queries="[]",
+            current_query=None,
+        )
+        _persist_steps(job_id, db_path)
+
+    # Persist to Databricks (best-effort)
+    try:
+        db_client = _get_databricks_client(raw_request)
+        jobs_tbl = get_settings().jobs_table
+        update_job_status(
+            db_client, jobs_tbl, job_id, "cancelled",
+            completed_at=datetime.utcnow(),
+            error="Cancelled by user",
+        )
+    except Exception as e:
+        logger.warning("Failed to update Databricks job status for cancelled job %s: %s", job_id, e)
+
+    logger.info("Job %s cancelled by %s", job_id, user.email)
+
+    # Return updated detail
+    return await get_event_detail(job_id, user, raw_request)
 
 
 # --- Download CSV ---

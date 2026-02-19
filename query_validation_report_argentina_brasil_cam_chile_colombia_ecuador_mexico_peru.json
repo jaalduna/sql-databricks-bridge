@@ -1,0 +1,3125 @@
+[
+  {
+    "query": "a_canal",
+    "status": "OK",
+    "columns": 15,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "a_conteudoproduto",
+    "status": "OK",
+    "columns": 17,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "a_flgscanner",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "a_marcaproduto",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "a_painelproduto",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "a_produto",
+    "status": "OK",
+    "columns": 20,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "a_sector",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "cidade",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "domicilio_posse_bens",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.14,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "domicilios",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "dt_mes",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "dt_mescalendar",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "entrevistador",
+    "status": "OK",
+    "columns": 33,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "hato_cabecalho",
+    "status": "OK",
+    "columns": 17,
+    "has_row": true,
+    "duration_s": 0.07,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "hato_ruim_cabecalho",
+    "status": "OK",
+    "columns": 48,
+    "has_row": true,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "htipo_ato",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "individuo",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "itf_bases",
+    "status": "OK",
+    "columns": 24,
+    "has_row": true,
+    "duration_s": 0.67,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "j_atoscompra_new",
+    "status": "OK",
+    "columns": 30,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "j_vista_artigos",
+    "status": "OK",
+    "columns": 21,
+    "has_row": true,
+    "duration_s": 0.22,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "nac_ato",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.01,
+    "error": "(pyodbc.OperationalError) ('08004', '[08004] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]The server principal \"KT\\\\70088287\" is not able to access the database \"CO_SINC\" under the current security context. (916) (SQLExecDirectW)')",
+    "country": "argentina"
+  },
+  {
+    "query": "origen",
+    "status": "OK",
+    "columns": 2,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "paineis",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "paineis_domicilios",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "paineis_individuos",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "pais",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "pre_mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "rg_domicilios_pesos",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "rg_panelis",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "vw_artigoz",
+    "status": "OK",
+    "columns": 69,
+    "has_row": true,
+    "duration_s": 0.86,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "vw_venues",
+    "status": "OK",
+    "columns": 45,
+    "has_row": true,
+    "duration_s": 0.25,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "a_accesocanal",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_canal",
+    "status": "OK",
+    "columns": 15,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_conteudoproduto",
+    "status": "OK",
+    "columns": 17,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_fabricanteproduto",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.07,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_flgscanner",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.21,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_formapagto",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_marcaproduto",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_painelproduto",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_produto",
+    "status": "OK",
+    "columns": 19,
+    "has_row": true,
+    "duration_s": 0.07,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_produtocoeficienteprincipal",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_sector",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_subproduto",
+    "status": "OK",
+    "columns": 25,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_tipocanal",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "cidade",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.24,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "dbm_da2",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "dbm_da2_items",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "dbm_filtros",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "dolar",
+    "status": "OK",
+    "columns": 5,
+    "has_row": false,
+    "duration_s": 0.22,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "domicilio_animais",
+    "status": "OK",
+    "columns": 15,
+    "has_row": true,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "domicilio_posse_bens",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 9.72,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "domicilios",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "dt_mes",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "dt_mescalendar",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "entrevistador",
+    "status": "OK",
+    "columns": 32,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "hato_cabecalho",
+    "status": "OK",
+    "columns": 22,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "hato_ruim_cabecalho",
+    "status": "OK",
+    "columns": 67,
+    "has_row": true,
+    "duration_s": 0.14,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "htipo_ato",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "individuo",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "j_atoscompra_new",
+    "status": "OK",
+    "columns": 100,
+    "has_row": true,
+    "duration_s": 0.28,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "j_vista_artigos",
+    "status": "OK",
+    "columns": 21,
+    "has_row": true,
+    "duration_s": 0.22,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "mordom",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "nac_ato",
+    "status": "OK",
+    "columns": 14,
+    "has_row": false,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "origen",
+    "status": "OK",
+    "columns": 2,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "paineis",
+    "status": "OK",
+    "columns": 10,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "paineis_domicilios",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "paineis_individuos",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "pais",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "pre_mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.06,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "rg_domicilios_pesos",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.07,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "rg_panelis",
+    "status": "OK",
+    "columns": 37,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "rg_pets",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "tblproductosinternos",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "test_hato_cabecalho_all",
+    "status": "OK",
+    "columns": 56,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "test_j_atoscompra_all",
+    "status": "OK",
+    "columns": 100,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "test_rg_domicilios_pesos_all",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.07,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "test_rg_panelis_all",
+    "status": "OK",
+    "columns": 317,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "test_rg_pets_all",
+    "status": "OK",
+    "columns": 42,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "ventasuelta",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "vw_artigoz",
+    "status": "OK",
+    "columns": 69,
+    "has_row": true,
+    "duration_s": 0.32,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "vw_artigoz_all",
+    "status": "OK",
+    "columns": 40,
+    "has_row": true,
+    "duration_s": 0.12,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "vw_venues",
+    "status": "OK",
+    "columns": 45,
+    "has_row": true,
+    "duration_s": 0.73,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_canal",
+    "status": "OK",
+    "columns": 15,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "a_conteudoproduto",
+    "status": "OK",
+    "columns": 17,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "a_flgscanner",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "a_marcaproduto",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "a_painelproduto",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "a_produto",
+    "status": "OK",
+    "columns": 19,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "a_sector",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "cidade",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "domicilio_posse_bens",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "domicilios",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "dt_mes",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "dt_mescalendar",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "entrevistador",
+    "status": "OK",
+    "columns": 34,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "geoestructura_detalle",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "hato_cabecalho",
+    "status": "OK",
+    "columns": 22,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "hato_ruim_cabecalho",
+    "status": "OK",
+    "columns": 63,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "htipo_ato",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "individuo",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "j_atoscompra_new",
+    "status": "OK",
+    "columns": 26,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "j_vista_artigos",
+    "status": "OK",
+    "columns": 21,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "nac_ato",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.01,
+    "error": "(pyodbc.OperationalError) ('08004', '[08004] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]The server principal \"KT\\\\70088287\" is not able to access the database \"CAM_SINC\" under the current security context. (916) (SQLExecDirectW)')",
+    "country": "cam"
+  },
+  {
+    "query": "origen",
+    "status": "OK",
+    "columns": 2,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "paineis",
+    "status": "OK",
+    "columns": 10,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "paineis_domicilios",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "paineis_individuos",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "pais",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "pre_mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "rg_domicilios_pesos",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "rg_domicilios_pesos_rd",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "rg_panelis",
+    "status": "OK",
+    "columns": 49,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "vw_artigoz",
+    "status": "OK",
+    "columns": 69,
+    "has_row": true,
+    "duration_s": 0.44,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "vw_venues",
+    "status": "OK",
+    "columns": 45,
+    "has_row": true,
+    "duration_s": 0.2,
+    "error": null,
+    "country": "cam"
+  },
+  {
+    "query": "a_accesocanal",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "a_canal",
+    "status": "OK",
+    "columns": 15,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "a_conteudoproduto",
+    "status": "OK",
+    "columns": 17,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "a_fabricanteproduto",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "a_flgscanner",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "a_formapagto",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "a_marcaproduto",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "a_painelproduto",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "a_produto",
+    "status": "OK",
+    "columns": 19,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "a_produtocoeficienteprincipal",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "a_sector",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "a_subproduto",
+    "status": "OK",
+    "columns": 25,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "a_tipocanal",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "cidade",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "dbm_da2",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "dbm_da2_items",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "dbm_filtros",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "dolar",
+    "status": "OK",
+    "columns": 5,
+    "has_row": false,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "domicilio_posse_bens",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "domicilios",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "dt_mes",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "dt_mescalendar",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "entrevistador",
+    "status": "OK",
+    "columns": 10,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "grupo",
+    "status": "OK",
+    "columns": 2,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "hato_cabecalho",
+    "status": "OK",
+    "columns": 21,
+    "has_row": true,
+    "duration_s": 1.21,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "hato_ruim_cabecalho",
+    "status": "OK",
+    "columns": 64,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "htipo_ato",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "individuo",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "j_atoscompra_new",
+    "status": "OK",
+    "columns": 31,
+    "has_row": true,
+    "duration_s": 25.37,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "j_vista_artigos",
+    "status": "OK",
+    "columns": 21,
+    "has_row": true,
+    "duration_s": 0.13,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "nac_ato",
+    "status": "OK",
+    "columns": 14,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "origen",
+    "status": "OK",
+    "columns": 2,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "paineis",
+    "status": "OK",
+    "columns": 2,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "paineis_domicilios",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "paineis_individuos",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "pais",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "pre_mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.16,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "rg_domicilios_pesos",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "rg_panelis",
+    "status": "OK",
+    "columns": 33,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "rg_pets",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.07,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "tblproductosinternos",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "ventasuelta",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "vw_artigoz",
+    "status": "OK",
+    "columns": 56,
+    "has_row": true,
+    "duration_s": 0.46,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "vw_artigoz_all",
+    "status": "OK",
+    "columns": 40,
+    "has_row": true,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "vw_venues",
+    "status": "OK",
+    "columns": 45,
+    "has_row": true,
+    "duration_s": 0.2,
+    "error": null,
+    "country": "chile"
+  },
+  {
+    "query": "a_accesocanal",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "a_canal",
+    "status": "OK",
+    "columns": 15,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "a_conteudoproduto",
+    "status": "OK",
+    "columns": 17,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "a_fabricanteproduto",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "a_flgscanner",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "a_formapagto",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "a_marcaproduto",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "a_painelproduto",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "a_produto",
+    "status": "OK",
+    "columns": 19,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "a_produtocoeficienteprincipal",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "a_sector",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "a_subproduto",
+    "status": "OK",
+    "columns": 25,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "a_tipocanal",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "cidade",
+    "status": "OK",
+    "columns": 12,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "dbm_da2",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "dbm_da2_items",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "dbm_filtros",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "dolar",
+    "status": "OK",
+    "columns": 5,
+    "has_row": false,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "domicilio_posse_bens",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "domicilios",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "dt_mes",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "dt_mescalendar",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "entrevistador",
+    "status": "OK",
+    "columns": 36,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "hato_cabecalho",
+    "status": "OK",
+    "columns": 21,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "hato_ruim_cabecalho",
+    "status": "OK",
+    "columns": 66,
+    "has_row": true,
+    "duration_s": 10.06,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "htipo_ato",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "individuo",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.07,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "j_atoscompra_new",
+    "status": "OK",
+    "columns": 31,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "j_vista_artigos",
+    "status": "OK",
+    "columns": 21,
+    "has_row": true,
+    "duration_s": 0.14,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "mbdcidade_2",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.25,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "nac_ato",
+    "status": "OK",
+    "columns": 14,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "origen",
+    "status": "OK",
+    "columns": 2,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "paineis",
+    "status": "OK",
+    "columns": 2,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "paineis_domicilios",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "paineis_individuos",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "pais",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "pre_mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "rg_domicilios_pesos",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "rg_panelis",
+    "status": "OK",
+    "columns": 10,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "rg_pets",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.28,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "tblproductosinternos",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "ventasuelta",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "vw_artigoz",
+    "status": "OK",
+    "columns": 56,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "vw_artigoz_all",
+    "status": "OK",
+    "columns": 40,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "vw_venues",
+    "status": "OK",
+    "columns": 45,
+    "has_row": true,
+    "duration_s": 0.15,
+    "error": null,
+    "country": "colombia"
+  },
+  {
+    "query": "a_accesocanal",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.15,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "a_canal",
+    "status": "OK",
+    "columns": 15,
+    "has_row": true,
+    "duration_s": 0.25,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "a_conteudoproduto",
+    "status": "OK",
+    "columns": 17,
+    "has_row": true,
+    "duration_s": 0.42,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "a_fabricanteproduto",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.38,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "a_flgscanner",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.4,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "a_formapagto",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.38,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "a_marcaproduto",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.38,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "a_painelproduto",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.39,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "a_produto",
+    "status": "OK",
+    "columns": 19,
+    "has_row": true,
+    "duration_s": 0.41,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "a_produtocoeficienteprincipal",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.42,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "a_sector",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.39,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "a_subproduto",
+    "status": "OK",
+    "columns": 25,
+    "has_row": true,
+    "duration_s": 0.2,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "a_tipocanal",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.4,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "cidade",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.37,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "dbm_da2",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.4,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "dbm_da2_items",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.38,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "dbm_filtros",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.39,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "dolar",
+    "status": "OK",
+    "columns": 5,
+    "has_row": false,
+    "duration_s": 0.4,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "domicilio_posse_bens",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.41,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "domicilios",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.41,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "dt_mes",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.16,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "dt_mescalendar",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "entrevistador",
+    "status": "OK",
+    "columns": 36,
+    "has_row": true,
+    "duration_s": 0.38,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "geoestructura_kantar",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.38,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "hato_cabecalho",
+    "status": "OK",
+    "columns": 22,
+    "has_row": true,
+    "duration_s": 4.82,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "hato_ruim_cabecalho",
+    "status": "OK",
+    "columns": 62,
+    "has_row": true,
+    "duration_s": 0.4,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "htipo_ato",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.27,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "individuo",
+    "status": "OK",
+    "columns": 64,
+    "has_row": true,
+    "duration_s": 0.4,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "j_atoscompra_new",
+    "status": "OK",
+    "columns": 31,
+    "has_row": true,
+    "duration_s": 0.41,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "j_vista_artigos",
+    "status": "OK",
+    "columns": 21,
+    "has_row": true,
+    "duration_s": 0.49,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.4,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "nac_ato",
+    "status": "OK",
+    "columns": 14,
+    "has_row": true,
+    "duration_s": 0.39,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "origen",
+    "status": "OK",
+    "columns": 2,
+    "has_row": true,
+    "duration_s": 0.4,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "paineis_domicilios",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.19,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "paineis_individuos",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.38,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "pais",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.39,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "pre_mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.38,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "rg_domicilios_pesos",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.43,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "rg_panelis",
+    "status": "OK",
+    "columns": 10,
+    "has_row": true,
+    "duration_s": 0.37,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "rg_pets",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.4,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "tblproductosinternos",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.4,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "ventasuelta",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.39,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "vw_artigoz",
+    "status": "OK",
+    "columns": 40,
+    "has_row": true,
+    "duration_s": 0.75,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "vw_artigoz_all",
+    "status": "OK",
+    "columns": 40,
+    "has_row": true,
+    "duration_s": 0.95,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "vw_venues",
+    "status": "OK",
+    "columns": 45,
+    "has_row": true,
+    "duration_s": 7.71,
+    "error": null,
+    "country": "ecuador"
+  },
+  {
+    "query": "a_accesocanal",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_canal",
+    "status": "OK",
+    "columns": 15,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_conteudoproduto",
+    "status": "OK",
+    "columns": 17,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_fabricanteproduto",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_flgscanner",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_formapagto",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_marcaproduto",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_painelproduto",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_produto",
+    "status": "OK",
+    "columns": 19,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_produtocoeficienteprincipal",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_sector",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_subproduto",
+    "status": "OK",
+    "columns": 25,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_tipocanal",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "cidade",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "cm_region_estrato",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "dbm_da2",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "dbm_da2_items",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "dbm_filtros",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "dolar",
+    "status": "OK",
+    "columns": 5,
+    "has_row": false,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "domicilio_posse_bens",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.1,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "domicilios",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "dt_mes",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "dt_mescalendar",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "entrevistador",
+    "status": "OK",
+    "columns": 33,
+    "has_row": true,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "geoestructura",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "hato_cabecalho",
+    "status": "OK",
+    "columns": 22,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "hato_ruim_cabecalho",
+    "status": "OK",
+    "columns": 67,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "htipo_ato",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "individuo",
+    "status": "OK",
+    "columns": 63,
+    "has_row": true,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "j_atoscompra_new",
+    "status": "OK",
+    "columns": 99,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "j_vista_artigos",
+    "status": "OK",
+    "columns": 21,
+    "has_row": true,
+    "duration_s": 0.06,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "mbd_mastermx",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "nac_ato",
+    "status": "OK",
+    "columns": 14,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "origen",
+    "status": "OK",
+    "columns": 2,
+    "has_row": true,
+    "duration_s": 0.13,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "paineis_domicilios",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "paineis_individuos",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "pais",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "pre_mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "rg_domicilios_pesos",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "rg_domicilios_pesos_bebes",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "rg_domicilios_pesos_beer",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "rg_panelis",
+    "status": "OK",
+    "columns": 94,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "rg_pets",
+    "status": "OK",
+    "columns": 42,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "tblproductosinternos",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "ventasuelta",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "vw_artigoz",
+    "status": "OK",
+    "columns": 40,
+    "has_row": true,
+    "duration_s": 0.22,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "vw_artigoz_all",
+    "status": "OK",
+    "columns": 40,
+    "has_row": true,
+    "duration_s": 0.2,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "vw_venues",
+    "status": "OK",
+    "columns": 45,
+    "has_row": true,
+    "duration_s": 0.33,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_accesocanal",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_canal",
+    "status": "OK",
+    "columns": 15,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_conteudoproduto",
+    "status": "OK",
+    "columns": 17,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_fabricanteproduto",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_flgscanner",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_formapagto",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_marcaproduto",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_painelproduto",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_produto",
+    "status": "OK",
+    "columns": 19,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_produtocoeficienteprincipal",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_sector",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_subproduto",
+    "status": "OK",
+    "columns": 25,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_tipocanal",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "cidade",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "dbm_da2",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "dbm_da2_items",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "dbm_filtros",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "dolar",
+    "status": "OK",
+    "columns": 5,
+    "has_row": false,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "domicilio_posse_bens",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "domicilios",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "dt_mes",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "dt_mescalendar",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "entrevistador",
+    "status": "OK",
+    "columns": 17,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "hato_cabecalho",
+    "status": "OK",
+    "columns": 22,
+    "has_row": true,
+    "duration_s": 1.22,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "hato_ruim_cabecalho",
+    "status": "OK",
+    "columns": 68,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "htipo_ato",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "individuo",
+    "status": "OK",
+    "columns": 63,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "j_atoscompra_new",
+    "status": "OK",
+    "columns": 31,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "j_vista_artigos",
+    "status": "OK",
+    "columns": 21,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.08,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "nac_ato",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.02,
+    "error": "(pyodbc.OperationalError) ('08004', '[08004] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]The server principal \"KT\\\\70088287\" is not able to access the database \"PE_SINC\" under the current security context. (916) (SQLExecDirectW)')",
+    "country": "peru"
+  },
+  {
+    "query": "origen",
+    "status": "OK",
+    "columns": 2,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "paineis",
+    "status": "OK",
+    "columns": 10,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "paineis_domicilios",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "paineis_individuos",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "pais",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "pre_mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "rg_domicilios_pesos",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "rg_panelis",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "rg_pets",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "tblproductosinternos",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "ventasuelta",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "vw_artigoz",
+    "status": "OK",
+    "columns": 40,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "vw_artigoz_all",
+    "status": "OK",
+    "columns": 40,
+    "has_row": true,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "vw_venues",
+    "status": "OK",
+    "columns": 45,
+    "has_row": true,
+    "duration_s": 0.08,
+    "error": null,
+    "country": "peru"
+  }
+]

@@ -1,0 +1,470 @@
+[
+  {
+    "query": "a_accesocanal",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_canal",
+    "status": "OK",
+    "columns": 15,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_conteudoproduto",
+    "status": "OK",
+    "columns": 17,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_fabricanteproduto",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_flgscanner",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_formapagto",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.11,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_marcaproduto",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_painelproduto",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_produto",
+    "status": "OK",
+    "columns": 19,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_produtocoeficienteprincipal",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.06,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_sector",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_subproduto",
+    "status": "OK",
+    "columns": 25,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "a_tipocanal",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "cidade",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "cm_region_estrato",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.01,
+    "error": "(pyodbc.ProgrammingError) ('42S02', \"[42S02] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid object name 'cm_region_estrato'. (208) (SQLExecDirectW)\")",
+    "country": "brasil"
+  },
+  {
+    "query": "dbm_da2",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "dbm_da2_items",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "dbm_filtros",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "dolar",
+    "status": "OK",
+    "columns": 5,
+    "has_row": false,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "domicilio_animais",
+    "status": "OK",
+    "columns": 15,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "domicilio_posse_bens",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 5.83,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "domicilios",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "dt_mes",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.19,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "dt_mescalendar",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "entrevistador",
+    "status": "OK",
+    "columns": 32,
+    "has_row": true,
+    "duration_s": 0.1,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "hato_cabecalho",
+    "status": "OK",
+    "columns": 22,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "hato_ruim_cabecalho",
+    "status": "OK",
+    "columns": 67,
+    "has_row": true,
+    "duration_s": 0.16,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "htipo_ato",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "individuo",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.0,
+    "error": "(pyodbc.ProgrammingError) ('42S02', \"[42S02] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid object name 'br_spri.dbo.individuo'. (208) (SQLExecDirectW)\")",
+    "country": "brasil"
+  },
+  {
+    "query": "j_atoscompra_new",
+    "status": "OK",
+    "columns": 100,
+    "has_row": true,
+    "duration_s": 0.24,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "j_vista_artigos",
+    "status": "OK",
+    "columns": 21,
+    "has_row": true,
+    "duration_s": 0.21,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "mordom",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "nac_ato",
+    "status": "OK",
+    "columns": 14,
+    "has_row": false,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "origen",
+    "status": "OK",
+    "columns": 2,
+    "has_row": true,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "paineis",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.02,
+    "error": "(pyodbc.ProgrammingError) ('42S02', \"[42S02] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid object name 'br_spri.dbo.paineis'. (208) (SQLExecDirectW)\")",
+    "country": "brasil"
+  },
+  {
+    "query": "paineis_domicilios",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "paineis_individuos",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "pais",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.06,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "pre_mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.06,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "rg_domicilios_pesos",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.09,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "rg_panelis",
+    "status": "OK",
+    "columns": 37,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "rg_pets",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "tblproductosinternos",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "test_hato_cabecalho_all",
+    "status": "OK",
+    "columns": 56,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "test_j_atoscompra_all",
+    "status": "OK",
+    "columns": 100,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "test_rg_domicilios_pesos_all",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "test_rg_panelis_all",
+    "status": "OK",
+    "columns": 317,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "test_rg_pets_all",
+    "status": "OK",
+    "columns": 42,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "ventasuelta",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "vw_artigoz",
+    "status": "OK",
+    "columns": 69,
+    "has_row": true,
+    "duration_s": 0.36,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "vw_artigoz_all",
+    "status": "OK",
+    "columns": 40,
+    "has_row": true,
+    "duration_s": 0.12,
+    "error": null,
+    "country": "brasil"
+  },
+  {
+    "query": "vw_venues",
+    "status": "OK",
+    "columns": 45,
+    "has_row": true,
+    "duration_s": 0.62,
+    "error": null,
+    "country": "brasil"
+  }
+]

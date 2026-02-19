@@ -1,0 +1,857 @@
+[
+  {
+    "query": "a_accesocanal",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_canal",
+    "status": "OK",
+    "columns": 15,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_conteudoproduto",
+    "status": "OK",
+    "columns": 17,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_fabricanteproduto",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_flgscanner",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_formapagto",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_marcaproduto",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_painelproduto",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_produto",
+    "status": "OK",
+    "columns": 19,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_produtocoeficienteprincipal",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_sector",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_subproduto",
+    "status": "OK",
+    "columns": 25,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_tipocanal",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "cidade",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "cm_region_estrato",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "dbm_da2",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "dbm_da2_items",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "dbm_filtros",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "dolar",
+    "status": "OK",
+    "columns": 5,
+    "has_row": false,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "domicilio_posse_bens",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.19,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "domicilios",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "dt_mes",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "dt_mescalendar",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "entrevistador",
+    "status": "OK",
+    "columns": 33,
+    "has_row": true,
+    "duration_s": 0.06,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "geoestructura",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "hato_cabecalho",
+    "status": "OK",
+    "columns": 22,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "hato_ruim_cabecalho",
+    "status": "OK",
+    "columns": 67,
+    "has_row": true,
+    "duration_s": 0.06,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "htipo_ato",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "individuo",
+    "status": "OK",
+    "columns": 63,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "j_atoscompra_new",
+    "status": "OK",
+    "columns": 99,
+    "has_row": true,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "j_vista_artigos",
+    "status": "OK",
+    "columns": 21,
+    "has_row": true,
+    "duration_s": 0.13,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "mbd_mastermx",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "nac_ato",
+    "status": "OK",
+    "columns": 14,
+    "has_row": true,
+    "duration_s": 0.1,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "origen",
+    "status": "OK",
+    "columns": 2,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "paineis_domicilios",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "paineis_individuos",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "pais",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "pre_mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.27,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "rg_domicilios_pesos",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "rg_domicilios_pesos_bebes",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "rg_domicilios_pesos_beer",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "rg_panelis",
+    "status": "OK",
+    "columns": 94,
+    "has_row": true,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "rg_pets",
+    "status": "OK",
+    "columns": 42,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "tblproductosinternos",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.07,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "ventasuelta",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.06,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "vw_artigoz",
+    "status": "OK",
+    "columns": 40,
+    "has_row": true,
+    "duration_s": 0.24,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "vw_artigoz_all",
+    "status": "OK",
+    "columns": 40,
+    "has_row": true,
+    "duration_s": 0.18,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "vw_venues",
+    "status": "OK",
+    "columns": 45,
+    "has_row": true,
+    "duration_s": 0.61,
+    "error": null,
+    "country": "mexico"
+  },
+  {
+    "query": "a_accesocanal",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_canal",
+    "status": "OK",
+    "columns": 15,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_conteudoproduto",
+    "status": "OK",
+    "columns": 17,
+    "has_row": true,
+    "duration_s": 0.07,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_fabricanteproduto",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_flgscanner",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_formapagto",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_marcaproduto",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_painelproduto",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_produto",
+    "status": "OK",
+    "columns": 19,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_produtocoeficienteprincipal",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.17,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_sector",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_subproduto",
+    "status": "OK",
+    "columns": 25,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "a_tipocanal",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "cidade",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.06,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "cm_region_estrato",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.01,
+    "error": "(pyodbc.ProgrammingError) ('42S02', \"[42S02] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid object name 'cm_region_estrato'. (208) (SQLExecDirectW)\")",
+    "country": "peru"
+  },
+  {
+    "query": "dbm_da2",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.05,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "dbm_da2_items",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "dbm_filtros",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "dolar",
+    "status": "OK",
+    "columns": 5,
+    "has_row": false,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "domicilio_posse_bens",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.19,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "domicilios",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "dt_mes",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.12,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "dt_mescalendar",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.01,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "entrevistador",
+    "status": "OK",
+    "columns": 17,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "hato_cabecalho",
+    "status": "OK",
+    "columns": 22,
+    "has_row": true,
+    "duration_s": 42.86,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "hato_ruim_cabecalho",
+    "status": "OK",
+    "columns": 68,
+    "has_row": true,
+    "duration_s": 0.18,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "htipo_ato",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.15,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "individuo",
+    "status": "OK",
+    "columns": 63,
+    "has_row": true,
+    "duration_s": 0.08,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "j_atoscompra_new",
+    "status": "OK",
+    "columns": 31,
+    "has_row": true,
+    "duration_s": 0.03,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "j_vista_artigos",
+    "status": "OK",
+    "columns": 21,
+    "has_row": true,
+    "duration_s": 0.63,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.41,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "nac_ato",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.11,
+    "error": "(pyodbc.OperationalError) ('08004', '[08004] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]The server principal \"KT\\\\70088287\" is not able to access the database \"PE_SINC\" under the current security context. (916) (SQLExecDirectW)')",
+    "country": "peru"
+  },
+  {
+    "query": "origen",
+    "status": "OK",
+    "columns": 2,
+    "has_row": true,
+    "duration_s": 0.04,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "paineis",
+    "status": "OK",
+    "columns": 10,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "paineis_domicilios",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.0,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "paineis_individuos",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.06,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "pais",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "pre_mordom",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.02,
+    "error": "(pyodbc.ProgrammingError) ('42S22', \"[42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'origen_dom'. (207) (SQLExecDirectW)\")",
+    "country": "peru"
+  },
+  {
+    "query": "rg_domicilios_pesos",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.03,
+    "error": "(pyodbc.ProgrammingError) ('42S22', \"[42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'seqdom'. (207) (SQLExecDirectW)\")",
+    "country": "peru"
+  },
+  {
+    "query": "rg_panelis",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.01,
+    "error": "(pyodbc.ProgrammingError) ('42S22', \"[42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'edpsh'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'origen_dom'. (207); [42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'seqdom'. (207)\")",
+    "country": "peru"
+  },
+  {
+    "query": "rg_pets",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.03,
+    "error": "(pyodbc.DataError) ('22018', \"[22018] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Conversion failed when converting the varchar value 'Q2_2019' to data type int. (245) (SQLExecDirectW)\")",
+    "country": "peru"
+  },
+  {
+    "query": "tblproductosinternos",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.03,
+    "error": "(pyodbc.ProgrammingError) ('42S02', \"[42S02] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid object name 'tblproductosinternos'. (208) (SQLExecDirectW)\")",
+    "country": "peru"
+  },
+  {
+    "query": "ventasuelta",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.07,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "vw_artigoz",
+    "status": "OK",
+    "columns": 40,
+    "has_row": true,
+    "duration_s": 1.29,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "vw_artigoz_all",
+    "status": "OK",
+    "columns": 40,
+    "has_row": true,
+    "duration_s": 0.2,
+    "error": null,
+    "country": "peru"
+  },
+  {
+    "query": "vw_venues",
+    "status": "OK",
+    "columns": 45,
+    "has_row": true,
+    "duration_s": 32.13,
+    "error": null,
+    "country": "peru"
+  }
+]

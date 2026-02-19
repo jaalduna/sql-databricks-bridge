@@ -1,0 +1,70 @@
+flowchart LR
+    subgraph "Pipeline Steps"
+        S1["1. sync_data<br/>SQL Server → Databricks"]
+        S2["2. copy_to_calibration<br/>Bronze → Calibration Schema"]
+        S3["3. merge_data<br/>Join & Aggregate Tables"]
+        S4["4. simulate_kpis<br/>KPI Calculation Engine"]
+        S5["5. calculate_penetration<br/>Penetration Targets"]
+        S6["6. download_csv<br/>Export Results"]
+    end
+
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6
+
+    subgraph "Orchestration"
+        CT["CalibrationTracker<br/>State Machine"]
+        CL["CalibrationLauncher<br/>Job Dispatcher"]
+        DM["DatabricksJobMonitor<br/>Run Poller"]
+    end
+
+    subgraph "Databricks"
+        DJ["Databricks Jobs API<br/>run_now()"]
+        DC["Compute Cluster<br/>shared-cluster-prod-scale"]
+    end
+
+    subgraph "Data Stores"
+        SQLite["SQLite<br/>Local State Cache"]
+        Delta["Delta Tables<br/>Unity Catalog"]
+    end
+
+    %% Tracker manages state
+    CT -.->|tracks state| S1
+    CT -.->|tracks state| S2
+    CT -.->|tracks state| S3
+    CT -.->|tracks state| S4
+    CT -.->|tracks state| S5
+    CT -.->|tracks state| S6
+
+    %% Launcher triggers Databricks
+    CL -->|launch_step| DJ
+    DJ -->|runs on| DC
+
+    %% Monitor polls status
+    DM -->|poll run status| DJ
+    DM -->|update step| CT
+
+    %% After sync, launcher kicks off next steps
+    S1 -->|advance_after_sync| CL
+    CL -->|trigger| S2
+    CL -->|trigger| S3
+    CL -->|trigger| S4
+    CL -->|trigger| S5
+
+    %% State persistence
+    CT -->|persist steps| SQLite
+    S1 -->|write data| Delta
+    S2 -->|read/write| Delta
+    S3 -->|read/write| Delta
+    S4 -->|read/write| Delta
+    S5 -->|read/write| Delta
+    S6 -->|read from| Delta
+
+    %% Styling
+    classDef step fill:#3498DB,stroke:#2471A3,color:#fff
+    classDef orch fill:#E67E22,stroke:#A35B16,color:#fff
+    classDef dbricks fill:#27AE60,stroke:#1B7A43,color:#fff
+    classDef store fill:#8E44AD,stroke:#6A3280,color:#fff
+
+    class S1,S2,S3,S4,S5,S6 step
+    class CT,CL,DM orch
+    class DJ,DC dbricks
+    class SQLite,Delta store

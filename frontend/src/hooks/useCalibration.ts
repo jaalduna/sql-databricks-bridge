@@ -1,22 +1,25 @@
-import { useState, useCallback } from "react"
+import { useCallback } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { triggerCalibration, getEvent } from "@/lib/api"
+import { triggerCalibration, getEvent, cancelJob } from "@/lib/api"
 import type { AggregationOptions, EventDetail, TriggerRequest } from "@/types/api"
+import { useCalibrationContext } from "@/contexts/CalibrationContext"
 
 export interface CalibrationOverrides {
   aggregations?: AggregationOptions
   row_limit?: number | null
   lookback_months?: number | null
+  skip_sync?: boolean
 }
 
 export function useCalibration(country: string, stage: string) {
   const queryClient = useQueryClient()
-  const [activeJobId, setActiveJobId] = useState<string | null>(null)
+  const ctx = useCalibrationContext()
+  const activeJobId = ctx.getJobId(country)
 
   const trigger = useMutation({
     mutationFn: (body: TriggerRequest) => triggerCalibration(body),
     onSuccess: (data) => {
-      setActiveJobId(data.job_id)
+      ctx.setJobId(country, data.job_id)
     },
   })
 
@@ -40,21 +43,37 @@ export function useCalibration(country: string, stage: string) {
       aggregations: overrides?.aggregations,
       row_limit: overrides?.row_limit,
       lookback_months: overrides?.lookback_months,
+      skip_sync: overrides?.skip_sync,
     })
   }, [trigger, country, stage])
 
+  const cancel = useMutation({
+    mutationFn: (jobId: string) => cancelJob(jobId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["calibration-job", activeJobId] })
+    },
+  })
+
+  const cancelCalibration = useCallback(() => {
+    if (activeJobId) {
+      cancel.mutate(activeJobId)
+    }
+  }, [cancel, activeJobId])
+
   const reset = useCallback(() => {
-    setActiveJobId(null)
+    ctx.clearJobId(country)
     queryClient.removeQueries({ queryKey: ["calibration-job", activeJobId] })
-  }, [activeJobId, queryClient])
+  }, [ctx, country, activeJobId, queryClient])
 
   return {
     activeJobId,
     job: job.data as EventDetail | undefined,
     isPolling: job.isFetching && !!activeJobId,
     isPending: trigger.isPending,
+    isCancelling: cancel.isPending,
     triggerError: trigger.error,
     startCalibration,
+    cancelCalibration,
     reset,
   }
 }
