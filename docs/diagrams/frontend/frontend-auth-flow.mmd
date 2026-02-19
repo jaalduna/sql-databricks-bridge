@@ -1,0 +1,44 @@
+sequenceDiagram
+    actor User
+    participant LP as LoginPage
+    participant MSAL as MsalAuthProvider
+    participant AAD as Azure AD
+    participant ATB as ApiTokenBinder
+    participant Axios as Axios Instance
+    participant API as Backend API
+
+    User->>LP: Click "Sign in with Microsoft"
+    LP->>MSAL: login()
+    MSAL->>AAD: loginRedirect(scopes)
+    AAD-->>User: Microsoft login prompt
+    User->>AAD: Enter credentials + MFA
+    AAD-->>MSAL: Auth code + tokens
+    MSAL->>MSAL: Store account in cache
+
+    Note over MSAL: isAuthenticated = true
+
+    MSAL->>ATB: Render ApiTokenBinder
+    ATB->>Axios: setTokenProvider(getAccessToken)
+    Note over Axios: Interceptor registered
+
+    User->>LP: Redirect to /dashboard
+    Note over LP: ProtectedRoute checks isAuthenticated
+
+    User->>API: Navigate to protected page
+    activate Axios
+    Axios->>MSAL: getAccessToken()
+    MSAL->>AAD: acquireTokenSilent(account)
+    AAD-->>MSAL: Access token (cached or refreshed)
+    MSAL-->>Axios: Bearer token
+    Axios->>API: GET /api/v1/events<br/>Authorization: Bearer {token}
+    API-->>Axios: 200 OK + JSON data
+    Axios-->>User: Render data
+    deactivate Axios
+
+    Note over MSAL,AAD: Token refresh (silent, every ~60min)
+    MSAL->>AAD: acquireTokenSilent()
+    AAD-->>MSAL: New access token
+
+    User->>MSAL: Sign out
+    MSAL->>AAD: logoutRedirect()
+    AAD-->>User: Redirect to LoginPage
