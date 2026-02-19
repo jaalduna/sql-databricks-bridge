@@ -7,6 +7,7 @@ export interface CalibrationOverrides {
   aggregations?: AggregationOptions
   row_limit?: number | null
   lookback_months?: number | null
+  skip_sync?: boolean
 }
 
 export function useCalibration(country: string, stage: string) {
@@ -40,6 +41,7 @@ export function useCalibration(country: string, stage: string) {
       aggregations: overrides?.aggregations,
       row_limit: overrides?.row_limit,
       lookback_months: overrides?.lookback_months,
+      skip_sync: overrides?.skip_sync,
     })
   }, [trigger, country, stage])
 
