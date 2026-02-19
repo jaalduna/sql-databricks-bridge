@@ -45,7 +45,7 @@ interface CountryCardProps {
 export function CountryCard({ country, period, availability, calibrationConfig }: CountryCardProps) {
   const [showDetail, setShowDetail] = useState(false)
   const [skipSync, setSkipSync] = useState(false)
-  const { job, isPending, isCancelling, startCalibration, cancelCalibration } = useCalibration(country.code, period)
+  const { job, isPending, isCancelling, startCalibration, cancelCalibration } = useCalibration(country.code, "calibracion")
 
   const isRunning = job?.status === "running" || job?.status === "pending"
   const isCompleted = job?.status === "completed"
@@ -156,6 +156,7 @@ export function CountryCard({ country, period, availability, calibrationConfig }
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction onClick={() => {
                     startCalibration({
+                      period,
                       aggregations: calibrationConfig.aggregations,
                       row_limit: calibrationConfig.row_limit,
                       lookback_months: calibrationConfig.lookback_months,
