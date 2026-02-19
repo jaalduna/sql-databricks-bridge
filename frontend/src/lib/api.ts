@@ -80,6 +80,10 @@ export function getEvent(jobId: string) {
   return api.get<EventDetail>(`/events/${jobId}`).then((r) => r.data)
 }
 
+export function cancelJob(jobId: string) {
+  return api.post<EventDetail>(`/events/${jobId}/cancel`).then((r) => r.data)
+}
+
 // -- Metadata --
 
 export function getCountries() {
