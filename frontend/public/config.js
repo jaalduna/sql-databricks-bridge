@@ -7,3 +7,10 @@
 window.__BRIDGE_CONFIG__ = {
   API_URL: "http://localhost:5000/api/v1",
 };
+
+window.__APP_CONFIG__ = {
+  modules: {
+    sync: true,
+    calibration: true,
+  },
+};

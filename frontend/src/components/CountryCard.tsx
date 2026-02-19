@@ -97,7 +97,7 @@ export function CountryCard({ country, period, availability, calibrationConfig }
                   size="sm"
                   disabled={!canTrigger}
                   className="flex-1"
-                  title={!canTrigger ? "Data extraction (Elegibilidad and Pesaje) required before calibration" : undefined}
+                  title={!canTrigger ? "Data extraction (Elegibilidad) required before calibration" : undefined}
                 >
                   {isPending || isRunning ? (
                     <>

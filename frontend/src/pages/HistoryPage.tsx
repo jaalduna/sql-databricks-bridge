@@ -15,10 +15,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusBadge } from "@/components/StatusBadge"
 import { DataTable } from "@/components/DataTable"
-
-const COUNTRIES = [
-  "argentina", "bolivia", "brazil", "cam", "chile", "colombia", "ecuador", "mexico", "peru",
-]
+import { useCountries } from "@/hooks/useCountries"
 
 const STATUSES = ["pending", "running", "completed", "failed", "cancelled"] as const
 
@@ -98,6 +95,9 @@ export default function HistoryPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [sorting, setSorting] = useState<SortingState>([])
 
+  const { data: countriesData } = useCountries()
+  const countries = countriesData?.countries ?? []
+
   const { data, isLoading } = useQuery({
     queryKey: ["events", "history", countryFilter, statusFilter, offset],
     queryFn: () =>
@@ -126,6 +126,11 @@ export default function HistoryPage() {
 
   return (
     <div className="space-y-4">
+      {/* Page heading */}
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Historial de Sincronización</h1>
+      </div>
+
       {/* Filters */}
       <div className="flex gap-3">
         <Select value={countryFilter} onValueChange={handleCountryChange}>
@@ -134,9 +139,9 @@ export default function HistoryPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All countries</SelectItem>
-            {COUNTRIES.map((c) => (
-              <SelectItem key={c} value={c}>
-                {capitalize(c)}
+            {countries.map((c) => (
+              <SelectItem key={c.code} value={c.code}>
+                {capitalize(c.code)}
               </SelectItem>
             ))}
           </SelectContent>
