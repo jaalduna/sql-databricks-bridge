@@ -12,7 +12,9 @@
     "test:watch": "vitest",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "mock": "node mock-server/server.js",
+    "mock:hybrid": "node mock-server/hybrid-proxy.js"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.1.0",
