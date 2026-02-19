@@ -109,7 +109,7 @@ class DataAvailabilityResponse(BaseModel):
     countries: dict[str, CountryAvailability]
 
 
-def _check_country_availability(country: str, year: int) -> tuple[str, CountryAvailability]:
+def _check_country_availability(country: str, year: int, month: int) -> tuple[str, CountryAvailability]:
     """Check pesaje & elegibilidad tables for *country* on SQL Server.
 
     Runs synchronously (blocking I/O) – intended to be called inside a
@@ -120,7 +120,7 @@ def _check_country_availability(country: str, year: int) -> tuple[str, CountryAv
 
         # Pesaje check – if pesaje exists, elegibilidad is implied
         pesaje_df = client.execute_query(
-            f"SELECT TOP 1 1 AS flag FROM rg_domicilios_pesos WHERE ano = {year}"
+            f"SELECT TOP 1 1 AS flag FROM rg_domicilios_pesos WHERE ano = {year} AND messem = {month}"
         )
         has_pesaje = len(pesaje_df) > 0
 
@@ -129,7 +129,7 @@ def _check_country_availability(country: str, year: int) -> tuple[str, CountryAv
 
         # Elegibilidad check (only when pesaje is absent)
         eleg_df = client.execute_query(
-            f"SELECT TOP 1 1 AS flag FROM mordom WHERE ano = {year}"
+            f"SELECT TOP 1 1 AS flag FROM mordom WHERE ano = {year} AND mes = {month}"
         )
         has_eleg = len(eleg_df) > 0
 
@@ -160,6 +160,7 @@ async def data_availability(
                 country_codes.append(d.name)
 
     year = int(period[:4])
+    month = int(period[4:])
     results: dict[str, CountryAvailability] = {}
 
     if not country_codes:
@@ -167,7 +168,7 @@ async def data_availability(
 
     with ThreadPoolExecutor(max_workers=min(len(country_codes), 8)) as pool:
         futures = {
-            pool.submit(_check_country_availability, code, year): code
+            pool.submit(_check_country_availability, code, year, month): code
             for code in country_codes
         }
         for future in as_completed(futures):

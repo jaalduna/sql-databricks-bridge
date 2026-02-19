@@ -88,6 +88,19 @@ class CalibrationTracker:
         logger.debug("Job %s step %s → %s", job_id, step_name, step.status)
         return step
 
+    def cancel_job(self, job_id: str) -> bool:
+        """Cancel all running/pending steps for a job. Returns True if job was found."""
+        info = self._jobs.get(job_id)
+        if not info:
+            return False
+        now = datetime.utcnow()
+        for step in info.steps:
+            if step.status in ("pending", "running"):
+                step.status = "cancelled"
+                step.completed_at = now
+        logger.info("Cancelled all steps for job %s", job_id)
+        return True
+
     def fail_remaining(self, job_id: str, from_step: CalibrationStepName, error: str) -> None:
         """When a step fails, mark it and leave subsequent steps as pending."""
         info = self._jobs.get(job_id)

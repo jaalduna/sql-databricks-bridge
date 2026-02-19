@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link, useParams, useNavigate } from "react-router-dom"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
-import { getEvent, triggerSync } from "@/lib/api"
-import type { JobStatus, QueryResult } from "@/types/api"
+import { getEvent, triggerSync, cancelJob } from "@/lib/api"
+import type { ApiError, JobStatus, QueryResult } from "@/types/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
@@ -20,7 +20,17 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusBadge } from "@/components/StatusBadge"
 import { DataTable } from "@/components/DataTable"
-import { Loader2, CheckCircle2, XCircle, Clock, Database, FileText, AlertTriangle, RotateCcw, Layers } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Loader2, CheckCircle2, XCircle, Clock, Database, FileText, AlertTriangle, RotateCcw, Layers, Ban } from "lucide-react"
 
 function formatRows(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -258,8 +268,10 @@ function QueryDetailDialog({
 export default function EventDetailPage() {
   const { jobId } = useParams<{ jobId: string }>()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [selectedQuery, setSelectedQuery] = useState<QueryResult | null>(null)
   const [retrying, setRetrying] = useState(false)
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [, setTick] = useState(0)
 
   const { data: event, isLoading, error } = useQuery({
@@ -269,6 +281,17 @@ export default function EventDetailPage() {
     refetchInterval: (query) => {
       const data = query.state.data
       return data?.status === "running" || data?.status === "pending" ? 3_000 : false
+    },
+  })
+
+  const cancelMutation = useMutation({
+    mutationFn: () => cancelJob(jobId!),
+    onSuccess: () => {
+      toast.success("Job cancelled")
+      queryClient.invalidateQueries({ queryKey: ["event", jobId] })
+    },
+    onError: (err: ApiError) => {
+      toast.error(err.message ?? "Failed to cancel job")
     },
   })
 
@@ -343,7 +366,7 @@ export default function EventDetailPage() {
     return (
       <div className="space-y-4">
         <Link to="/history" className="text-sm text-muted-foreground hover:underline">
-          &larr; Back to History
+          &larr; Volver al Historial
         </Link>
         <p className="py-8 text-center text-muted-foreground">
           Job not found
@@ -363,7 +386,7 @@ export default function EventDetailPage() {
   return (
     <div className="space-y-6">
       <Link to="/history" className="text-sm text-muted-foreground hover:underline">
-        &larr; Back to History
+        &larr; Volver al Historial
       </Link>
 
       {/* Job Summary Card */}
@@ -456,6 +479,25 @@ export default function EventDetailPage() {
                 </span>
               </div>
             )}
+
+            {/* Cancel button */}
+            {isRunning && (
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={cancelMutation.isPending}
+                  onClick={() => setCancelConfirmOpen(true)}
+                >
+                  {cancelMutation.isPending ? (
+                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                  ) : (
+                    <Ban className="mr-2 h-3 w-3" />
+                  )}
+                  Cancel Job
+                </Button>
+              </div>
+            )}
           </div>
 
           {(event.queries_failed ?? 0) > 0 && event.status !== "running" && (
@@ -521,6 +563,31 @@ export default function EventDetailPage() {
         open={selectedQuery !== null}
         onClose={() => setSelectedQuery(null)}
       />
+
+      {/* Cancel Confirmation Dialog */}
+      <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel Job?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will cancel the running sync job. Queries already completed will
+              be preserved, but remaining queries will be skipped.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep Running</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                setCancelConfirmOpen(false)
+                cancelMutation.mutate()
+              }}
+            >
+              Cancel Job
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

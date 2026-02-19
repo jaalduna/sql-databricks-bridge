@@ -1,0 +1,47 @@
+flowchart LR
+    S1["sync_data<br/><b>Sync Data</b>"]
+    S2["copy_to_calibration<br/><b>Copiar a Calibracion</b>"]
+    S3["merge_data<br/><b>Fusionar Datos</b>"]
+    S4["simulate_kpis<br/><b>Simular KPIs</b>"]
+    S5["calculate_penetration<br/><b>Calcular Penetracion</b>"]
+    S6["download_csv<br/><b>Descargar CSV</b>"]
+
+    S1 ==> S2 ==> S3 ==> S4 ==> S5 ==> S6
+
+    subgraph Legend["Step Status Icons"]
+        direction TB
+        P["Pending"]
+        R["Running"]
+        C["Completed"]
+        F["Failed"]
+    end
+
+    subgraph D1["Step 1 Details"]
+        direction TB
+        D1a["Extracts data from SQL Server"]
+        D1b["Sub-progress: queries completed / total"]
+        D1c["Polls every 2s while running"]
+    end
+
+    subgraph D6["Step 6 Details"]
+        direction TB
+        D6a["Generates CSV with results"]
+        D6b["Browser download via Blob URL"]
+    end
+
+    S1 -.-> D1
+    S6 -.-> D6
+
+    classDef pending fill:#f1f3f4,stroke:#9aa0a6,stroke-width:1px,color:#5f6368
+    classDef running fill:#e8f0fe,stroke:#4285f4,stroke-width:2px,color:#1a73e8
+    classDef completed fill:#e6f4ea,stroke:#34a853,stroke-width:2px,color:#137333
+    classDef failed fill:#fce8e6,stroke:#ea4335,stroke-width:2px,color:#c5221f
+    classDef step fill:#fff,stroke:#dadce0,stroke-width:2px,color:#202124
+    classDef detail fill:#f8f9fa,stroke:#dadce0,stroke-width:1px,color:#5f6368
+
+    class P pending
+    class R running
+    class C completed
+    class F failed
+    class S1,S2,S3,S4,S5,S6 step
+    class D1,D6,D1a,D1b,D1c,D6a,D6b detail

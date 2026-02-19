@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd /c type \"c:\\\\Users\\\\70088287\\\\Documents\\\\Projects\\\\sql-databricks-bridge\\\\README.md\")",
+      "Bash(powershell -Command:*)"
+    ]
+  }
+}

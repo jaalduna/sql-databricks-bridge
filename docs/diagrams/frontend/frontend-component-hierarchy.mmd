@@ -1,0 +1,72 @@
+flowchart TD
+    App["App"]
+    QCP["QueryClientProvider<br/><i>React Query</i>"]
+    BR["BrowserRouter"]
+    AL["AppLayout<br/><i>NavBar + Outlet</i>"]
+
+    LP["LoginPage"]
+    DP["DashboardPage"]
+    HP["HistoryPage"]
+    CP["CalibrationPage"]
+    EDP["EventDetailPage"]
+
+    DP_CS["Country Select"]
+    DP_SS["Stage Select"]
+    DP_DT["DataTable<br/><i>Recent Jobs</i>"]
+    DP_AD["AlertDialog<br/><i>Confirm Trigger</i>"]
+
+    HP_FLT["Filters<br/><i>Country + Status</i>"]
+    HP_DT["DataTable<br/><i>Paginated Events</i>"]
+
+    CP_PS["PeriodSelector"]
+    CP_CFG["CalibrationConfigDialog"]
+    CP_CC["CountryCard"]
+
+    CC_DAB["DataAvailabilityBadge"]
+    CC_CP["CalibrationProgress"]
+    CC_CDM["CalibrationDetailModal"]
+
+    EDP_SC["Job Summary Card<br/><i>Status + Progress</i>"]
+    EDP_DT["DataTable<br/><i>Query Results</i>"]
+    EDP_QD["QueryDetailDialog"]
+
+    App --> QCP
+    QCP --> BR
+
+    BR -->|"/"| LP
+    BR --> AL
+
+    AL -->|"/dashboard"| DP
+    AL -->|"/history"| HP
+    AL -->|"/calibration"| CP
+    AL -->|"/events/:jobId"| EDP
+
+    DP --> DP_CS
+    DP --> DP_SS
+    DP --> DP_DT
+    DP --> DP_AD
+
+    HP --> HP_FLT
+    HP --> HP_DT
+
+    CP --> CP_PS
+    CP --> CP_CFG
+    CP --> CP_CC
+
+    CP_CC --> CC_DAB
+    CP_CC --> CC_CP
+    CP_CC --> CC_CDM
+
+    EDP --> EDP_SC
+    EDP --> EDP_DT
+    EDP --> EDP_QD
+
+    classDef provider fill:#e8f0fe,stroke:#4285f4,stroke-width:2px,color:#1a73e8
+    classDef layout fill:#fce8e6,stroke:#ea4335,stroke-width:2px,color:#c5221f
+    classDef page fill:#e6f4ea,stroke:#34a853,stroke-width:2px,color:#137333
+    classDef component fill:#fef7e0,stroke:#f9ab00,stroke-width:1px,color:#b06000
+
+    class App,QCP,BR provider
+    class AL layout
+    class LP,DP,HP,CP,EDP page
+    class DP_CS,DP_SS,DP_DT,DP_AD,HP_FLT,HP_DT,CP_PS,CP_CFG,CP_CC,CC_DAB,CC_CP,CC_CDM,EDP_SC,EDP_DT,EDP_QD component

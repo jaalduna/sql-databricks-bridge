@@ -1,0 +1,40 @@
+flowchart TD
+    Comp["React Component<br/><i>DashboardPage, HistoryPage, etc.</i>"]
+    Hook["useQuery / useMutation<br/><i>TanStack React Query</i>"]
+    Cache["Query Cache<br/><i>staleTime: 30s</i>"]
+    ApiFn["API Function<br/><i>getEvents, triggerSync, etc.</i>"]
+    Axios["Axios Instance"]
+    Backend["Backend API<br/><i>FastAPI /api/v1/*</i>"]
+
+    Comp -->|"1. Render triggers hook"| Hook
+    Hook -->|"2. Check cache"| Cache
+
+    Cache -->|"3a. Fresh data"| Comp
+    Cache -->|"3b. Stale or missing"| ApiFn
+
+    ApiFn -->|"4. HTTP request"| Axios
+    Axios -->|"5. Send request"| Backend
+    Backend -->|"6. JSON response"| Axios
+    Axios -->|"7. Return data"| ApiFn
+    ApiFn -->|"8. Update cache"| Cache
+    Cache -->|"9. Re-render"| Comp
+
+    Poll["refetchInterval<br/><i>3s for running jobs</i><br/><i>30s for recent jobs</i>"]
+    Poll -.->|"Auto re-fetch"| Hook
+
+    Mut["useMutation<br/><i>triggerSync, startCalibration</i>"]
+    Comp -->|"User action"| Mut
+    Mut -->|"POST request"| ApiFn
+    Mut -->|"onSuccess: invalidate cache"| Cache
+
+    classDef react fill:#e8f0fe,stroke:#4285f4,stroke-width:2px,color:#1a73e8
+    classDef cache fill:#e6f4ea,stroke:#34a853,stroke-width:2px,color:#137333
+    classDef network fill:#fef7e0,stroke:#f9ab00,stroke-width:1px,color:#b06000
+    classDef backend fill:#fce8e6,stroke:#ea4335,stroke-width:2px,color:#c5221f
+    classDef auto fill:#f3e8fd,stroke:#9334e6,stroke-width:1px,color:#7627bb
+
+    class Comp,Hook,Mut react
+    class Cache cache
+    class ApiFn,Axios network
+    class Backend backend
+    class Poll auto

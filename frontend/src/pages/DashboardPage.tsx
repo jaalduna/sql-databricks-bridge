@@ -156,6 +156,14 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Page heading */}
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Sincronización Manual</h1>
+        <p className="text-sm text-muted-foreground">
+          Dispara y monitorea sincronizaciones de datos por país
+        </p>
+      </div>
+
       {/* Sync Trigger Card */}
       <Card>
         <CardHeader>

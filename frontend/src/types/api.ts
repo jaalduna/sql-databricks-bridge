@@ -87,6 +87,7 @@ export interface TriggerRequest {
   row_limit?: number | null
   period?: string | null
   aggregations?: AggregationOptions
+  skip_sync?: boolean
 }
 
 /** Response from POST /trigger */
