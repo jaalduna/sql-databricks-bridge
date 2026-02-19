@@ -13,6 +13,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Loader2, Eye } from "lucide-react"
 import { toast } from "sonner"
 import { DataAvailabilityBadge } from "./DataAvailabilityBadge"
@@ -43,6 +44,7 @@ interface CountryCardProps {
 
 export function CountryCard({ country, period, availability, calibrationConfig }: CountryCardProps) {
   const [showDetail, setShowDetail] = useState(false)
+  const [skipSync, setSkipSync] = useState(false)
   const { job, isPending, startCalibration } = useCalibration(country.code, period)
 
   const isRunning = job?.status === "running" || job?.status === "pending"
@@ -137,6 +139,16 @@ export function CountryCard({ country, period, availability, calibrationConfig }
                       )}
                     </div>
                   </AlertDialogDescription>
+                  <label className="flex items-center gap-2 text-sm mt-3">
+                    <Checkbox
+                      checked={skipSync}
+                      onCheckedChange={(v) => setSkipSync(v === true)}
+                    />
+                    <span>Skip data sync</span>
+                  </label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Use when data is already synced for this country
+                  </p>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -145,6 +157,7 @@ export function CountryCard({ country, period, availability, calibrationConfig }
                       aggregations: calibrationConfig.aggregations,
                       row_limit: calibrationConfig.row_limit,
                       lookback_months: calibrationConfig.lookback_months,
+                      skip_sync: skipSync,
                     });
                     toast.success(`Calibration started for ${countryLabel}`);
                   }}>
