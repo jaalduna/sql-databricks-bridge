@@ -1,11 +1,11 @@
 flowchart LR
-    Login["Login Page<br/><i>Sign in with Microsoft</i>"]
+    Login["Login Page"]
     Dash["Dashboard<br/><i>Trigger Data Sync</i>"]
     Hist["History<br/><i>All Jobs</i>"]
     Calib["Calibration<br/><i>Per-Country Grid</i>"]
     ED["Event Detail<br/><i>Job Progress</i>"]
 
-    Login -->|"Authenticate"| Dash
+    Login -->|"Ingresar"| Dash
 
     Dash -->|"Select Country + Stage"| Confirm["Confirm Dialog"]
     Confirm -->|"Trigger Sync"| ED
@@ -30,7 +30,7 @@ flowchart LR
     CalProg -->|"View Details"| CalDetail["CalibrationDetailModal"]
     CalProg -->|"Completed"| Done["Download CSV"]
 
-    Dash -->|"Sign out"| Login
+    Dash -->|"Salir"| Login
 
     classDef entry fill:#e8f0fe,stroke:#4285f4,stroke-width:2px,color:#1a73e8
     classDef page fill:#e6f4ea,stroke:#34a853,stroke-width:2px,color:#137333
