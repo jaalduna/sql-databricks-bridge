@@ -157,6 +157,7 @@ export interface CountryInfo {
   code: string
   queries: string[]
   queries_count: number
+  type: "country" | "server"
 }
 
 export interface CountriesResponse {

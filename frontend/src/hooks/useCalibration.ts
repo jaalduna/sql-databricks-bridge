@@ -9,6 +9,7 @@ export interface CalibrationOverrides {
   row_limit?: number | null
   lookback_months?: number | null
   skip_sync?: boolean
+  period?: string
 }
 
 export function useCalibration(country: string, stage: string) {
@@ -40,6 +41,7 @@ export function useCalibration(country: string, stage: string) {
     trigger.mutate({
       country,
       stage,
+      period: overrides?.period,
       aggregations: overrides?.aggregations,
       row_limit: overrides?.row_limit,
       lookback_months: overrides?.lookback_months,
