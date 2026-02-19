@@ -9,9 +9,11 @@ import type { DataAvailability, CalibrationConfig } from "@/types/api"
 import { DEFAULT_CALIBRATION_CONFIG } from "@/types/api"
 
 function currentPeriod(): string {
+  // Default to the previous month: January is calibrated in February, etc.
   const now = new Date()
-  const yyyy = now.getFullYear()
-  const mm = String(now.getMonth() + 1).padStart(2, "0")
+  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+  const yyyy = prev.getFullYear()
+  const mm = String(prev.getMonth() + 1).padStart(2, "0")
   return `${yyyy}${mm}`
 }
 
@@ -28,9 +30,9 @@ export function CalibrationPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Calibration</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Calibración</h1>
           <p className="text-sm text-muted-foreground">
-            Trigger and monitor calibration jobs per country
+            Dispara y monitorea jobs de calibración por país
           </p>
         </div>
         <div className="flex items-center gap-2">
