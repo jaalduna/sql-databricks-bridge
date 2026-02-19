@@ -2,12 +2,15 @@ import { useState, useEffect } from "react"
 import { Outlet, NavLink } from "react-router-dom"
 import { useAuth } from "@/hooks/useAuth"
 import { useUpdater } from "@/hooks/useUpdater"
+import { useModuleConfig } from "@/hooks/useModuleConfig"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { CalibrationProvider } from "@/contexts/CalibrationContext"
 
 export function AuthenticatedLayout() {
   const { user, logout } = useAuth()
   const { available, version: updateVersion, downloading, progress, downloadAndInstall } = useUpdater()
+  const modules = useModuleConfig()
   const [appVersion, setAppVersion] = useState<string>(APP_VERSION)
 
   useEffect(() => {
@@ -21,7 +24,16 @@ export function AuthenticatedLayout() {
     })()
   }, [])
 
+  const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+    cn(
+      "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+      isActive
+        ? "bg-primary text-primary-foreground"
+        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+    )
+
   return (
+    <CalibrationProvider>
     <div className="min-h-screen bg-background">
       {/* Update Banner */}
       {available && (
@@ -53,45 +65,35 @@ export function AuthenticatedLayout() {
               </span>
             </span>
             <nav className="flex gap-1">
-              <NavLink
-                to="/dashboard"
-                className={({ isActive }) =>
-                  cn(
-                    "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                  )
-                }
-              >
-                Dashboard
-              </NavLink>
-              <NavLink
-                to="/history"
-                className={({ isActive }) =>
-                  cn(
-                    "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                  )
-                }
-              >
-                History
-              </NavLink>
-              <NavLink
-                to="/calibration"
-                className={({ isActive }) =>
-                  cn(
-                    "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                  )
-                }
-              >
-                Calibration
-              </NavLink>
+              {modules.sync && (
+                <NavLink
+                  to="/dashboard"
+                  className={navLinkClass}
+                >
+                  Sincronización
+                </NavLink>
+              )}
+              {modules.sync && (
+                <NavLink
+                  to="/history"
+                  className={({ isActive }) =>
+                    navLinkClass({
+                      isActive:
+                        isActive || location.pathname.startsWith("/events/"),
+                    })
+                  }
+                >
+                  Historial
+                </NavLink>
+              )}
+              {modules.calibration && (
+                <NavLink
+                  to="/calibration"
+                  className={navLinkClass}
+                >
+                  Calibración
+                </NavLink>
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-3">
@@ -99,7 +101,7 @@ export function AuthenticatedLayout() {
               {user?.name ?? user?.email}
             </span>
             <Button variant="ghost" size="sm" onClick={logout}>
-              Sign out
+              Cerrar sesión
             </Button>
           </div>
         </div>
@@ -110,5 +112,6 @@ export function AuthenticatedLayout() {
         <Outlet />
       </main>
     </div>
+    </CalibrationProvider>
   )
 }
