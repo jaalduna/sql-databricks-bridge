@@ -158,6 +158,10 @@ class BridgeSettings(BaseSettings):
 
     # E2E testing
     skip_sync_data: bool = Field(default=False, description="Skip SQL Server sync, jump to Databricks steps (e2e testing)")
+    mock_data_availability: bool = Field(default=False, description="Mock data availability (all countries show elegibilidad+pesaje=true). For testing without SQL Server.")
+
+    # Calibration job prefix (matches DAB target prefix, e.g. '[dev] ' for development)
+    calibration_job_prefix: str = Field(default="[dev] ", description="Prefix prepended to calibration job names when searching Databricks. Set to '' for production.")
 
     # CORS settings
     cors_allowed_origins: str = Field(
