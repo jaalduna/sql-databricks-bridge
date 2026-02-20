@@ -33,6 +33,23 @@ class StepJobSpec:
     launcher advances to the step immediately after the last covered one.
     """
 
+    task_key_map: dict[str, str] = field(default_factory=dict)
+    """Maps Databricks task_key names to human-readable labels for progress tracking.
+
+    Example: ``{"run_penet_calibration": "Penetration Calibration"}``
+    If empty, task_keys are used as-is for display.
+    """
+
+    task_step_map: dict[str, CalibrationStepName] = field(default_factory=dict)
+    """Maps Databricks task_key names to calibration step names.
+
+    When populated, the monitor tracks per-task completion and maps each
+    task to its corresponding calibration step. This replaces the old
+    covers_steps auto-complete mechanism.
+
+    Example: {"merge_data": "merge_data", "simulate_kpis": "simulate_kpis"}
+    """
+
 
 # Default step → job mapping.  Country-specific job names use ``{country}``
 # as a placeholder that gets resolved at launch time.
@@ -46,6 +63,7 @@ DEFAULT_STEP_JOBS: dict[CalibrationStepName, StepJobSpec | None] = {
             "target_catalog": "001-calibration-3-0",
         },
         covers_steps=["copy_to_calibration"],
+        task_key_map={},  # Bronze Copy has a single task
     ),
     "merge_data": StepJobSpec(
         job_name="{Country} Penetration Calibration",
@@ -54,6 +72,16 @@ DEFAULT_STEP_JOBS: dict[CalibrationStepName, StepJobSpec | None] = {
             "final_period": "0",
         },
         covers_steps=["merge_data", "simulate_kpis", "calculate_penetration"],
+        task_key_map={
+            "merge_data": "Merge Data",
+            "simulate_kpis": "Simulate KPIs",
+            "calculate_penetration": "Calculate Penetration",
+        },
+        task_step_map={
+            "merge_data": "merge_data",
+            "simulate_kpis": "simulate_kpis",
+            "calculate_penetration": "calculate_penetration",
+        },
     ),
     "simulate_kpis": None,       # covered by merge_data's job
     "calculate_penetration": None,  # covered by merge_data's job
@@ -74,9 +102,11 @@ class CalibrationJobLauncher:
         self,
         databricks_client,
         step_jobs: dict[CalibrationStepName, StepJobSpec | None] | None = None,
+        job_name_prefix: str = "",
     ) -> None:
         self._client = databricks_client
         self._step_jobs = step_jobs or dict(DEFAULT_STEP_JOBS)
+        self._job_name_prefix = job_name_prefix
         # Cache: resolved job_name → Databricks numeric job_id
         self._job_id_cache: dict[str, int] = {}
 
@@ -107,7 +137,7 @@ class CalibrationJobLauncher:
                 logger.info("Job %s step %s auto-completed (no Databricks job)", job_id, step_name)
             return None
 
-        resolved_name = self._resolve_job_name(spec.job_name, country)
+        resolved_name = self._resolve_job_name(spec.job_name, country, self._job_name_prefix)
         db_job_id = self._find_job_id(resolved_name)
         if db_job_id is None:
             error = f"Databricks job not found: '{resolved_name}'"
@@ -148,9 +178,10 @@ class CalibrationJobLauncher:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _resolve_job_name(template: str, country: str) -> str:
-        """Replace ``{country}`` and ``{Country}`` placeholders."""
-        return template.replace("{country}", country).replace("{Country}", country.capitalize())
+    def _resolve_job_name(template: str, country: str, prefix: str = "") -> str:
+        """Replace ``{country}`` and ``{Country}`` placeholders, then prepend prefix."""
+        name = template.replace("{country}", country).replace("{Country}", country.capitalize())
+        return f"{prefix}{name}" if prefix else name
 
     def _find_job_id(self, resolved_name: str) -> int | None:
         """Find the Databricks numeric job ID for *resolved_name*, using cache."""

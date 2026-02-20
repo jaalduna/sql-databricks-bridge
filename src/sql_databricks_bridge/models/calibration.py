@@ -30,6 +30,16 @@ CALIBRATION_STEP_ORDER: list[CalibrationStepName] = [
 ]
 
 
+class DatabricksTaskStatus(BaseModel):
+    """Status of a single Databricks task within a multi-task job run."""
+
+    task_key: str
+    status: str = "pending"  # pending|running|completed|failed|skipped
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error: str | None = None
+
+
 class CalibrationStep(BaseModel):
     """A single calibration pipeline step. Serializes to the exact shape
     expected by the calibration frontend."""
@@ -40,6 +50,8 @@ class CalibrationStep(BaseModel):
     completed_at: datetime | None = None
     error: str | None = None
     databricks_run_id: int | None = Field(default=None, exclude=True)
+    tasks: list[DatabricksTaskStatus] = Field(default_factory=list)
+    """Per-task progress from Databricks multi-task jobs."""
 
 
 class CalibrationJobInfo(BaseModel):

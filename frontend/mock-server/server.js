@@ -73,6 +73,17 @@ const CALIBRATION_STEPS = [
   "download_csv",
 ]
 
+// Mock Databricks task definitions per step (only for steps backed by multi-task jobs)
+// All 3 calibration tasks live on merge_data (the Databricks job container).
+// Task completion drives pipeline step transitions: one task = one downstream step.
+const STEP_TASKS = {
+  merge_data: [
+    { task_key: "Merge Data" },
+    { task_key: "Simulate KPIs" },
+    { task_key: "Calculate Penetration" },
+  ],
+}
+
 function makeSteps(status = "pending") {
   return CALIBRATION_STEPS.map((name) => ({
     name,
@@ -80,6 +91,13 @@ function makeSteps(status = "pending") {
     started_at: null,
     completed_at: null,
     error: null,
+    tasks: (STEP_TASKS[name] || []).map((t) => ({
+      task_key: t.task_key,
+      status: "pending",
+      started_at: null,
+      completed_at: null,
+      error: null,
+    })),
   }))
 }
 
@@ -368,33 +386,104 @@ function advanceJob(jobId) {
     return
   }
 
-  // --- Non-sync steps: advance one step per tick ---
+  // --- Non-sync steps: advance one step (or one task) per tick ---
   if (step.status === "pending") {
     step.status = "running"
     step.started_at = isoNow()
     job.current_step = step.name
-  } else if (step.status === "running") {
+    // Start first sub-task if any
+    if (step.tasks && step.tasks.length > 0) {
+      step.tasks[0].status = "running"
+      step.tasks[0].started_at = isoNow()
+    }
+    return
+  }
+
+  if (step.status === "running") {
     // 5% chance of step failure
     if (Math.random() < 0.05) {
       step.status = "failed"
       step.completed_at = isoNow()
       step.error = `Step "${step.name}" failed: simulated error`
+      // Fail running sub-tasks too
+      for (const t of step.tasks || []) {
+        if (t.status === "running") {
+          t.status = "failed"
+          t.completed_at = isoNow()
+          t.error = "Parent step failed"
+        }
+      }
       job.current_step = null
       job.status = "failed"
       job.completed_at = isoNow()
       job.error = `Pipeline failed at step: ${step.name}`
       return
     }
+
+    // If this step has tasks, advance one task at a time.
+    // Each completed task drives the corresponding calibration step transition.
+    // Sequence: task[0] completes → step[0] completes, task[1] starts → step[1] starts, etc.
+    if (step.tasks && step.tasks.length > 0) {
+      const runningTask = step.tasks.find((t) => t.status === "running")
+      if (runningTask) {
+        // Complete the currently running task
+        runningTask.status = "completed"
+        runningTask.completed_at = isoNow()
+
+        // Complete the calibration step mapped to this task.
+        // Task[0]=merge_data(self), Task[1]=simulate_kpis, Task[2]=calculate_penetration
+        const taskIdx = step.tasks.indexOf(runningTask)
+        const mappedStep = job.steps[stepIdx + taskIdx]
+        if (mappedStep && (mappedStep.status === "pending" || mappedStep.status === "running")) {
+          mappedStep.status = "completed"
+          if (!mappedStep.started_at) mappedStep.started_at = isoNow()
+          mappedStep.completed_at = isoNow()
+        }
+
+        // Start next pending task if any
+        const nextTask = step.tasks.find((t) => t.status === "pending")
+        if (nextTask) {
+          nextTask.status = "running"
+          nextTask.started_at = isoNow()
+          // Start the corresponding calibration step
+          const nextTaskIdx = step.tasks.indexOf(nextTask)
+          const nextMappedStep = job.steps[stepIdx + nextTaskIdx]
+          if (nextMappedStep && nextMappedStep.status === "pending") {
+            nextMappedStep.status = "running"
+            nextMappedStep.started_at = isoNow()
+            job.current_step = nextMappedStep.name
+          }
+          // Update _stepIndex to point to the now-active step
+          job._stepIndex = stepIdx + nextTaskIdx
+          return // more tasks to go
+        }
+
+        // All tasks done — skip ahead past all task-mapped steps to download_csv
+        const tasksCount = step.tasks.length
+        const nextStepIdx = stepIdx + tasksCount
+        job._stepIndex = nextStepIdx
+        if (nextStepIdx < job.steps.length) {
+          job.steps[nextStepIdx].status = "running"
+          job.steps[nextStepIdx].started_at = isoNow()
+          job.current_step = job.steps[nextStepIdx].name
+        } else {
+          job.status = "completed"
+          job.completed_at = isoNow()
+          job.current_step = null
+        }
+        return
+      }
+    }
+
+    // No tasks (or no running task) — complete the step as before
     step.status = "completed"
     step.completed_at = isoNow()
     job._stepIndex = stepIdx + 1
-    // Start next step if available
     if (stepIdx + 1 < job.steps.length) {
       job.steps[stepIdx + 1].status = "running"
       job.steps[stepIdx + 1].started_at = isoNow()
       job.current_step = job.steps[stepIdx + 1].name
     } else {
-      // All steps done
       job.status = "completed"
       job.completed_at = isoNow()
       job.current_step = null
@@ -428,6 +517,7 @@ app.get("/api/v1/metadata/countries", (_req, res) => {
       code,
       queries,
       queries_count,
+      type: "country",
     })),
   })
 })
@@ -482,7 +572,7 @@ app.get("/api/v1/metadata/data-availability", (req, res) => {
 
 // Trigger
 app.post("/api/v1/trigger", (req, res) => {
-  const { country, stage, period, queries: requestedQueries, aggregations, row_limit, lookback_months, skip_sync } = req.body
+  const { country, stage, period, queries: requestedQueries, aggregations, row_limit, lookback_months, skip_sync, skip_copy } = req.body
 
   if (!country || !stage) {
     return res.status(400).json({ error: "bad_request", message: "country and stage are required" })
@@ -546,16 +636,43 @@ app.post("/api/v1/trigger", (req, res) => {
     job.current_step = "copy_to_calibration"
   }
 
+  // If skip_copy, immediately complete copy_to_calibration step and jump to merge_data
+  if (skip_copy) {
+    job.steps[1].status = "completed"
+    job.steps[1].started_at = isoNow()
+    job.steps[1].completed_at = isoNow()
+    // Complete any tasks on copy step
+    for (const t of job.steps[1].tasks || []) {
+      t.status = "completed"
+      if (!t.started_at) t.started_at = isoNow()
+      t.completed_at = isoNow()
+    }
+    job._stepIndex = 2 // jump to merge_data
+    job.steps[2].status = "running"
+    job.steps[2].started_at = isoNow()
+    job.current_step = job.steps[2].name
+    // Start first task of merge step
+    if (job.steps[2].tasks && job.steps[2].tasks.length > 0) {
+      job.steps[2].tasks[0].status = "running"
+      job.steps[2].tasks[0].started_at = isoNow()
+    }
+  }
+
   jobs.set(jobId, job)
 
   if (row_limit || lookback_months) {
     console.log(`  Overrides: row_limit=${row_limit ?? "default"}, lookback_months=${lookback_months ?? "default"}`)
   }
 
-  // Schedule progression: queries advance during sync_data, then steps advance after
-  // sync_data takes queryList.length ticks + 1 to complete, remaining 5 steps take 2 ticks each
+  // Schedule progression: queries advance during sync_data, then steps advance after.
+  // sync_data: queryList.length ticks + 1 to complete.
+  // copy_to_calibration: 2 ticks (pending->running, running->completed).
+  // merge_data: 1 tick to start + 3 task ticks (one per task, last also completes step).
+  //   simulate_kpis and calculate_penetration are completed inline by task ticks.
+  // download_csv: 2 ticks.
+  // Total extra buffer: +5
   let tick = 0
-  const maxTicks = queryList.length + 2 + (CALIBRATION_STEPS.length - 1) * 2 + 3
+  const maxTicks = queryList.length + 1 + 2 + 4 + 2 + 5
   const interval = setInterval(() => {
     advanceJob(jobId)
     tick++
