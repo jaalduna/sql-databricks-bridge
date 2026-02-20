@@ -159,6 +159,12 @@ async def data_availability(
             if d.is_dir() and not d.name.startswith("."):
                 country_codes.append(d.name)
 
+    # Mock mode: all countries available (for testing without SQL Server)
+    if get_settings().mock_data_availability:
+        logger.info("MOCK_DATA_AVAILABILITY: returning all countries as available")
+        results = {code: CountryAvailability(elegibilidad=True, pesaje=True) for code in country_codes}
+        return DataAvailabilityResponse(period=period, countries=results)
+
     year = int(period[:4])
     month = int(period[4:])
     results: dict[str, CountryAvailability] = {}

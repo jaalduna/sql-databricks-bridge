@@ -45,6 +45,7 @@ interface CountryCardProps {
 export function CountryCard({ country, period, availability, calibrationConfig }: CountryCardProps) {
   const [showDetail, setShowDetail] = useState(false)
   const [skipSync, setSkipSync] = useState(false)
+  const [skipCopy, setSkipCopy] = useState(false)
   const { job, isPending, isCancelling, startCalibration, cancelCalibration } = useCalibration(country.code, "calibracion")
 
   const isRunning = job?.status === "running" || job?.status === "pending"
@@ -152,6 +153,16 @@ export function CountryCard({ country, period, availability, calibrationConfig }
                 <p className="text-xs text-muted-foreground -mt-2">
                   Use when data is already synced for this country
                 </p>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={skipCopy}
+                    onCheckedChange={(v) => setSkipCopy(v === true)}
+                  />
+                  <span>Skip data copy</span>
+                </label>
+                <p className="text-xs text-muted-foreground -mt-2">
+                  Use when data is already in the calibration catalog
+                </p>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction onClick={() => {
@@ -161,6 +172,7 @@ export function CountryCard({ country, period, availability, calibrationConfig }
                       row_limit: calibrationConfig.row_limit,
                       lookback_months: calibrationConfig.lookback_months,
                       skip_sync: skipSync,
+                      skip_copy: skipCopy,
                     });
                     toast.success(`Calibration started for ${countryLabel}`);
                   }}>
