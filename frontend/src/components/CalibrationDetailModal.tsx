@@ -158,6 +158,7 @@ export function CalibrationDetailModal({ job, open, onClose }: CalibrationDetail
 
   function stepHasDetails(stepName: string, step: CalibrationStep): boolean {
     if (stepName === "sync_data" && job?.results && job.results.length > 0) return true
+    if (step.tasks && step.tasks.length > 0) return true
     if (step.error) return true
     if (step.started_at) return true
     return false
@@ -248,6 +249,46 @@ export function CalibrationDetailModal({ job, open, onClose }: CalibrationDetail
                                 <span className="ml-3">Finished: {new Date(parseUTC(step.completed_at)).toLocaleTimeString()}</span>
                               )}
                             </div>
+                          )}
+
+                          {/* Databricks task-level progress */}
+                          {step.tasks && step.tasks.length > 0 && (
+                            <>
+                              {step.tasks.map((t) => (
+                                <div
+                                  key={t.task_key}
+                                  className={`flex items-center justify-between rounded px-2 py-1 text-[11px] ${
+                                    t.status === "failed" ? "bg-destructive/5" : "bg-transparent"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <StepIcon status={t.status} />
+                                    <span className="font-mono truncate">{t.task_key}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0 ml-2 text-muted-foreground">
+                                    {t.status !== "pending" && (
+                                      <span>{formatDuration(t.started_at, t.completed_at)}</span>
+                                    )}
+                                    <Badge
+                                      variant={statusVariant(t.status)}
+                                      className="text-[9px] px-1 py-0"
+                                    >
+                                      {t.status}
+                                    </Badge>
+                                  </div>
+                                </div>
+                              ))}
+                              {step.tasks.some((t) => t.error) && (
+                                <div className="mt-1 space-y-0.5">
+                                  {step.tasks.filter((t) => t.error).map((t) => (
+                                    <div key={`${t.task_key}-error`} className="rounded bg-destructive/10 p-1.5">
+                                      <span className="font-mono text-[10px]">{t.task_key}:</span>
+                                      <p className="text-destructive font-mono text-[10px] mt-0.5">{t.error}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
                           )}
 
                           {/* Query results nested under sync_data */}

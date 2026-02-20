@@ -37,6 +37,8 @@ logger = logging.getLogger(__name__)
 
 # Module-level launcher reference, set by main.py at startup.
 _calibration_launcher = None
+# Module-level SQLite db path, set during first trigger request.
+_sqlite_db_path: str | None = None
 
 router = APIRouter(tags=["Trigger"])
 
@@ -76,6 +78,10 @@ class TriggerRequest(BaseModel):
         default=False,
         description="Skip the sync_data step (SQL Server extraction). Use when data is already synced.",
     )
+    skip_copy: bool = Field(
+        default=False,
+        description="Skip the copy_to_calibration step (Bronze Copy). Use when data is already in the calibration catalog.",
+    )
 
 
 class TriggerResponse(BaseModel):
@@ -91,6 +97,16 @@ class TriggerResponse(BaseModel):
     triggered_by: str
 
 
+class DatabricksTaskStatusResponse(BaseModel):
+    """Per-task progress within a Databricks multi-task job run."""
+
+    task_key: str
+    status: str = "pending"
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error: str | None = None
+
+
 class CalibrationStepResponse(BaseModel):
     """Calibration step as expected by the calibration frontend."""
 
@@ -99,6 +115,7 @@ class CalibrationStepResponse(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     error: str | None = None
+    tasks: list[DatabricksTaskStatusResponse] = Field(default_factory=list)
 
 
 class EventSummary(BaseModel):
@@ -174,6 +191,37 @@ def _persist_steps(job_id: str, db_path: str) -> None:
         local_store.update_steps(db_path, job_id, steps_data)
     except Exception as exc:
         logger.warning("Failed to persist steps for job %s: %s", job_id, exc)
+
+
+def finalize_trigger_job(
+    job_id: str, status: str, completed_at: datetime, error: str | None = None
+) -> None:
+    """Called by DatabricksJobMonitor when all calibration steps are done.
+
+    Updates the in-memory trigger record and persists to SQLite so that the
+    frontend polling endpoint sees the correct final status.
+    """
+    record = _trigger_jobs.get(job_id)
+    if record:
+        record.job.status = JobStatus(status)
+        record.job.completed_at = completed_at
+        if error:
+            record.job.error = error
+        logger.info("Finalized in-memory trigger job %s → %s", job_id, status)
+
+    db_path = _sqlite_db_path
+    if db_path:
+        try:
+            local_store.update_job(
+                db_path,
+                job_id,
+                status=status,
+                completed_at=completed_at.isoformat(),
+                error=error,
+            )
+            _persist_steps(job_id, db_path)
+        except Exception as exc:
+            logger.warning("Failed to finalize job %s in SQLite: %s", job_id, exc)
 
 
 def _build_steps_for_job(
@@ -439,17 +487,23 @@ def _run_trigger_extraction(
         job.current_query = None
         # Don't override if already cancelled by user
         if job.status != JobStatus.CANCELLED:
-            job.status = (
-                JobStatus.FAILED
-                if job.queries_failed > 0 and job.queries_completed == 0
-                else JobStatus.COMPLETED
-            )
-        job.completed_at = job.completed_at or datetime.utcnow()
+            all_sync_failed = job.queries_failed > 0 and job.queries_completed == 0
+            if all_sync_failed:
+                job.status = JobStatus.FAILED
+                job.completed_at = job.completed_at or datetime.utcnow()
+            else:
+                # Calibration steps remain: keep status as RUNNING so the
+                # frontend continues polling until the monitor finalizes.
+                job.status = JobStatus.RUNNING
+                # Don't set completed_at yet -- _finalize_job handles that.
+
+        # Persist extraction results (status stays "running" for successful sync)
+        persist_status = job.status.value
         update_job_status(
             client,
             table,
             job.job_id,
-            job.status.value,
+            persist_status,
             completed_at=job.completed_at,
         )
         if db_path:
@@ -459,8 +513,8 @@ def _run_trigger_extraction(
             local_store.update_job(
                 db_path,
                 job.job_id,
-                status=job.status.value,
-                completed_at=job.completed_at.isoformat(),
+                status=persist_status,
+                completed_at=job.completed_at.isoformat() if job.completed_at else None,
                 current_query=None,
                 running_queries="[]",
                 results=serialized_results,
@@ -538,6 +592,11 @@ async def trigger_extraction(
                 "message": f"User not authorized for country '{request.country}'",
             },
         )
+
+    # Capture SQLite path for the module (used by finalize_trigger_job)
+    global _sqlite_db_path
+    if _sqlite_db_path is None:
+        _sqlite_db_path = _get_db_path(raw_request)
 
     # Skip sync: per-request flag OR global server setting
     skip_sync = request.skip_sync or get_settings().skip_sync_data
@@ -642,15 +701,24 @@ async def trigger_extraction(
         calibration_tracker.start_step(job_id, "sync_data")
         calibration_tracker.complete_step(job_id, "sync_data")
 
-        # Advance to copy_to_calibration and launch Databricks job
-        next_step = calibration_tracker.advance_after_sync(job_id)
+        if request.skip_copy:
+            # Also skip copy_to_calibration — jump straight to merge_data
+            calibration_tracker.start_step(job_id, "copy_to_calibration")
+            calibration_tracker.complete_step(job_id, "copy_to_calibration")
+            next_step = "merge_data"
+            calibration_tracker.start_step(job_id, next_step)
+        else:
+            # Advance to copy_to_calibration and launch Databricks job
+            next_step = calibration_tracker.advance_after_sync(job_id)
+
         # Persist steps to SQLite after state transitions
         if db_path:
             _persist_steps(job_id, db_path)
         if next_step:
             _launch_calibration_step(job_id, next_step, request.country)
 
-        logger.info("SKIP_SYNC_DATA: job %s created, sync_data skipped, advancing to %s", job_id, next_step)
+        logger.info("SKIP_SYNC: job %s created, skipped sync%s, advancing to %s",
+                     job_id, "+copy" if request.skip_copy else "", next_step)
 
         return TriggerResponse(
             job_id=job_id,

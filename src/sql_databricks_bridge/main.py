@@ -73,7 +73,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.info("Event poller started")
 
             # Create calibration job launcher and expose to trigger module
-            launcher = CalibrationJobLauncher(databricks_client)
+            launcher = CalibrationJobLauncher(
+                databricks_client,
+                job_name_prefix=settings.calibration_job_prefix,
+            )
             from sql_databricks_bridge.api.routes import trigger as trigger_module
             trigger_module._calibration_launcher = launcher
 

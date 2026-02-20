@@ -32,7 +32,14 @@ export function CalibrationProgress({ job }: CalibrationProgressProps) {
     if (currentStep === "sync_data" && job.queries_total > 0) {
       label = `Sync Data (${job.queries_completed}/${job.queries_total} queries)`
     } else if (currentStep) {
-      label = CALIBRATION_STEP_LABELS[currentStep] ?? currentStep
+      // Show running Databricks task name if available
+      const currentStepObj = steps.find((s) => s.name === currentStep)
+      const runningTask = currentStepObj?.tasks?.find((t) => t.status === "running")
+      if (runningTask) {
+        label = `${CALIBRATION_STEP_LABELS[currentStep] ?? currentStep} — ${runningTask.task_key}`
+      } else {
+        label = CALIBRATION_STEP_LABELS[currentStep] ?? currentStep
+      }
     } else {
       const completed = steps.filter((s) => s.status === "completed").length
       label = `${completed}/${total} steps`

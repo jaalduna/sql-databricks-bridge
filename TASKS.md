@@ -11,27 +11,33 @@
 - [ ] Ver donde se esta guardando el estado de las tareas | priority:medium | tags:frontend,m1
 - [ ] Provide the app to Jorge | priority:high | tags:frontend,m2
   Milestone 2 - 23 febrero
+- [ ] enable the option to sync particular queries | priority:medium
 
 ## Todo
-- [ ] enable the option to sync particular queries | priority:medium
 
 ## In Progress
 - [-] Probar ejecutable en windows + front end | priority:medium | tags:windows,test
   **Acceptance Criteria:**
   - [ ] funciona el sync
   - [ ] funciona correr el proceso de MTR para Bolivia
+- [-] Calibration work steps mark everything finished after couple of seconds of merge step run | priority:medium
+  Calibration work steps mark everything finished after couple of seconds of merge step run.
+- [-] Once calibration steps tasks are finished, ther card continue in working state. | priority:medium
 
 ## Review
-- [-] Documentar App y compartir con fernando | priority:high | due:2026-02-18
+- [-] add the option to skip copy data | priority:medium
+- [-] funciona correr el proceso de MTR para Bolivia | priority:medium
+- [-] funciona el sync | priority:medium
+
+## Done
+- [x] regarding the dates for month to calibrate, note that january is calibrated in february. | priority:medium
+  Dates are not ok, If I select february, 2026 it shoud show no data, becouse for that month is not data ad rg_domicilios_pesos neither in mordom for that month.
+- [x] Documentar App y compartir con fernando | priority:high | due:2026-02-18
   Documentar el front y el App para flujo de aprobación Numerator.
   La documentación debe tener al menos:
   - Especificar si el aplicativo es web o ejecutable de escritorio (es un desktop App)
   - Especificar las funcionalidades del aplicativo y como sería el flujo de trabajo de los usuarios, configuraciones, stack tecnológico, etc.
   crear una documentación separada para el front y otra para el backend. Utilizar diagramas para explicar los flujos, interacciones, estructura de datos, etc y todo lo que aplique y pueda ayudar a comprender mejor. Coordinar un agents team de 5 colaboradores.
-- [-] regarding the dates for month to calibrate, note that january is calibrated in february. | priority:medium
-  Dates are not ok, If I select february, 2026 it shoud show no data, becouse for that month is not data ad rg_domicilios_pesos neither in mordom for that month.
-
-## Done
 - [x] keep calibration state | priority:medium
   When changing from page calibration to other page and come back all running processes states go back to the original (no state backup or persistant). The idea is that when going back to the calibration that the state of the calibration process are still there.
 - [x] elegible + non pesaje showing in gray | priority:medium

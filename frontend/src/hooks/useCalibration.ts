@@ -9,6 +9,7 @@ export interface CalibrationOverrides {
   row_limit?: number | null
   lookback_months?: number | null
   skip_sync?: boolean
+  skip_copy?: boolean
   period?: string
 }
 
@@ -46,6 +47,7 @@ export function useCalibration(country: string, stage: string) {
       row_limit: overrides?.row_limit,
       lookback_months: overrides?.lookback_months,
       skip_sync: overrides?.skip_sync,
+      skip_copy: overrides?.skip_copy,
     })
   }, [trigger, country, stage])
 

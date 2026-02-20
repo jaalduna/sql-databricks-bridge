@@ -30,6 +30,15 @@ export const CALIBRATION_STEPS: CalibrationStepName[] = [
   "download_csv",
 ]
 
+/** Status of a single Databricks task within a multi-task job run. */
+export interface DatabricksTaskStatus {
+  task_key: string
+  status: JobStatus
+  started_at: string | null
+  completed_at: string | null
+  error: string | null
+}
+
 /** Status of a single calibration sub-step. */
 export interface CalibrationStep {
   name: CalibrationStepName
@@ -37,6 +46,7 @@ export interface CalibrationStep {
   started_at: string | null
   completed_at: string | null
   error: string | null
+  tasks?: DatabricksTaskStatus[]
 }
 
 /** Aggregation level options for calibration */
@@ -88,6 +98,7 @@ export interface TriggerRequest {
   period?: string | null
   aggregations?: AggregationOptions
   skip_sync?: boolean
+  skip_copy?: boolean
 }
 
 /** Response from POST /trigger */

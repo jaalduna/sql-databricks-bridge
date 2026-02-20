@@ -129,7 +129,7 @@ class CalibrationTracker:
             for step in info.steps:
                 if (
                     step.databricks_run_id is not None
-                    and step.status in ("pending", "running")
+                    and step.status in ("pending", "running", "completed")
                 ):
                     result.append((job_id, step.name, step.databricks_run_id))
         return result
@@ -150,6 +150,17 @@ class CalibrationTracker:
 
     # --- Serialization helpers ---
 
+    def update_step_tasks(
+        self, job_id: str, step_name: CalibrationStepName, tasks: list
+    ) -> None:
+        """Update the Databricks sub-task list for a step."""
+        info = self._jobs.get(job_id)
+        if not info:
+            return
+        step = info.get_step(step_name)
+        if step:
+            step.tasks = tasks
+
     def get_steps_for_response(self, job_id: str) -> list[dict] | None:
         """Get steps as dicts for API response serialization."""
         info = self._jobs.get(job_id)
@@ -162,6 +173,16 @@ class CalibrationTracker:
                 "started_at": s.started_at.isoformat() if s.started_at else None,
                 "completed_at": s.completed_at.isoformat() if s.completed_at else None,
                 "error": s.error,
+                "tasks": [
+                    {
+                        "task_key": t.task_key,
+                        "status": t.status,
+                        "started_at": t.started_at.isoformat() if t.started_at else None,
+                        "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+                        "error": t.error,
+                    }
+                    for t in s.tasks
+                ],
             }
             for s in info.steps
         ]
