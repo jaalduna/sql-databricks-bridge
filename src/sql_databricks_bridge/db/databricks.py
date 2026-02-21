@@ -176,12 +176,14 @@ class DatabricksClient:
         logger.debug("Statement status: %s", statement.status)
 
         if statement.result is None:
-            logger.warning(
-                "statement.result is None — status: %s, error: %s, query: %s",
-                statement.status,
-                getattr(statement.status, "error", None) if statement.status else None,
-                query,
-            )
+            # Check if the statement actually failed (e.g. table not found)
+            status_error = getattr(statement.status, "error", None) if statement.status else None
+            state = getattr(statement.status, "state", None) if statement.status else None
+            if status_error or (state and str(state).upper().endswith("FAILED")):
+                error_msg = str(status_error) if status_error else f"Statement failed with state {state}"
+                logger.warning("SQL statement failed: %s, query: %s", error_msg, query)
+                raise RuntimeError(f"Databricks SQL failed: {error_msg}")
+            logger.debug("Statement returned no result (DDL/DML): %s", query)
             return []
 
         if not statement.result.data_array:
