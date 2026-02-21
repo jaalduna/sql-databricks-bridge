@@ -32,6 +32,7 @@ from sql_databricks_bridge.db.jobs_table import (
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 from sql_databricks_bridge.db.version_tags_table import insert_version_tag
 from sql_databricks_bridge.core.calibration_tracker import calibration_tracker
+from sql_databricks_bridge.core.diff_sync import run_differential_sync
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,13 @@ router = APIRouter(tags=["Trigger"])
 class AggregationOptions(BaseModel):
     region: bool = Field(default=False, description="Include region-level aggregation")
     nivel_2: bool = Field(default=False, description="Include nivel_2 aggregation")
+
+
+class DiffSyncQueryConfig(BaseModel):
+    """Configuration for differential sync on a specific query/table."""
+    level1_column: str = Field(default="periodo", description="GROUP BY column for Level 1 (e.g., 'periodo')")
+    level2_column: str = Field(default="idproduto", description="GROUP BY column for Level 2 (e.g., 'idproduto')")
+    where_clause: str = Field(default="", description="Optional WHERE filter for fingerprint scope")
 
 
 class TriggerRequest(BaseModel):
@@ -81,6 +89,14 @@ class TriggerRequest(BaseModel):
     skip_copy: bool = Field(
         default=False,
         description="Skip the copy_to_calibration step (Bronze Copy). Use when data is already in the calibration catalog.",
+    )
+    differential_sync: dict[str, DiffSyncQueryConfig] | None = Field(
+        default=None,
+        description=(
+            "Enable differential sync per query. Keys are query names, values "
+            "configure the grouping columns. Queries not listed use full OVERWRITE. "
+            "Example: {'j_atoscompra_new': {'level1_column': 'periodo', 'level2_column': 'idproduto'}}"
+        ),
     )
 
 
@@ -359,6 +375,7 @@ def _run_trigger_extraction(
     max_parallel: int = 4,
     override_row_limit: int | None = None,
     override_lookback_months: int | None = None,
+    differential_sync_config: dict | None = None,
 ) -> None:
     """Background task to run the extraction triggered by a user."""
     try:
@@ -414,43 +431,93 @@ def _run_trigger_extraction(
             result = QueryResult(query_name=query_name, status=JobStatus.RUNNING)
             start_time = datetime.utcnow()
 
-            try:
-                row_limit = override_row_limit if override_row_limit is not None else (settings.query_row_limit or None)
-                lookback = override_lookback_months if override_lookback_months is not None else settings.lookback_months
-                chunks = list(
-                    extractor.execute_query(query_name, job.country, job.chunk_size, limit=row_limit, lookback_months=lookback)
-                )
+            # Check if this query should use differential sync
+            diff_config = (differential_sync_config or {}).get(query_name)
 
-                if chunks:
-                    combined = concat_chunks(chunks)
-                    writer.write_dataframe(combined, query_name, job.country, tag=tag)
-                    result.rows_extracted = len(combined)
-                    result.table_name = writer.resolve_table_name(
-                        query_name, job.country
+            try:
+                if diff_config:
+                    # --- DIFFERENTIAL SYNC PATH ---
+                    logger.info(f"Using differential sync for {query_name} ({job.country})")
+                    lookback = override_lookback_months if override_lookback_months is not None else settings.lookback_months
+                    # Build WHERE clause from lookback_months
+                    l1_col = diff_config.get("level1_column", "periodo")
+                    l2_col = diff_config.get("level2_column", "idproduto")
+                    where = diff_config.get("where_clause", "")
+
+                    # If no explicit where_clause, build one from lookback_months
+                    if not where and lookback:
+                        from dateutil.relativedelta import relativedelta
+                        cutoff = (datetime.utcnow() - relativedelta(months=lookback)).strftime("%Y%m")
+                        where = f"{l1_col} >= '{cutoff}'"
+
+                    diff_stats = run_differential_sync(
+                        sql_client=extractor.sql_client,
+                        dbx_client=client,
+                        writer=writer,
+                        sql_table=query_name,
+                        country=job.country,
+                        level1_column=l1_col,
+                        level2_column=l2_col,
+                        fingerprint_table=settings.fingerprint_table,
+                        where_clause=where,
+                        tag=tag,
+                        job_id=job.job_id,
+                        chunk_size=job.chunk_size,
                     )
 
-                    # Tag the new version with the job tag
-                    if tag and result.table_name:
+                    result.rows_extracted = diff_stats.rows_downloaded
+                    result.table_name = writer.resolve_table_name(query_name, job.country)
+
+                    # Tag the new version
+                    if tag and result.table_name and diff_stats.rows_downloaded > 0:
                         try:
                             version = writer.get_current_version(result.table_name)
                             insert_version_tag(
-                                client,
-                                version_tags_tbl,
-                                table_name=result.table_name,
-                                version=version,
-                                tag=tag,
-                                created_by=triggered_by or "system",
+                                client, version_tags_tbl,
+                                table_name=result.table_name, version=version,
+                                tag=tag, created_by=triggered_by or "system",
                                 job_id=job.job_id,
                             )
-                            logger.info(
-                                f"Tagged {result.table_name} v{version} as '{tag}'"
-                            )
                         except Exception as tag_err:
-                            logger.warning(
-                                f"Failed to tag {result.table_name}: {tag_err}"
-                            )
+                            logger.warning(f"Failed to tag {result.table_name}: {tag_err}")
                 else:
-                    result.rows_extracted = 0
+                    # --- FULL EXTRACTION PATH (original) ---
+                    row_limit = override_row_limit if override_row_limit is not None else (settings.query_row_limit or None)
+                    lookback = override_lookback_months if override_lookback_months is not None else settings.lookback_months
+                    chunks = list(
+                        extractor.execute_query(query_name, job.country, job.chunk_size, limit=row_limit, lookback_months=lookback)
+                    )
+
+                    if chunks:
+                        combined = concat_chunks(chunks)
+                        writer.write_dataframe(combined, query_name, job.country, tag=tag)
+                        result.rows_extracted = len(combined)
+                        result.table_name = writer.resolve_table_name(
+                            query_name, job.country
+                        )
+
+                        # Tag the new version with the job tag
+                        if tag and result.table_name:
+                            try:
+                                version = writer.get_current_version(result.table_name)
+                                insert_version_tag(
+                                    client,
+                                    version_tags_tbl,
+                                    table_name=result.table_name,
+                                    version=version,
+                                    tag=tag,
+                                    created_by=triggered_by or "system",
+                                    job_id=job.job_id,
+                                )
+                                logger.info(
+                                    f"Tagged {result.table_name} v{version} as '{tag}'"
+                                )
+                            except Exception as tag_err:
+                                logger.warning(
+                                    f"Failed to tag {result.table_name}: {tag_err}"
+                                )
+                    else:
+                        result.rows_extracted = 0
 
                 result.status = JobStatus.COMPLETED
 
@@ -825,10 +892,15 @@ async def trigger_extraction(
 
     # Launch background extraction
     writer = DeltaTableWriter(db_client)
+    # Serialize differential_sync config for the background task
+    diff_sync_cfg = None
+    if request.differential_sync:
+        diff_sync_cfg = {k: v.model_dump() for k, v in request.differential_sync.items()}
+
     background_tasks.add_task(
         _run_trigger_extraction, extractor, job, writer, db_client, jobs_tbl,
         tag, user.email, db_path, settings.max_parallel_queries,
-        request.row_limit, request.lookback_months,
+        request.row_limit, request.lookback_months, diff_sync_cfg,
     )
 
     return TriggerResponse(

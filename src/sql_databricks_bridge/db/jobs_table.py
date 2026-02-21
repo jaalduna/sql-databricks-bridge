@@ -38,7 +38,7 @@ def ensure_jobs_table(client: DatabricksClient, table: str) -> None:
     client.execute_sql(ddl)
 
     # Migrate existing tables: add columns that may not exist yet
-    for col in ("period STRING", "aggregations STRING"):
+    for col in ("failed_queries STRING", "period STRING", "aggregations STRING"):
         try:
             client.execute_sql(f"ALTER TABLE {table} ADD COLUMN {col}")
             logger.info(f"Added column {col.split()[0]} to {table}")
