@@ -145,6 +145,7 @@ class BridgeSettings(BaseSettings):
     jobs_table: str = Field(default="bridge.events.trigger_jobs", description="Databricks Delta table for job history")
 
     version_tags_table: str = Field(default="bridge.events.version_tags", description="Databricks Delta table for version tags")
+    fingerprint_table: str = Field(default="`000-sql-databricks-bridge`.events.sync_fingerprints", description="Databricks Delta table for differential sync fingerprints")
 
     # Auth settings
     auth_enabled: bool = Field(default=True, description="Enable token authentication")
