@@ -107,8 +107,33 @@ const queryResultColumns: ColumnDef<QueryResult, unknown>[] = [
   {
     accessorKey: "rows_extracted",
     header: () => <span className="flex justify-end">Rows</span>,
-    cell: ({ getValue }) => {
+    cell: ({ getValue, row }) => {
       const rows = getValue<number>()
+      const { status, estimated_rows, rows_downloaded } = row.original
+      // Show live download progress for running queries
+      if (status === "running" && estimated_rows > 0) {
+        const pct = Math.min(100, Math.round((rows_downloaded / estimated_rows) * 100))
+        return (
+          <div className="flex flex-col items-end gap-0.5 min-w-[80px]">
+            <span className="font-mono text-xs text-blue-600 dark:text-blue-400">
+              {formatRows(rows_downloaded)}/{formatRows(estimated_rows)} ({pct}%)
+            </span>
+            <div className="w-full h-1.5 bg-primary/20 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-500 transition-all duration-300"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+        )
+      }
+      if (status === "running" && rows_downloaded > 0) {
+        return (
+          <span className="flex justify-end font-mono text-sm text-blue-600 dark:text-blue-400">
+            {formatRows(rows_downloaded)}...
+          </span>
+        )
+      }
       return (
         <span className="flex justify-end font-mono text-sm">
           {rows > 0 ? formatRows(rows) : "--"}
@@ -251,10 +276,29 @@ function QueryDetailDialog({
         )}
 
         {!isFailed && !isCompleted && (
-          <div className="text-sm text-muted-foreground">
-            Query is currently {query.status}.
-            {query.started_at && (
-              <span className="ml-1">Running for {liveDuration(query.started_at)}.</span>
+          <div className="space-y-3">
+            <div className="text-sm text-muted-foreground">
+              Query is currently {query.status}.
+              {query.started_at && (
+                <span className="ml-1">Running for {liveDuration(query.started_at)}.</span>
+              )}
+            </div>
+            {query.estimated_rows > 0 && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Download progress</span>
+                  <span className="font-mono text-blue-600 dark:text-blue-400">
+                    {formatRows(query.rows_downloaded)}/{formatRows(query.estimated_rows)}{" "}
+                    ({Math.min(100, Math.round((query.rows_downloaded / query.estimated_rows) * 100))}%)
+                  </span>
+                </div>
+                <Progress value={Math.min(100, Math.round((query.rows_downloaded / query.estimated_rows) * 100))} />
+              </div>
+            )}
+            {query.estimated_rows === 0 && query.rows_downloaded > 0 && (
+              <div className="text-sm text-muted-foreground">
+                Downloaded: <span className="font-mono">{formatRows(query.rows_downloaded)} rows</span>
+              </div>
             )}
           </div>
         )}
@@ -314,6 +358,8 @@ export default function EventDetailPage() {
         query_name: name,
         status: "running" as JobStatus,
         rows_extracted: 0,
+        estimated_rows: 0,
+        rows_downloaded: 0,
         table_name: null,
         duration_seconds: 0,
         error: null,
@@ -459,15 +505,32 @@ export default function EventDetailPage() {
             </div>
             <Progress value={progressPct} />
 
-            {/* Running queries list */}
+            {/* Running queries list with row progress */}
             {event.status === "running" && (event.running_queries?.length ?? 0) > 0 && (
               <div className="space-y-1.5">
-                {event.running_queries?.map((qName) => (
-                  <div key={qName} className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-                    <span className="font-mono">{qName}</span>
-                  </div>
-                ))}
+                {event.running_queries?.map((qName) => {
+                  // Find the result entry for this running query (may have progress data)
+                  const qResult = results.find((r) => r.query_name === qName && r.status === "running")
+                  const est = qResult?.estimated_rows ?? 0
+                  const dl = qResult?.rows_downloaded ?? 0
+                  const pct = est > 0 ? Math.min(100, Math.round((dl / est) * 100)) : 0
+                  return (
+                    <div key={qName} className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                      <span className="font-mono">{qName}</span>
+                      {est > 0 && (
+                        <span className="text-xs text-muted-foreground ml-1">
+                          {formatRows(dl)}/{formatRows(est)} ({pct}%)
+                        </span>
+                      )}
+                      {est === 0 && dl > 0 && (
+                        <span className="text-xs text-muted-foreground ml-1">
+                          {formatRows(dl)} rows...
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
             {/* Fallback: single current_query if running_queries not populated */}

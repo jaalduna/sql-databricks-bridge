@@ -5,10 +5,13 @@ import io
 import json
 import logging
 import os
+import shutil
 import threading
+import time
 import uuid as _uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -97,6 +100,10 @@ class TriggerRequest(BaseModel):
             "configure the grouping columns. Queries not listed use full OVERWRITE. "
             "Example: {'j_atoscompra_new': {'level1_column': 'periodo', 'level2_column': 'idproduto'}}"
         ),
+    )
+    force_full_sync: bool = Field(
+        default=False,
+        description="Force full OVERWRITE for all queries, bypassing differential and incremental sync.",
     )
 
 
@@ -376,6 +383,7 @@ def _run_trigger_extraction(
     override_row_limit: int | None = None,
     override_lookback_months: int | None = None,
     differential_sync_config: dict | None = None,
+    incremental_sync_config: dict | None = None,
 ) -> None:
     """Background task to run the extraction triggered by a user."""
     try:
@@ -423,16 +431,18 @@ def _run_trigger_extraction(
             if job.status == JobStatus.CANCELLED:
                 return QueryResult(query_name=query_name, status=JobStatus.CANCELLED)
 
+            result = QueryResult(query_name=query_name, status=JobStatus.RUNNING)
+            start_time = datetime.utcnow()
+
             with results_lock:
+                job.results.append(result)
                 if record:
                     record.running_queries.add(query_name)
                 _persist_progress()
 
-            result = QueryResult(query_name=query_name, status=JobStatus.RUNNING)
-            start_time = datetime.utcnow()
-
-            # Check if this query should use differential sync
+            # Check if this query should use differential sync or incremental sync
             diff_config = (differential_sync_config or {}).get(query_name)
+            incr_config = (incremental_sync_config or {}).get(query_name)
 
             try:
                 if diff_config:
@@ -444,11 +454,31 @@ def _run_trigger_extraction(
                     l2_col = diff_config.get("level2_column", "idproduto")
                     where = diff_config.get("where_clause", "")
 
-                    # If no explicit where_clause, build one from lookback_months
-                    if not where and lookback:
-                        from dateutil.relativedelta import relativedelta
-                        cutoff = (datetime.utcnow() - relativedelta(months=lookback)).strftime("%Y%m")
-                        where = f"{l1_col} >= '{cutoff}'"
+                    # Build base query from the query loader (supports computed columns like periodo)
+                    from dateutil.relativedelta import relativedelta
+                    _diff_now = datetime.utcnow()
+                    _diff_start = _diff_now - relativedelta(months=lookback or 24)
+                    diff_base_query = extractor.query_loader.get_query(query_name, job.country)
+                    diff_base_query = diff_base_query.replace("{lookback_months}", str(lookback or 24))
+                    diff_base_query = diff_base_query.replace("{start_period}", _diff_start.strftime("%Y%m"))
+                    diff_base_query = diff_base_query.replace("{end_period}", _diff_now.strftime("%Y%m"))
+                    diff_base_query = diff_base_query.replace("{start_year}", str(_diff_start.year))
+                    diff_base_query = diff_base_query.replace("{end_year}", str(_diff_now.year))
+                    diff_base_query = diff_base_query.replace("{start_date}", f"'{_diff_start.strftime('%Y-%m-01')}'")
+                    diff_base_query = diff_base_query.replace("{end_date}", f"'{_diff_now.strftime('%Y-%m-%d')}'")
+
+                    # When using base_query, the query's own WHERE already scopes the data
+                    # so no additional where_clause is needed for fingerprints
+                    where = ""
+
+                    result.table_name = writer.resolve_table_name(query_name, job.country)
+
+                    def _diff_rows_progress(chunk_rows, total_so_far, estimated_total):
+                        result.rows_downloaded = total_so_far
+                        if estimated_total is not None:
+                            result.estimated_rows = estimated_total
+                        with results_lock:
+                            _persist_progress()
 
                     diff_stats = run_differential_sync(
                         sql_client=extractor.sql_client,
@@ -463,6 +493,9 @@ def _run_trigger_extraction(
                         tag=tag,
                         job_id=job.job_id,
                         chunk_size=job.chunk_size,
+                        on_rows_progress=_diff_rows_progress,
+                        base_query=diff_base_query,
+                        mutable_months=diff_config.get("mutable_months", 0),
                     )
 
                     result.rows_extracted = diff_stats.rows_downloaded
@@ -480,18 +513,291 @@ def _run_trigger_extraction(
                             )
                         except Exception as tag_err:
                             logger.warning(f"Failed to tag {result.table_name}: {tag_err}")
+                elif incr_config:
+                    # --- INCREMENTAL SYNC PATH (append-only / hybrid tables) ---
+                    key_col = incr_config["key_column"]
+                    date_col = incr_config.get("date_column")
+                    mutable_months = incr_config.get("mutable_window_months", 0)
+                    table_name = writer.resolve_table_name(query_name, job.country)
+                    max_key = writer.get_max_key(table_name, key_col)
+
+                    lookback = override_lookback_months if override_lookback_months is not None else settings.lookback_months
+                    from dateutil.relativedelta import relativedelta as _rd
+                    _now = datetime.utcnow()
+
+                    # Helper: build base SQL with lookback substitutions
+                    def _build_base_query() -> str:
+                        q = extractor.query_loader.get_query(query_name, job.country)
+                        _start = _now - _rd(months=lookback or 24)
+                        q = q.replace("{lookback_months}", str(lookback or 24))
+                        q = q.replace("{start_period}", _start.strftime("%Y%m"))
+                        q = q.replace("{end_period}", _now.strftime("%Y%m"))
+                        q = q.replace("{start_year}", str(_start.year))
+                        q = q.replace("{end_year}", str(_now.year))
+                        q = q.replace("{start_date}", f"'{_start.strftime('%Y-%m-01')}'")
+                        q = q.replace("{end_date}", f"'{_now.strftime('%Y-%m-%d')}'")
+                        return q
+
+                    # Helper: extract + write
+                    def _extract_and_write(sql: str, append: bool, label: str) -> int:
+                        chunk_dir = Path(".bridge_data") / "chunks" / job.job_id / f"{query_name}_{label}"
+
+                        def _on_progress(chunk_rows, rows_so_far):
+                            result.rows_downloaded += chunk_rows
+                            with results_lock:
+                                _persist_progress()
+
+                        def _is_cancelled():
+                            return job.status == JobStatus.CANCELLED
+
+                        parts, total = extractor.sql_client.execute_query_to_disk(
+                            sql, chunk_dir, chunk_size=job.chunk_size,
+                            on_progress=_on_progress, is_cancelled=_is_cancelled,
+                        )
+                        if job.status == JobStatus.CANCELLED:
+                            raise InterruptedError("Cancelled")
+                        if parts and total > 0:
+                            import polars as _pl
+                            combined = _pl.read_parquet(chunk_dir)
+                            if append:
+                                writer.append_dataframe(combined, query_name, job.country, tag=tag)
+                            else:
+                                writer.write_dataframe(combined, query_name, job.country, tag=tag)
+                        try:
+                            if chunk_dir.exists():
+                                shutil.rmtree(chunk_dir)
+                        except Exception:
+                            pass
+                        return total
+
+                    result.table_name = table_name
+                    total_extracted = 0
+
+                    if max_key is None:
+                        # --- First sync: full download ---
+                        logger.info(f"Incremental {query_name}: first sync (full download)")
+                        base_sql = _build_base_query()
+                        try:
+                            count_df = extractor.sql_client.execute_query(
+                                f"SELECT COUNT(*) AS cnt FROM ({base_sql}) AS _c"
+                            )
+                            result.estimated_rows = int(count_df.item(0, 0))
+                            logger.info(f"Incremental {query_name}: {result.estimated_rows:,} rows")
+                        except Exception:
+                            pass
+                        with results_lock:
+                            _persist_progress()
+                        total_extracted = _extract_and_write(base_sql, append=False, label="full")
+                    else:
+                        # --- Subsequent sync ---
+                        # PART 1: Mutable window (last N months) — checksum then replace if changed
+                        window_extracted = 0
+                        if mutable_months and date_col:
+                            # Use DATEADD directly (avoids locale/format issues)
+                            window_filter = f"DATEADD(MONTH, -{mutable_months}, GETDATE())"
+                            # Checksum the mutable window on SQL Server
+                            base_sql = _build_base_query()
+                            cksum_sql = (
+                                f"SELECT COUNT(*) AS cnt, CHECKSUM_AGG(CHECKSUM(*)) AS cksum "
+                                f"FROM ({base_sql}) AS _base "
+                                f"WHERE [{date_col}] >= {window_filter}"
+                            )
+                            try:
+                                cksum_df = extractor.sql_client.execute_query(cksum_sql)
+                                sql_count = int(cksum_df.item(0, 0))
+                                sql_cksum = int(cksum_df.item(0, 1)) if cksum_df.item(0, 1) is not None else 0
+                            except Exception as e:
+                                logger.warning(f"Checksum query failed for {query_name}: {e}")
+                                sql_count, sql_cksum = -1, -1
+
+                            # Load stored checksum from fingerprint table
+                            from sql_databricks_bridge.core.fingerprint import load_stored_fingerprints, save_fingerprints, Fingerprint
+                            stored = load_stored_fingerprints(
+                                client, settings.fingerprint_table,
+                                job.country, query_name, level="window",
+                            )
+                            stored_count = int(stored[0].row_count) if stored else -1
+                            stored_cksum = int(stored[0].checksum_xor) if stored else -1
+
+                            if sql_count == stored_count and sql_cksum == stored_cksum:
+                                logger.info(
+                                    f"Incremental {query_name}: mutable window ({mutable_months}mo) "
+                                    f"unchanged (count={sql_count}, cksum={sql_cksum}), skipping"
+                                )
+                            else:
+                                logger.info(
+                                    f"Incremental {query_name}: mutable window ({mutable_months}mo) "
+                                    f"changed (count {stored_count}->{sql_count}, cksum {stored_cksum}->{sql_cksum}), "
+                                    f"re-downloading"
+                                )
+                                result.estimated_rows = sql_count
+                                with results_lock:
+                                    _persist_progress()
+                                # Extract the mutable window
+                                window_sql = (
+                                    f"SELECT * FROM ({base_sql}) AS _base "
+                                    f"WHERE [{date_col}] >= {window_filter}"
+                                )
+                                # Delete the window from Databricks, then insert fresh data
+                                try:
+                                    delete_sql = (
+                                        f"DELETE FROM {table_name} "
+                                        f"WHERE `{date_col}` >= date_sub(current_date(), {mutable_months * 30})"
+                                    )
+                                    client.execute_sql(delete_sql)
+                                    logger.info(f"Deleted mutable window from {table_name} ({mutable_months} months)")
+                                except Exception as del_err:
+                                    logger.warning(f"Failed to delete mutable window: {del_err}")
+
+                                window_extracted = _extract_and_write(window_sql, append=True, label="window")
+                                logger.info(f"Incremental {query_name}: replaced {window_extracted:,} rows in mutable window")
+
+                            # Save current checksum
+                            if sql_count >= 0:
+                                save_fingerprints(
+                                    client, settings.fingerprint_table,
+                                    job.country, query_name, level="window",
+                                    fingerprints=[Fingerprint(value="mutable_window", row_count=sql_count, checksum_xor=sql_cksum)],
+                                    job_id=job.job_id,
+                                )
+
+                        # PART 2: New rows beyond watermark (append-only)
+                        base_sql = _build_base_query()
+                        new_sql = (
+                            f"SELECT * FROM ({base_sql}) AS _incr "
+                            f"WHERE [{key_col}] > {max_key}"
+                        )
+                        # Exclude mutable window rows (already handled above)
+                        if mutable_months and date_col:
+                            new_sql += f" AND [{date_col}] < DATEADD(MONTH, -{mutable_months}, GETDATE())"
+
+                        try:
+                            count_df = extractor.sql_client.execute_query(
+                                f"SELECT COUNT(*) AS cnt FROM ({new_sql}) AS _c"
+                            )
+                            new_count = int(count_df.item(0, 0))
+                        except Exception:
+                            new_count = -1
+
+                        if new_count == 0:
+                            logger.info(f"Incremental {query_name}: no new rows beyond watermark ({key_col} > {max_key})")
+                        elif new_count > 0:
+                            result.estimated_rows = (result.estimated_rows or 0) + new_count
+                            with results_lock:
+                                _persist_progress()
+                            logger.info(f"Incremental {query_name}: {new_count:,} new rows ({key_col} > {max_key})")
+                            new_extracted = _extract_and_write(new_sql, append=True, label="new")
+                            window_extracted += new_extracted
+
+                        total_extracted = window_extracted
+
+                    result.rows_extracted = total_extracted
+                    if total_extracted > 0:
+                        logger.info(f"Incremental {query_name}: total {total_extracted:,} rows synced")
+                        if tag and result.table_name:
+                            try:
+                                version = writer.get_current_version(result.table_name)
+                                insert_version_tag(
+                                    client, version_tags_tbl,
+                                    table_name=result.table_name, version=version,
+                                    tag=tag, created_by=triggered_by or "system",
+                                    job_id=job.job_id,
+                                )
+                            except Exception as tag_err:
+                                logger.warning(f"Failed to tag {result.table_name}: {tag_err}")
+                    else:
+                        logger.info(f"Incremental {query_name}: nothing to sync")
+
                 else:
-                    # --- FULL EXTRACTION PATH (original) ---
+                    # --- FULL EXTRACTION PATH (disk streaming + retry) ---
                     row_limit = override_row_limit if override_row_limit is not None else (settings.query_row_limit or None)
                     lookback = override_lookback_months if override_lookback_months is not None else settings.lookback_months
-                    chunks = list(
-                        extractor.execute_query(query_name, job.country, job.chunk_size, limit=row_limit, lookback_months=lookback)
-                    )
+                    max_retries = 3
+                    base_delay = 30
 
-                    if chunks:
-                        combined = concat_chunks(chunks)
+                    # Build the SQL query via the extractor's query loader
+                    query_sql = extractor.query_loader.get_query(query_name, job.country)
+                    query_sql = query_sql.replace("{lookback_months}", str(lookback or 24))
+                    from dateutil.relativedelta import relativedelta as _rd
+                    _now = datetime.utcnow()
+                    _start = _now - _rd(months=lookback or 24)
+                    query_sql = query_sql.replace("{start_period}", _start.strftime("%Y%m"))
+                    query_sql = query_sql.replace("{end_period}", _now.strftime("%Y%m"))
+                    query_sql = query_sql.replace("{start_year}", str(_start.year))
+                    query_sql = query_sql.replace("{end_year}", str(_now.year))
+                    query_sql = query_sql.replace("{start_date}", f"'{_start.strftime('%Y-%m-01')}'")
+                    query_sql = query_sql.replace("{end_date}", f"'{_now.strftime('%Y-%m-%d')}'")
+                    if row_limit is not None and row_limit > 0:
+                        query_sql = f"SELECT TOP {row_limit} * FROM ({query_sql}) AS _limited_subquery"
+
+                    # Pre-flight COUNT for progress tracking
+                    try:
+                        count_sql = f"SELECT COUNT(*) AS cnt FROM ({query_sql}) AS _cnt_sub"
+                        count_df = extractor.sql_client.execute_query(count_sql)
+                        result.estimated_rows = int(count_df.item(0, 0))
+                        logger.info(f"Query {query_name}: estimated {result.estimated_rows:,} rows")
+                    except Exception as count_err:
+                        logger.warning(f"COUNT(*) failed for {query_name}: {count_err}")
+                        result.estimated_rows = 0
+
+                    with results_lock:
+                        _persist_progress()
+
+                    # Disk-streaming extraction with retry
+                    chunk_dir = Path(".bridge_data") / "chunks" / job.job_id / query_name
+                    parts = None
+                    total_rows = 0
+
+                    def _on_chunk_progress(chunk_rows: int, rows_so_far: int) -> None:
+                        result.rows_downloaded = rows_so_far
+                        with results_lock:
+                            _persist_progress()
+
+                    def _is_cancelled() -> bool:
+                        return job.status == JobStatus.CANCELLED
+
+                    for attempt in range(max_retries + 1):
+                        try:
+                            # Clean up partial data from previous attempts
+                            if chunk_dir.exists():
+                                shutil.rmtree(chunk_dir)
+                            parts, total_rows = extractor.sql_client.execute_query_to_disk(
+                                query_sql, chunk_dir, chunk_size=job.chunk_size,
+                                on_progress=_on_chunk_progress,
+                                is_cancelled=_is_cancelled,
+                            )
+                            break
+                        except Exception as retry_err:
+                            err_str = str(retry_err)
+                            is_transient = any(
+                                code in err_str
+                                for code in ["08S01", "08001", "10054", "10053", "Communication link failure", "connection was forcibly closed"]
+                            )
+                            if is_transient and attempt < max_retries:
+                                delay = base_delay * (2 ** attempt)
+                                logger.warning(f"Transient SQL error on {query_name} (attempt {attempt+1}/{max_retries+1}), retrying in {delay}s: {err_str[:200]}")
+                                time.sleep(delay)
+                                continue
+                            raise
+
+                    # Check if cancelled during download
+                    if job.status == JobStatus.CANCELLED:
+                        result.status = JobStatus.CANCELLED
+                        result.error = "Cancelled by user"
+                        logger.info(f"Query {query_name} cancelled during download")
+                        # Clean up partial data
+                        try:
+                            if chunk_dir.exists():
+                                shutil.rmtree(chunk_dir)
+                        except Exception:
+                            pass
+                        return result
+
+                    if parts and total_rows > 0:
+                        import polars as _pl
+                        combined = _pl.read_parquet(chunk_dir)
                         writer.write_dataframe(combined, query_name, job.country, tag=tag)
-                        result.rows_extracted = len(combined)
+                        result.rows_extracted = total_rows
                         result.table_name = writer.resolve_table_name(
                             query_name, job.country
                         )
@@ -519,8 +825,19 @@ def _run_trigger_extraction(
                     else:
                         result.rows_extracted = 0
 
+                    # Clean up temp chunks
+                    try:
+                        if chunk_dir.exists():
+                            shutil.rmtree(chunk_dir)
+                    except Exception:
+                        pass
+
                 result.status = JobStatus.COMPLETED
 
+            except InterruptedError:
+                result.status = JobStatus.CANCELLED
+                result.error = "Cancelled by user"
+                logger.info(f"Query {query_name} cancelled")
             except Exception as e:
                 result.status = JobStatus.FAILED
                 result.error = str(e)
@@ -533,7 +850,6 @@ def _run_trigger_extraction(
             with results_lock:
                 if record:
                     record.running_queries.discard(query_name)
-                job.results.append(result)
                 _persist_progress()
 
             return result
@@ -552,19 +868,27 @@ def _run_trigger_extraction(
                     logger.error(f"Unexpected error processing query {qn}: {exc}")
 
         job.current_query = None
+
+        # Determine if this is a calibration job (should advance to further steps)
+        is_calibration = record and record.stage == "calibracion"
+
         # Don't override if already cancelled by user
         if job.status != JobStatus.CANCELLED:
             all_sync_failed = job.queries_failed > 0 and job.queries_completed == 0
             if all_sync_failed:
                 job.status = JobStatus.FAILED
                 job.completed_at = job.completed_at or datetime.utcnow()
-            else:
+            elif is_calibration:
                 # Calibration steps remain: keep status as RUNNING so the
                 # frontend continues polling until the monitor finalizes.
                 job.status = JobStatus.RUNNING
                 # Don't set completed_at yet -- _finalize_job handles that.
+            else:
+                # Sync-only job (sincronización page): complete after extraction
+                job.status = JobStatus.COMPLETED
+                job.completed_at = datetime.utcnow()
 
-        # Persist extraction results (status stays "running" for successful sync)
+        # Persist extraction results
         persist_status = job.status.value
         update_job_status(
             client,
@@ -591,6 +915,13 @@ def _run_trigger_extraction(
         if job.status == JobStatus.CANCELLED:
             if db_path:
                 _persist_steps(job.job_id, db_path)
+        # Skip calibration advancement for sync-only jobs
+        elif not is_calibration:
+            calibration_tracker.complete_step(job.job_id, "sync_data")
+            if db_path:
+                _persist_steps(job.job_id, db_path)
+            logger.info("Sync-only job %s completed (stage=%s, not advancing to calibration)",
+                        job.job_id, record.stage if record else "?")
         # Update calibration sync_data step
         elif job.queries_failed > 0 and job.queries_completed == 0:
             calibration_tracker.complete_step(
@@ -892,15 +1223,69 @@ async def trigger_extraction(
 
     # Launch background extraction
     writer = DeltaTableWriter(db_client)
-    # Serialize differential_sync config for the background task
-    diff_sync_cfg = None
+    # Build effective diff sync config: merge server-side defaults + client overrides
+    diff_sync_cfg = {}
+    # 1. Server-side defaults from DIFF_SYNC_TABLES env var
+    for entry in (settings.diff_sync_tables or "").split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        parts = entry.split(":")
+        tbl = parts[0].strip()
+        if tbl:
+            cfg = {
+                "level1_column": parts[1].strip() if len(parts) > 1 else "periodo",
+                "level2_column": parts[2].strip() if len(parts) > 2 else "idproduto",
+            }
+            if len(parts) > 3:
+                cfg["mutable_months"] = int(parts[3].strip())
+            diff_sync_cfg[tbl] = cfg
+    # 2. Client overrides (take precedence)
     if request.differential_sync:
-        diff_sync_cfg = {k: v.model_dump() for k, v in request.differential_sync.items()}
+        for k, v in request.differential_sync.items():
+            diff_sync_cfg[k] = v.model_dump()
+    if not diff_sync_cfg:
+        diff_sync_cfg = None
+    else:
+        # Log which queries will use diff sync (helps debugging)
+        diff_tables = list(diff_sync_cfg.keys())
+        matching = [q for q in job.queries if q in diff_sync_cfg]
+        if matching:
+            logger.info("Diff sync enabled for queries: %s (from %s)",
+                        matching, "server+client" if request.differential_sync else "server default")
+
+    # Build incremental sync config from INCREMENTAL_SYNC_TABLES env var
+    # Format: "table:key_col[:date_col:mutable_months]"
+    incr_sync_cfg = {}
+    for entry in (settings.incremental_sync_tables or "").split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        parts = entry.split(":")
+        tbl = parts[0].strip()
+        if tbl and len(parts) > 1:
+            cfg = {"key_column": parts[1].strip()}
+            if len(parts) >= 4:
+                cfg["date_column"] = parts[2].strip()
+                cfg["mutable_window_months"] = int(parts[3].strip())
+            incr_sync_cfg[tbl] = cfg
+    if not incr_sync_cfg:
+        incr_sync_cfg = None
+    else:
+        matching = [q for q in job.queries if q in incr_sync_cfg]
+        if matching:
+            logger.info("Incremental sync enabled for queries: %s", matching)
+
+    # force_full_sync overrides both differential and incremental sync
+    if request.force_full_sync:
+        logger.info("force_full_sync=true: bypassing differential and incremental sync")
+        diff_sync_cfg = None
+        incr_sync_cfg = None
 
     background_tasks.add_task(
         _run_trigger_extraction, extractor, job, writer, db_client, jobs_tbl,
         tag, user.email, db_path, settings.max_parallel_queries,
-        request.row_limit, request.lookback_months, diff_sync_cfg,
+        request.row_limit, request.lookback_months, diff_sync_cfg, incr_sync_cfg,
     )
 
     return TriggerResponse(
@@ -1335,9 +1720,11 @@ async def cancel_event(
         record.running_queries.clear()
     else:
         # Check SQLite for a persisted running job
+        found_in_store = False
         if db_path:
             sqlite_row = local_store.get_job(db_path, job_id)
             if sqlite_row:
+                found_in_store = True
                 if not user.is_admin and sqlite_row["triggered_by"] != user.email:
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
@@ -1348,16 +1735,31 @@ async def cancel_event(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail={"error": "invalid_state", "message": f"Cannot cancel job with status: {sqlite_row['status']}"},
                     )
-            else:
+
+        # Fall back to Databricks Delta (for jobs from previous server sessions)
+        if not found_in_store:
+            try:
+                db_client = _get_databricks_client(raw_request)
+                jobs_tbl = get_settings().jobs_table
+                db_row = get_job(db_client, jobs_tbl, job_id)
+            except Exception:
+                db_row = None
+
+            if not db_row:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail={"error": "not_found", "message": f"Job not found: {job_id}"},
                 )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={"error": "not_found", "message": f"Job not found: {job_id}"},
-            )
+            if not user.is_admin and db_row["triggered_by"] != user.email:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={"error": "not_found", "message": f"Job not found: {job_id}"},
+                )
+            if db_row["status"] not in ("pending", "running"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"error": "invalid_state", "message": f"Cannot cancel job with status: {db_row['status']}"},
+                )
 
     # Cancel calibration steps
     calibration_tracker.cancel_job(job_id)
