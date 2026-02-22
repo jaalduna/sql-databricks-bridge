@@ -1,14 +1,20 @@
 """SQL Server database connection and operations."""
 
+import logging
+import socket
+import struct
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from pathlib import Path
+from typing import Any, AsyncIterator, Callable
 
 import polars as pl
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from sql_databricks_bridge.core.config import SQLServerSettings, get_settings
+
+logger = logging.getLogger(__name__)
 
 try:
     from kantar_db_handler.configs import get_country_params
@@ -63,7 +69,35 @@ class SQLServerClient:
                 pool_pre_ping=True,
                 pool_size=5,
                 max_overflow=10,
+                pool_recycle=1800,
             )
+            # Set TCP keep-alive on every new raw DBAPI connection
+            @event.listens_for(self._engine, "connect")
+            def _set_tcp_keepalive(dbapi_conn, connection_record):
+                raw_sock = dbapi_conn.fileno() if hasattr(dbapi_conn, "fileno") else None
+                try:
+                    raw_conn = getattr(dbapi_conn, "connection", dbapi_conn)
+                    raw_sock = getattr(raw_conn, "fileno", lambda: None)()
+                except Exception:
+                    pass
+                if raw_sock is None:
+                    return
+                try:
+                    sock = socket.fromfd(raw_sock, socket.AF_INET, socket.SOCK_STREAM)
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                    # Windows SIO_KEEPALIVE_VALS: (onoff, keepalivetime_ms, keepaliveinterval_ms)
+                    try:
+                        SIO_KEEPALIVE_VALS = 0x98000004
+                        sock.ioctl(SIO_KEEPALIVE_VALS, struct.pack("III", 1, 10_000, 10_000))
+                    except (AttributeError, OSError):
+                        # Non-Windows: use TCP_KEEPIDLE / TCP_KEEPINTVL if available
+                        if hasattr(socket, "TCP_KEEPIDLE"):
+                            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10)
+                        if hasattr(socket, "TCP_KEEPINTVL"):
+                            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+                    sock.detach()  # Don't close the fd when sock is garbage-collected
+                except Exception as exc:
+                    logger.debug("TCP keep-alive setup failed: %s", exc)
         return self._engine
 
     def _build_connection_url(self) -> str:
@@ -187,6 +221,83 @@ class SQLServerClient:
                             pass
 
                 yield chunk_df
+
+    def execute_query_to_disk(
+        self,
+        query: str,
+        output_dir: Path,
+        params: dict[str, Any] | None = None,
+        chunk_size: int = 100_000,
+        on_progress: Callable[[int, int], None] | None = None,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> tuple[list[Path], int]:
+        """Execute query and save each chunk as a parquet file on disk.
+
+        Args:
+            query: SQL query to execute.
+            output_dir: Directory to write part_NNNNN.parquet files.
+            params: Query parameters.
+            chunk_size: Number of rows per chunk/parquet file.
+            on_progress: Optional callback(chunk_rows, total_rows_so_far).
+            is_cancelled: Optional callable that returns True if the job was cancelled.
+
+        Returns:
+            Tuple of (list of parquet file paths, total row count).
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
+        parts: list[Path] = []
+        total_rows = 0
+        schema = None
+
+        with self.engine.connect() as conn:
+            result = conn.execute(text(query), params or {})
+            columns = list(result.keys())
+            part_num = 0
+
+            while True:
+                if is_cancelled and is_cancelled():
+                    logger.info("Download cancelled, stopping fetch")
+                    break
+
+                rows = result.fetchmany(chunk_size)
+                if not rows:
+                    break
+
+                chunk_df = pl.DataFrame(
+                    [dict(zip(columns, row)) for row in rows],
+                    infer_schema_length=None,
+                )
+
+                # Reconcile schema with first chunk
+                if schema is None:
+                    schema = chunk_df.schema
+                else:
+                    for col, dtype in list(schema.items()):
+                        if col not in chunk_df.columns:
+                            continue
+                        chunk_type = chunk_df[col].dtype
+                        if chunk_type == dtype:
+                            continue
+                        if dtype == pl.Null:
+                            schema[col] = chunk_type
+                        else:
+                            try:
+                                chunk_df = chunk_df.with_columns(
+                                    pl.col(col).cast(dtype, strict=False)
+                                )
+                            except Exception:
+                                pass
+
+                part_path = output_dir / f"part_{part_num:05d}.parquet"
+                chunk_df.write_parquet(part_path)
+                parts.append(part_path)
+                total_rows += len(chunk_df)
+                part_num += 1
+
+                if on_progress:
+                    on_progress(len(chunk_df), total_rows)
+
+        return parts, total_rows
 
     def execute_write(
         self,

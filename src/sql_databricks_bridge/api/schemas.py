@@ -73,6 +73,8 @@ class QueryResult(BaseModel):
     query_name: str
     status: JobStatus
     rows_extracted: int = 0
+    estimated_rows: int = 0
+    rows_downloaded: int = 0
     table_name: str | None = None
     files_created: list[str] = Field(default_factory=list)
     error: str | None = None
