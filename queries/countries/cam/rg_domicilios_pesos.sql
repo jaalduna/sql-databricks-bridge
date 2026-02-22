@@ -1,5 +1,5 @@
 -- cam: rg_domicilios_pesos
--- columns: 5
+-- columns: 6
 -- Note: seqdom does not exist in CAM
 
 select
@@ -7,6 +7,7 @@ select
     iddomicilio,
     idpeso,
     messem,
-    valor
+    valor,
+    ano*100+messem as periodo
 from rg_domicilios_pesos
 where ano >= {start_year} and ano <= {end_year}

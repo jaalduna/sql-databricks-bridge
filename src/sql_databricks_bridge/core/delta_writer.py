@@ -110,7 +110,7 @@ class DeltaTableWriter:
             self.client.upload_dataframe(df, staging_file)
             ctas = (
                 f"CREATE OR REPLACE TABLE {table_name} "
-                f"AS SELECT * FROM read_files('{staging_dir}', format => 'parquet') LIMIT 0"
+                f"AS SELECT * EXCEPT(_rescued_data) FROM read_files('{staging_dir}', format => 'parquet') LIMIT 0"
             )
             self.client.execute_sql(ctas)
             self._apply_tags(table_name, tag)
@@ -126,9 +126,10 @@ class DeltaTableWriter:
         logger.info(f"Staged {rows} rows to {staging_dir}")
 
         # 2. CTAS (read_files reads all parquet files in the directory)
+        # Exclude _rescued_data to keep table schema clean for future INSERT operations
         ctas = (
             f"CREATE OR REPLACE TABLE {table_name} "
-            f"AS SELECT * FROM read_files('{staging_dir}', format => 'parquet')"
+            f"AS SELECT * EXCEPT(_rescued_data) FROM read_files('{staging_dir}', format => 'parquet')"
         )
         self.client.execute_sql(ctas)
         logger.info(f"Created table {table_name} with {rows} rows")
@@ -143,6 +144,114 @@ class DeltaTableWriter:
         return WriteResult(
             table_name=table_name, rows=rows, duration_seconds=duration, local_path=local_path
         )
+
+    def append_dataframe(
+        self,
+        df: pl.DataFrame,
+        query_name: str,
+        country: str,
+        catalog: str | None = None,
+        schema: str | None = None,
+        tag: str | None = None,
+    ) -> WriteResult:
+        """Append DataFrame rows to an existing Delta table (INSERT INTO).
+
+        If the table doesn't exist yet, falls back to write_dataframe (CTAS).
+
+        Args:
+            df: DataFrame to append.
+            query_name: Query name (table name in Delta).
+            country: Country code.
+            catalog: Override catalog.
+            schema: Override schema.
+            tag: Tag for the table version.
+
+        Returns:
+            WriteResult with table name, row count, duration.
+        """
+        start_time = datetime.utcnow()
+
+        # Lowercase column names for consistency
+        df = df.rename({col: col.lower() for col in df.columns})
+
+        table_name = self.resolve_table_name(query_name, country, catalog, schema)
+        target_catalog = catalog or self._settings.catalog
+        target_schema = schema or country
+        staging_volume_path = f"/Volumes/{target_catalog}/{target_schema}/{self._settings.volume}"
+        staging_dir = f"{staging_volume_path}/_staging_incr/{query_name}"
+        staging_file = f"{staging_dir}/data.parquet"
+
+        self._ensure_schema(target_catalog, target_schema)
+
+        rows = len(df)
+        if rows == 0:
+            duration = (datetime.utcnow() - start_time).total_seconds()
+            logger.info(f"No new rows to append to {table_name}")
+            return WriteResult(table_name=table_name, rows=0, duration_seconds=duration)
+
+        # If table doesn't exist, do full write (CTAS)
+        if not self.table_exists(table_name):
+            logger.info(f"Table {table_name} doesn't exist, creating with {rows} rows")
+            return self.write_dataframe(df, query_name, country, catalog, schema, tag=tag)
+
+        # Stage parquet
+        self._clean_staging_dir(staging_dir)
+        self.client.upload_dataframe(df, staging_file)
+        logger.info(f"Staged {rows} rows for append to {staging_dir}")
+
+        # INSERT INTO with explicit column list (exclude _rescued_data)
+        target_cols = self._get_table_columns(table_name)
+        if target_cols:
+            cols = [c for c in target_cols if c.lower() != "_rescued_data"]
+            col_list = ", ".join(f"`{c}`" for c in cols)
+            insert_sql = (
+                f"INSERT INTO {table_name} ({col_list}) "
+                f"SELECT {col_list} FROM read_files('{staging_dir}', format => 'parquet')"
+            )
+        else:
+            insert_sql = (
+                f"INSERT INTO {table_name} "
+                f"SELECT * EXCEPT(_rescued_data) FROM read_files('{staging_dir}', format => 'parquet')"
+            )
+
+        try:
+            self.client.execute_sql(insert_sql)
+            logger.info(f"Appended {rows} rows to {table_name}")
+        except RuntimeError as e:
+            err_msg = str(e)
+            if any(code in err_msg for code in [
+                "DATATYPE_MISMATCH", "CAST_WITHOUT_SUGGESTION",
+                "DELTA_DUPLICATE_COLUMNS_FOUND",
+            ]):
+                logger.warning(f"Schema issue on append to {table_name}, falling back to OVERWRITE: {e}")
+                return self.write_dataframe(df, query_name, country, catalog, schema, tag=tag)
+            raise
+
+        # Tags + cleanup
+        self._apply_tags(table_name, tag)
+        self._cleanup_staging(staging_file)
+
+        duration = (datetime.utcnow() - start_time).total_seconds()
+        return WriteResult(table_name=table_name, rows=rows, duration_seconds=duration)
+
+    def get_max_key(self, table_name: str, key_column: str) -> int | None:
+        """Get MAX(key_column) from a Delta table for incremental sync watermark.
+
+        Returns:
+            The max key value as int, or None if table doesn't exist or is empty.
+        """
+        try:
+            if not self.table_exists(table_name):
+                return None
+            rows = self.client.execute_sql(
+                f"SELECT MAX(CAST(`{key_column}` AS BIGINT)) AS max_key FROM {table_name}"
+            )
+            if rows and rows[0].get("max_key") is not None:
+                return int(rows[0]["max_key"])
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to get MAX({key_column}) from {table_name}: {e}")
+            return None
 
     def write_diff_slices(
         self,
@@ -203,10 +312,12 @@ class DeltaTableWriter:
             duration = (datetime.utcnow() - start_time).total_seconds()
             return WriteResult(table_name=table_name, rows=0, duration_seconds=duration)
 
-        # 1. Upload chunks to staging
+        # 1. Upload chunks to staging (clean directory first to avoid stale files)
         if chunks:
             # Lowercase column names for consistency
             chunks = [c.rename({col: col.lower() for col in c.columns}) for c in chunks]
+            # Clean staging directory to prevent stale files with different schemas
+            self._clean_staging_dir(staging_dir)
             uploaded_paths = self.client.upload_dataframe_chunked(chunks, staging_dir)
             logger.info(f"Staged {total_rows} rows in {len(uploaded_paths)} parts to {staging_dir}")
 
@@ -235,19 +346,35 @@ class DeltaTableWriter:
                 self.client.execute_sql(delete_sql)
             logger.info(f"Deleted {len(deleted_level1_values)} removed {level1_column} values from {table_name}")
 
-        # 3. INSERT from staging
+        # 3. INSERT from staging (use explicit column list to avoid _rescued_data conflicts)
         if chunks:
-            insert_sql = (
-                f"INSERT INTO {table_name} "
-                f"SELECT * FROM read_files('{staging_dir}', format => 'parquet')"
-            )
+            # Get target table columns to build explicit SELECT list
+            target_cols = self._get_table_columns(table_name)
+            if target_cols:
+                # Use explicit column list, excluding _rescued_data (added by read_files)
+                cols = [c for c in target_cols if c.lower() != "_rescued_data"]
+                col_list = ", ".join(f"`{c}`" for c in cols)
+                insert_sql = (
+                    f"INSERT INTO {table_name} ({col_list}) "
+                    f"SELECT {col_list} FROM read_files('{staging_dir}', format => 'parquet')"
+                )
+            else:
+                # Fallback: SELECT * EXCEPT to avoid _rescued_data duplication
+                insert_sql = (
+                    f"INSERT INTO {table_name} "
+                    f"SELECT * EXCEPT(_rescued_data) FROM read_files('{staging_dir}', format => 'parquet')"
+                )
             try:
                 self.client.execute_sql(insert_sql)
                 logger.info(f"Inserted {total_rows} rows into {table_name}")
             except RuntimeError as e:
-                if "DATATYPE_MISMATCH" in str(e) or "CAST_WITHOUT_SUGGESTION" in str(e):
+                err_msg = str(e)
+                if any(code in err_msg for code in [
+                    "DATATYPE_MISMATCH", "CAST_WITHOUT_SUGGESTION",
+                    "DELTA_DUPLICATE_COLUMNS_FOUND",
+                ]):
                     logger.warning(
-                        f"Schema mismatch on INSERT INTO {table_name}, "
+                        f"Schema issue on INSERT INTO {table_name}, "
                         f"falling back to full OVERWRITE: {e}"
                     )
                     # Re-create table with correct schema from current data
@@ -343,6 +470,26 @@ class DeltaTableWriter:
             self.client.delete_file(path)
         except Exception as e:
             logger.warning(f"Failed to cleanup staging file {path}: {e}")
+
+    def _clean_staging_dir(self, staging_dir: str) -> None:
+        """Remove all existing files from staging directory before upload."""
+        try:
+            files = self.client.list_files(staging_dir)
+            for f in files:
+                try:
+                    self.client.delete_file(f.path)
+                except Exception:
+                    pass
+        except Exception:
+            pass  # Directory may not exist yet
+
+    def _get_table_columns(self, table_name: str) -> list[str]:
+        """Get column names from an existing Delta table."""
+        try:
+            rows = self.client.execute_sql(f"DESCRIBE TABLE {table_name}")
+            return [row["col_name"] for row in rows if row.get("col_name") and not row["col_name"].startswith("#")]
+        except Exception:
+            return []
 
     def _save_local_parquet(
         self, df: pl.DataFrame, query_name: str, country: str, catalog: str, schema: str
