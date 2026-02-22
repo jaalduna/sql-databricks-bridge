@@ -147,6 +147,14 @@ class BridgeSettings(BaseSettings):
     version_tags_table: str = Field(default="bridge.events.version_tags", description="Databricks Delta table for version tags")
     fingerprint_table: str = Field(default="`000-sql-databricks-bridge`.events.sync_fingerprints", description="Databricks Delta table for differential sync fingerprints")
 
+    # Differential sync defaults (server-side, applied even if client doesn't request it)
+    # Format: "table1:l1_col:l2_col,table2:l1_col:l2_col" e.g. "j_atoscompra_new:periodo:idproduto"
+    diff_sync_tables: str = Field(default="", description="Tables that use differential sync by default (format: table:l1_col:l2_col,...)")
+
+    # Incremental sync for append-only tables (only download new rows above max key)
+    # Format: "table1:key_col,table2:key_col" e.g. "nac_ato:idAto,hato_cabecalho:idhato_cabecalho"
+    incremental_sync_tables: str = Field(default="", description="Append-only tables that use incremental sync (format: table:key_col,...)")
+
     # Auth settings
     auth_enabled: bool = Field(default=True, description="Enable token authentication")
     permissions_file: str = Field(default="", description="Override path to permissions YAML (empty = bundled default)")

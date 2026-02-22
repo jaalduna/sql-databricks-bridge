@@ -119,6 +119,8 @@ export interface QueryResult {
   query_name: string
   status: JobStatus
   rows_extracted: number
+  estimated_rows: number
+  rows_downloaded: number
   table_name: string | null
   duration_seconds: number
   error: string | null
