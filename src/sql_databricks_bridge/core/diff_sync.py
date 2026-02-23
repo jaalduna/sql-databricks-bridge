@@ -191,6 +191,62 @@ def run_differential_sync(
     )
     stats.is_first_sync = len(stored_l1) == 0
 
+    # --- Schema compatibility check ---
+    # If the Delta table exists but its schema doesn't match the source query,
+    # force a full resync (OVERWRITE) to recreate the table with correct columns.
+    _force_overwrite = False
+    if not stats.is_first_sync:
+        _target_table = writer.resolve_table_name(sql_table, country)
+        if writer.table_exists(_target_table):
+            _target_cols_list = writer._get_table_columns(_target_table)
+            _target_cols = {c.lower() for c in _target_cols_list}
+            if _target_cols:
+                _needs_overwrite = False
+
+                # Check 1: diff columns must exist in target for DELETE
+                _l1_ok = level1_column.lower() in _target_cols
+                _l2_ok = level2_column.lower() in _target_cols
+                if not _l1_ok or not _l2_ok:
+                    _missing = []
+                    if not _l1_ok:
+                        _missing.append(level1_column)
+                    if not _l2_ok:
+                        _missing.append(level2_column)
+                    log_progress(
+                        f"Schema mismatch: column(s) {_missing} not in Delta table"
+                    )
+                    _needs_overwrite = True
+
+                # Check 2: source columns must match target for INSERT
+                if not _needs_overwrite:
+                    try:
+                        _schema_sql = (
+                            f"SELECT TOP 0 * FROM ({base_query}) AS _schema_check"
+                            if base_query
+                            else f"SELECT TOP 0 * FROM {sql_table}"
+                        )
+                        _schema_df = sql_client.execute_query(_schema_sql)
+                        _source_cols = {c.lower() for c in _schema_df.columns}
+                        _extra_in_target = _target_cols - _source_cols - {"_rescued_data"}
+                        _extra_in_source = _source_cols - _target_cols
+                        if _extra_in_target or _extra_in_source:
+                            log_progress(
+                                f"Schema mismatch: extra in Delta: "
+                                f"{_extra_in_target or 'none'}, "
+                                f"extra in source: {_extra_in_source or 'none'}"
+                            )
+                            _needs_overwrite = True
+                    except Exception as e:
+                        log_progress(f"Could not check source schema: {e}")
+
+                if _needs_overwrite:
+                    log_progress(
+                        "Forcing full resync with OVERWRITE to fix schema"
+                    )
+                    stored_l1 = []
+                    stats.is_first_sync = True
+                    _force_overwrite = True
+
     if stats.is_first_sync:
         log_progress("First sync: no stored fingerprints, will do full download")
 
@@ -326,8 +382,11 @@ def run_differential_sync(
     log_progress(f"Total slices to sync: {stats.total_changed_pairs}")
 
     # --- FIRST SYNC OPTIMIZATION ---
-    # If all L1 values are new and there are many, use a single full query
-    use_bulk_extraction = stats.is_first_sync and len(all_new_pairs) > 10
+    # If all L1 values are new and there are many, use a single full query.
+    # Also force bulk when schema mismatch requires OVERWRITE (even with few periods).
+    use_bulk_extraction = (
+        (stats.is_first_sync and len(all_new_pairs) > 10) or _force_overwrite
+    )
     all_chunks: list[pl.DataFrame] = []
     _rows_so_far = 0  # Running total for progress tracking
 

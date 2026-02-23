@@ -222,6 +222,7 @@ class DeltaTableWriter:
             if any(code in err_msg for code in [
                 "DATATYPE_MISMATCH", "CAST_WITHOUT_SUGGESTION",
                 "DELTA_DUPLICATE_COLUMNS_FOUND",
+                "UNRESOLVED_COLUMN",
             ]):
                 logger.warning(f"Schema issue on append to {table_name}, falling back to OVERWRITE: {e}")
                 return self.write_dataframe(df, query_name, country, catalog, schema, tag=tag)
@@ -322,38 +323,72 @@ class DeltaTableWriter:
             logger.info(f"Staged {total_rows} rows in {len(uploaded_paths)} parts to {staging_dir}")
 
         # 2. DELETE changed slices from target
-        if changed_pairs:
-            # Build WHERE clause for changed pairs
-            pair_conditions = []
-            for l1, l2 in changed_pairs:
-                pair_conditions.append(
-                    f"(CAST({level1_column} AS STRING) = '{l1}' AND CAST({level2_column} AS STRING) = '{l2}')"
+        try:
+            if changed_pairs:
+                # Build WHERE clause for changed pairs
+                pair_conditions = []
+                for l1, l2 in changed_pairs:
+                    pair_conditions.append(
+                        f"(CAST({level1_column} AS STRING) = '{l1}' AND CAST({level2_column} AS STRING) = '{l2}')"
+                    )
+
+                # Batch delete conditions to avoid SQL size limits
+                batch_size = 200
+                for i in range(0, len(pair_conditions), batch_size):
+                    batch = pair_conditions[i:i + batch_size]
+                    delete_sql = f"DELETE FROM {table_name} WHERE {' OR '.join(batch)}"
+                    self.client.execute_sql(delete_sql)
+
+                logger.info(f"Deleted {len(changed_pairs)} changed slices from {table_name}")
+
+            # Delete entire level1 values that were removed from source
+            if deleted_level1_values:
+                for val in deleted_level1_values:
+                    delete_sql = f"DELETE FROM {table_name} WHERE CAST({level1_column} AS STRING) = '{val}'"
+                    self.client.execute_sql(delete_sql)
+                logger.info(f"Deleted {len(deleted_level1_values)} removed {level1_column} values from {table_name}")
+        except RuntimeError as e:
+            if "UNRESOLVED_COLUMN" in str(e):
+                logger.warning(
+                    f"DELETE failed on {table_name} (column not found), "
+                    f"falling back to full OVERWRITE: {e}"
                 )
+                if chunks:
+                    combined = pl.concat(chunks) if len(chunks) > 1 else chunks[0]
+                    return self.write_dataframe(
+                        combined, query_name, country, catalog, schema, tag=tag
+                    )
+            raise
 
-            # Batch delete conditions to avoid SQL size limits
-            batch_size = 200
-            for i in range(0, len(pair_conditions), batch_size):
-                batch = pair_conditions[i:i + batch_size]
-                delete_sql = f"DELETE FROM {table_name} WHERE {' OR '.join(batch)}"
-                self.client.execute_sql(delete_sql)
-
-            logger.info(f"Deleted {len(changed_pairs)} changed slices from {table_name}")
-
-        # Delete entire level1 values that were removed from source
-        if deleted_level1_values:
-            for val in deleted_level1_values:
-                delete_sql = f"DELETE FROM {table_name} WHERE CAST({level1_column} AS STRING) = '{val}'"
-                self.client.execute_sql(delete_sql)
-            logger.info(f"Deleted {len(deleted_level1_values)} removed {level1_column} values from {table_name}")
-
-        # 3. INSERT from staging (use explicit column list to avoid _rescued_data conflicts)
+        # 3. INSERT from staging (use column intersection to handle schema changes)
         if chunks:
-            # Get target table columns to build explicit SELECT list
             target_cols = self._get_table_columns(table_name)
-            if target_cols:
-                # Use explicit column list, excluding _rescued_data (added by read_files)
-                cols = [c for c in target_cols if c.lower() != "_rescued_data"]
-                col_list = ", ".join(f"`{c}`" for c in cols)
+            # Get parquet column names from the chunks
+            parquet_cols_set = set()
+            for c in chunks:
+                parquet_cols_set.update(col.lower() for col in c.columns)
+
+            if target_cols and parquet_cols_set:
+                target_cols_set = {c.lower() for c in target_cols if c.lower() != "_rescued_data"}
+                # Use intersection: columns in BOTH target table AND parquet
+                common_cols = [
+                    c for c in target_cols
+                    if c.lower() in parquet_cols_set and c.lower() != "_rescued_data"
+                ]
+                extra_in_target = target_cols_set - parquet_cols_set
+                extra_in_parquet = parquet_cols_set - target_cols_set
+                if extra_in_target or extra_in_parquet:
+                    logger.warning(
+                        f"Schema mismatch for {table_name}: "
+                        f"extra in Delta: {extra_in_target or 'none'}, "
+                        f"extra in data: {extra_in_parquet or 'none'}. "
+                        f"Falling back to full OVERWRITE."
+                    )
+                    combined = pl.concat(chunks) if len(chunks) > 1 else chunks[0]
+                    return self.write_dataframe(
+                        combined, query_name, country, catalog, schema, tag=tag
+                    )
+                col_list = ", ".join(f"`{c}`" for c in common_cols)
                 insert_sql = (
                     f"INSERT INTO {table_name} ({col_list}) "
                     f"SELECT {col_list} FROM read_files('{staging_dir}', format => 'parquet')"
@@ -372,6 +407,7 @@ class DeltaTableWriter:
                 if any(code in err_msg for code in [
                     "DATATYPE_MISMATCH", "CAST_WITHOUT_SUGGESTION",
                     "DELTA_DUPLICATE_COLUMNS_FOUND",
+                    "UNRESOLVED_COLUMN",
                 ]):
                     logger.warning(
                         f"Schema issue on INSERT INTO {table_name}, "

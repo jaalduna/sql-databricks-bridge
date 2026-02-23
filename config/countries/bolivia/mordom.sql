@@ -1,5 +1,5 @@
 -- bolivia: mordom
 
-select *
+select *, ano as periodo
 from mordom
-where ano >= YEAR(DATEADD(MONTH, -{lookback_months}, GETDATE()))
+where ano >= {start_year} and ano <= {end_year}
