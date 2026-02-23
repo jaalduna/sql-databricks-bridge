@@ -68,7 +68,7 @@ DEFAULT_STEP_JOBS: dict[CalibrationStepName, StepJobSpec | None] = {
     "merge_data": StepJobSpec(
         job_name="{Country} Penetration Calibration",
         parameters={
-            "start_period": "202301",
+            "start_period": "202102",
             "final_period": "0",
         },
         covers_steps=["merge_data", "simulate_kpis", "calculate_penetration"],
