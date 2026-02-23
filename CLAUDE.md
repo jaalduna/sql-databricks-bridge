@@ -1,117 +1,110 @@
-# Differential Sync Implementation Plan
+# CLAUDE.md
 
-## Status: IN PROGRESS
-Last updated: 2026-02-20
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Objective
-Implement a 2-level differential sync feature that detects changes in SQL Server
-data using stored CHECKSUM_AGG(CHECKSUM(*)) fingerprints and only downloads/replaces
-the changed (level1_col, level2_col) slices in Databricks Delta tables.
+## What This Project Is
 
-## Key Design Decisions
-- **Per-query filter**: `differential_sync` field in TriggerRequest maps query names
-  to their diff-sync column config. Queries not listed use full OVERWRITE (backward-compatible).
-- **Stored fingerprints**: SQL Server fingerprints stored in Databricks metadata table.
-  Comparison is SQL_now vs SQL_at_last_sync (not cross-platform).
-- **XOR checksum**: `CHECKSUM_AGG(CHECKSUM(*))` on SQL Server. Detects inserts, edits, deletes.
-- **Block replacement**: Changed (level1, level2) slices are DELETE+INSERT in Databricks.
-- **Delta time travel**: Each sync creates a new Delta version (automatic snapshot).
-- **Streaming**: Chunks uploaded as separate parquet parts to staging Volume (flat memory).
-- **Bolivia test**: Use 6 lookback periods for real data validation.
+SQL-Databricks Bridge is a bidirectional data sync service between SQL Server and Databricks Unity Catalog. It has three main components:
+
+1. **Python backend** (FastAPI) — REST API + event poller + CLI for data extraction and sync
+2. **React frontend** (Vite + Tailwind + shadcn/ui) — Dashboard for triggering calibration pipelines, deployed as both a web app and a Tauri desktop app
+3. **Python SDK** — Client library for Databricks notebooks/jobs to interact with the bridge
+
+## Build & Run Commands
+
+### Backend (Python / Poetry)
+
+```bash
+poetry install                          # Install all dependencies
+PYTHONPATH=src pytest tests/unit/ -v    # Run unit tests (no external connections)
+PYTHONPATH=src pytest tests/ -v         # Run all tests (integration tests need DATABRICKS_* env vars)
+PYTHONPATH=src pytest tests/unit/test_operations.py -v                # Single test file
+PYTHONPATH=src pytest tests/unit/test_operations.py::TestSyncOperatorInsert -v  # Single test class
+poetry run ruff check src/              # Lint
+poetry run mypy src/                    # Type check
+bridge serve                            # Start API server (port 8000)
+bridge extract --queries-path ./queries --country bolivia  # CLI extraction
+```
+
+### Frontend (npm)
+
+```bash
+cd frontend
+npm install                # Install dependencies
+npm run dev                # Dev server (Vite, port 5173)
+npm run build              # Production build (tsc + vite)
+npm run test               # Run tests (vitest)
+npm run test:watch         # Watch mode tests
+npm run lint               # ESLint
+npm run tauri:dev          # Tauri desktop dev mode
+npm run tauri:build        # Build Tauri desktop app
+```
 
 ## Architecture
 
-### New Files
-1. `core/fingerprint.py` - SQL Server fingerprint computation
-2. `core/diff_sync.py` - Differential sync orchestrator (compare, extract, merge)
-3. `tests/test_diff_sync.py` - Synthetic + real data validation script
+### Data Flow — Two Directions
 
-### Modified Files
-1. `core/delta_writer.py` - Add `write_diff_slices()` for DELETE+INSERT pattern
-2. `api/routes/trigger.py` - Add `DiffSyncConfig` to TriggerRequest, integrate in extraction loop
-3. `core/config.py` - Add `fingerprint_table` setting
+**SQL Server -> Databricks (Extraction):**
+`SQLServerClient` -> `Extractor` (Polars DataFrames) -> `DeltaTableWriter` (stage-then-CTAS to Delta tables)
 
-### Fingerprint Storage (Databricks Delta Table)
-```sql
-CREATE TABLE IF NOT EXISTS `{catalog}`.`metadata`.`sync_fingerprints` (
-  country STRING,
-  table_name STRING,        -- e.g. 'j_atoscompra_new'
-  level STRING,             -- 'period' or 'product'
-  level1_value STRING,      -- e.g. '202401' (periodo value)
-  level2_value STRING,      -- e.g. '5' (idproduto value), NULL for level='period'
-  row_count BIGINT,
-  checksum_xor BIGINT,
-  synced_at TIMESTAMP,
-  job_id STRING
-) USING DELTA
-```
+**Databricks -> SQL Server (Event-Driven Sync):**
+Databricks job writes to `bridge_events` table -> `EventPoller` detects events -> `SyncOperator` executes INSERT/UPDATE/DELETE on SQL Server
 
-### API Model
-```python
-class DiffSyncQueryConfig(BaseModel):
-    level1_column: str = "periodo"    # GROUP BY for Level 1
-    level2_column: str = "idproduto"  # GROUP BY for Level 2
+### Backend Layers (`src/sql_databricks_bridge/`)
 
-class TriggerRequest(BaseModel):
-    ...existing fields...
-    differential_sync: dict[str, DiffSyncQueryConfig] | None = None
-    # Example: {"j_atoscompra_new": {"level1_column": "periodo", "level2_column": "idproduto"}}
-    # Queries not in this dict use full OVERWRITE
-```
+- **`core/`** — Business logic: `extractor.py` (SQL extraction), `delta_writer.py` (Databricks writes via stage-then-CTAS), `diff_sync.py` (2-level fingerprint differential sync), `config.py` (pydantic-settings from `.env`), `pipeline_tracker.py` + `calibration_launcher.py` (calibration pipeline orchestration)
+- **`api/routes/`** — FastAPI endpoints under `/api/v1`: `extract.py`, `sync.py`, `trigger.py`, `pipeline.py`, `health.py`, `auth.py`, `metadata.py`, `tags.py`, `databricks_jobs.py`
+- **`sync/`** — Databricks-to-SQL sync: `operations.py` (SyncOperator), `poller.py` (EventPoller), `validators.py`, `retry.py`
+- **`db/`** — Database clients: `sql_server.py` (pyodbc/SQLAlchemy), `databricks.py` (Databricks SDK), `jobs_table.py`, `local_store.py` (SQLite for local job state)
+- **`auth/`** — Token auth + Azure AD: `token.py`, `azure_ad.py`, `permissions.py`, `authorized_users.py`
+- **`models/`** — Pydantic models: `events.py` (SyncEvent/SyncOperation), `pipeline.py` (CalibrationPipeline steps), `calibration.py`
+- **`cli/commands.py`** — Typer CLI (`bridge` command): extract, serve, test-connection, list-queries, list-countries
+- **`data/`** — Bundled YAML configs (stages.yaml, permissions.yaml, authorized_users.yaml)
+- **`main.py`** — FastAPI app factory with lifespan (starts EventPoller + DatabricksJobMonitor)
 
-### Data Flow (Differential Query)
-```
-1. Compute Level 1 fingerprints on SQL Server
-   SELECT {level1_col}, COUNT(*), CHECKSUM_AGG(CHECKSUM(*))
-   FROM {table} WHERE {time_filter} GROUP BY {level1_col}
+### Country-Aware Query System
 
-2. Load stored Level 1 fingerprints from Databricks metadata table
+Queries live in `queries/common/` and `queries/countries/{country}/`. Resolution priority: country-specific overrides > common fallback. `CountryAwareQueryLoader` handles this. Fact queries use `{lookback_months}` placeholder for time filtering.
 
-3. Compare -> identify changed level1 values (count OR checksum differs)
-   - First sync (no stored fingerprints) = all values are "new" = full download
+### Multi-Country SQL Server
 
-4. For each changed level1 value:
-   SELECT {level2_col}, COUNT(*), CHECKSUM_AGG(CHECKSUM(*))
-   FROM {table} WHERE {level1_col} = ? GROUP BY {level2_col}
+Each country connects to a different SQL Server instance via `kantar_db_handler` (vendored wheel). `SQLServerClient(country="bolivia")` auto-resolves the correct server/database. Fallback to `.env` if not installed.
 
-5. Compare Level 2 -> identify changed (level1, level2) pairs
+### Differential Sync (`core/diff_sync.py` + `core/fingerprint.py`)
 
-6. Extract only changed rows from SQL Server:
-   SELECT * FROM {table} WHERE {level1_col} = ? AND {level2_col} = ?
-   Stream chunks to staging Volume
+2-level fingerprint comparison for incremental extraction:
+1. Level 1 fingerprints (e.g. by `periodo`) identify changed groups
+2. Level 2 fingerprints (e.g. by `periodo + idproduto`) identify changed rows within groups
+3. Only changed slices are extracted and replaced (DELETE + INSERT)
 
-7. In Databricks:
-   DELETE FROM target WHERE (level1_col, level2_col) IN (changed_pairs)
-   INSERT INTO target SELECT * FROM read_files('staging/*.parquet')
+### Calibration Pipeline (`models/pipeline.py`)
 
-8. Update stored fingerprints (overwrite all fingerprints for this table/country)
-```
+6-step orchestrated pipeline: sync -> copy_bronze -> merge -> simulate_weights -> simulate_kpis -> calculate_targets. Each step maps to a Databricks Asset Bundle job. `CalibrationJobLauncher` triggers jobs, `DatabricksJobMonitor` polls run status.
 
-## Implementation Phases
+### Frontend (`frontend/`)
 
-### Phase 1: Core Modules
-- [x] `core/fingerprint.py` - Fingerprint computation
-- [x] `core/delta_writer.py` - Add write_diff_slices + streaming upload
-- [x] `core/diff_sync.py` - Orchestration
+React 19 + React Router + TanStack Query + shadcn/ui. Auth via Azure AD (MSAL) or bypass mode (`VITE_AUTH_BYPASS=true`). API client at `src/lib/api.ts` hits `/api/v1`. Pages: Dashboard (country cards), History (job list), Calibration (pipeline view), EventDetail.
 
-### Phase 2: API Integration
-- [x] `api/routes/trigger.py` - DiffSyncQueryConfig model + integration in process_query
-- [x] `core/config.py` - fingerprint_table setting
+### SDK (`sdk/`)
 
-### Phase 3: Synthetic Data Test
-- [ ] Create test with synthetic SQL Server table
-- [ ] Verify N (baseline), N+1 (changes detected), N+2 (restored)
+`BridgeEventsClient` — writes sync events to Databricks Delta table. `BridgeClient` (api_client.py) — REST API wrapper. Used from Databricks notebooks/jobs.
 
-### Phase 4: Bolivia Real Data Test (6 lookback periods)
-- [ ] Run baseline sync (N) for j_atoscompra_new
-- [ ] Introduce variation in specific period/product (N+1)
-- [ ] Verify changes detected and synced
-- [ ] Restore original values (N+2)
-- [ ] Verify data matches original SQL table
+## Key Configuration
 
-## Testing Strategy
-1. **Synthetic**: Create temp table in SQL Server, populate with known data,
-   run 3 iterations with controlled mutations. Validate counts match.
-2. **Bolivia real data**: Use j_atoscompra_new with lookback_months=6.
-   Iteration N: baseline. N+1: UPDATE a row in specific (periodo, idproduto).
-   N+2: Restore. Verify Databricks matches SQL Server after each iteration.
+- **Backend env**: `.env` at project root (see `.env.example`). Key vars: `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, `DATABRICKS_WAREHOUSE_ID`, `SQLSERVER_*`
+- **Frontend env**: `frontend/.env` with `VITE_BRIDGE_API_URL`, `VITE_AZURE_AD_CLIENT_ID`, `VITE_AZURE_AD_TENANT_ID`
+- **Permissions**: `src/sql_databricks_bridge/data/permissions.yaml` (bundled) or `config/permissions.yaml`
+- **Ruff**: line-length 100, target py311, rules E/F/I/UP/B/SIM
+- **pytest**: asyncio_mode=auto, testpaths=["tests"], -v --tb=short
+
+## Test Conventions
+
+- Unit tests mock both SQL Server and Databricks clients (see `tests/conftest.py` fixtures: `mock_sql_client`, `mock_databricks_client`, `mock_delta_writer`)
+- Integration tests use `@requires_databricks` marker and need real `DATABRICKS_*` env vars
+- DataFrames use Polars throughout (never pandas)
+- `PYTHONPATH=src` is required to run tests from project root
+
+## Git
+
+- Remote is named `github` (not `origin`)
+- Main branch: `main`, development branch: `develop`
