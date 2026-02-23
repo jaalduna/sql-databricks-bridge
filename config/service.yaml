@@ -18,7 +18,7 @@ extraction:
 
 # Sync event table location (Databricks)
 sync:
-  catalog: "bridge"
+  catalog: "000-sql-databricks-bridge"
   schema: "events"
   events_table: "bridge_events"
 
