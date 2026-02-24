@@ -94,6 +94,14 @@ export function AuthenticatedLayout() {
                   Calibración
                 </NavLink>
               )}
+              {modules.elegibilidad && (
+                <NavLink
+                  to="/elegibilidad"
+                  className={navLinkClass}
+                >
+                  Elegibilidad
+                </NavLink>
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-3">

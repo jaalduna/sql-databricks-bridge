@@ -91,6 +91,7 @@ React 19 + React Router + TanStack Query + shadcn/ui. Auth via Azure AD (MSAL) o
 
 ## Key Configuration
 
+- **Remote server**: `http://myworkspace.kantar.com:8000/` (production/remote bridge API)
 - **Backend env**: `.env` at project root (see `.env.example`). Key vars: `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, `DATABRICKS_WAREHOUSE_ID`, `SQLSERVER_*`
 - **Frontend env**: `frontend/.env` with `VITE_BRIDGE_API_URL`, `VITE_AZURE_AD_CLIENT_ID`, `VITE_AZURE_AD_TENANT_ID`
 - **Permissions**: `src/sql_databricks_bridge/data/permissions.yaml` (bundled) or `config/permissions.yaml`
