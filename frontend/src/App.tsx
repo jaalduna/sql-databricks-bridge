@@ -1,15 +1,17 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom"
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Toaster } from "@/components/ui/sonner"
 import { MsalAuthProvider } from "@/components/MsalAuthProvider"
 import { DevAuthProvider } from "@/components/DevAuthProvider"
 import { ProtectedRoute } from "@/components/ProtectedRoute"
 import { AuthenticatedLayout } from "@/components/AuthenticatedLayout"
+import { useModuleConfig } from "@/hooks/useModuleConfig"
 import LoginPage from "@/pages/LoginPage"
 import DashboardPage from "@/pages/DashboardPage"
 import HistoryPage from "@/pages/HistoryPage"
 import EventDetailPage from "@/pages/EventDetailPage"
 import { CalibrationPage } from "@/pages/CalibrationPage"
+import { ElegibilidadPage } from "@/pages/ElegibilidadPage"
 
 const AUTH_BYPASS = import.meta.env.VITE_AUTH_BYPASS === "true"
 
@@ -27,26 +29,37 @@ const basename = isTauri ? "/" : import.meta.env.BASE_URL
 
 const AuthProvider = AUTH_BYPASS ? DevAuthProvider : MsalAuthProvider
 
+function AppRoutes() {
+  const modules = useModuleConfig()
+  const defaultRoute = modules.sync ? "/dashboard" : modules.calibration ? "/calibration" : "/elegibilidad"
+
+  return (
+    <Routes>
+      <Route path="/" element={<LoginPage />} />
+      <Route
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout />
+          </ProtectedRoute>
+        }
+      >
+        {modules.sync && <Route path="/dashboard" element={<DashboardPage />} />}
+        {modules.sync && <Route path="/history" element={<HistoryPage />} />}
+        {modules.sync && <Route path="/events/:jobId" element={<EventDetailPage />} />}
+        {modules.calibration && <Route path="/calibration" element={<CalibrationPage />} />}
+        {modules.elegibilidad && <Route path="/elegibilidad" element={<ElegibilidadPage />} />}
+        <Route path="*" element={<Navigate to={defaultRoute} replace />} />
+      </Route>
+    </Routes>
+  )
+}
+
 export default function App() {
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter basename={basename}>
-          <Routes>
-            <Route path="/" element={<LoginPage />} />
-            <Route
-              element={
-                <ProtectedRoute>
-                  <AuthenticatedLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/history" element={<HistoryPage />} />
-              <Route path="/calibration" element={<CalibrationPage />} />
-              <Route path="/events/:jobId" element={<EventDetailPage />} />
-            </Route>
-          </Routes>
+          <AppRoutes />
           <Toaster />
         </BrowserRouter>
       </QueryClientProvider>

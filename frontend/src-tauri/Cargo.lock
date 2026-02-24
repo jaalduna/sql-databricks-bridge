@@ -3545,8 +3545,9 @@ dependencies = [
 
 [[package]]
 name = "sql-databricks-bridge"
-version = "0.1.0"
+version = "0.1.14"
 dependencies = [
+ "dirs",
  "serde",
  "serde_json",
  "tauri",
