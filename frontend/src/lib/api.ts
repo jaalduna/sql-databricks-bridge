@@ -10,6 +10,7 @@ import type {
   TriggerResponse,
   UserInfo,
 } from "@/types/api"
+import type { EligibilityFile, EligibilityRun, EligibilityRunCreate } from "@/types/eligibility"
 
 const BASE_URL =
   (window as any).__BRIDGE_CONFIG__?.API_URL ??
@@ -98,6 +99,75 @@ export function getDataAvailability(period: string) {
   return api
     .get<DataAvailabilityResponse>("/metadata/data-availability", { params: { period } })
     .then((r) => r.data)
+}
+
+// -- Eligibility --
+
+export function getEligibilityRuns(params?: {
+  country?: string
+  period?: number
+  status?: string
+  limit?: number
+  offset?: number
+}) {
+  return api.get<{ items: EligibilityRun[]; total: number }>("/eligibility/runs", { params }).then((r) => r.data.items)
+}
+
+export function getEligibilityRun(runId: string) {
+  return api.get<EligibilityRun>(`/eligibility/runs/${runId}`).then((r) => r.data)
+}
+
+export function createEligibilityRun(data: EligibilityRunCreate) {
+  return api.post<EligibilityRun>("/eligibility/runs", data).then((r) => r.data)
+}
+
+export function updateEligibilityRun(runId: string, data: Partial<EligibilityRun>) {
+  return api.patch<EligibilityRun>(`/eligibility/runs/${runId}`, data).then((r) => r.data)
+}
+
+export function deleteEligibilityRun(runId: string) {
+  return api.delete(`/eligibility/runs/${runId}`).then((r) => r.data)
+}
+
+export function executeEligibility(runId: string) {
+  return api.post<EligibilityRun>(`/eligibility/runs/${runId}/execute`).then((r) => r.data)
+}
+
+export function executeEligibilityStage2(runId: string) {
+  return api.post<EligibilityRun>(`/eligibility/runs/${runId}/execute-stage2`).then((r) => r.data)
+}
+
+export function getEligibilityFiles(runId: string) {
+  return api.get<EligibilityFile[]>(`/eligibility/runs/${runId}/files`).then((r) => r.data)
+}
+
+export async function downloadEligibilityFile(runId: string, fileId: string, filename: string): Promise<void> {
+  const response = await api.get(`/eligibility/runs/${runId}/files/${fileId}/download`, { responseType: 'blob' })
+  const url = window.URL.createObjectURL(new Blob([response.data]))
+  const link = document.createElement('a')
+  link.href = url
+  link.setAttribute('download', filename)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+export async function uploadEligibilityFiles(runId: string, file: File): Promise<EligibilityFile> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const { data } = await api.post<EligibilityFile>(`/eligibility/runs/${runId}/upload`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
+}
+
+export function finalizeEligibility(runId: string) {
+  return api.post<EligibilityRun>(`/eligibility/runs/${runId}/finalize`).then((r) => r.data)
+}
+
+export function cancelEligibility(runId: string) {
+  return api.post<EligibilityRun>(`/eligibility/runs/${runId}/cancel`).then((r) => r.data)
 }
 
 // -- Downloads --
