@@ -73,7 +73,7 @@ export function useCalibration(country: string, stage: string) {
     activeJobId,
     job: job.data as EventDetail | undefined,
     isPolling: job.isFetching && !!activeJobId,
-    isPending: trigger.isPending,
+    isPending: trigger.isPending || (!!activeJobId && !job.data),
     isCancelling: cancel.isPending,
     triggerError: trigger.error,
     startCalibration,
