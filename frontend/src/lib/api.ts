@@ -12,14 +12,25 @@ import type {
 } from "@/types/api"
 import type { EligibilityFile, EligibilityRun, EligibilityRunCreate } from "@/types/eligibility"
 
-const BASE_URL =
-  (window as any).__BRIDGE_CONFIG__?.API_URL ??
-  import.meta.env.VITE_BRIDGE_API_URL ??
-  "http://localhost:8000/api/v1"
+function getBaseUrl(): string {
+  return (
+    (window as any).__BRIDGE_CONFIG__?.API_URL ??
+    import.meta.env.VITE_BRIDGE_API_URL ??
+    "http://localhost:8000/api/v1"
+  )
+}
 
 export const api = axios.create({
-  baseURL: BASE_URL,
   headers: { "Content-Type": "application/json" },
+})
+
+// Resolve baseURL lazily so external config.json (loaded async in Tauri)
+// is already applied by the time the first request fires.
+api.interceptors.request.use((config) => {
+  if (!config.baseURL) {
+    config.baseURL = getBaseUrl()
+  }
+  return config
 })
 
 /** Set the MSAL token provider as a request interceptor. */
