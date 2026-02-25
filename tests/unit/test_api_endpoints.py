@@ -805,42 +805,48 @@ class TestEventDetailEndpoint:
 class TestDownloadEndpoint:
     """GET /api/v1/events/{job_id}/download"""
 
-    def test_download_completed_job_returns_200(self, admin_client):
+    _FAKE_TABLE = "`main`.`bolivia`.`j_atoscompra_new`"
+    _FAKE_ROWS = [{"id": 1, "periodo": "202601", "value": 42.5}]
+
+    def _setup_completed_job(self, job_id, country="bolivia", rows_extracted=50):
+        """Create a completed job record with a table_name and mock Databricks data."""
         results = [
-            QueryResult(query_name="q1", status=JobStatus.COMPLETED, rows_extracted=50, duration_seconds=1.0),
+            QueryResult(
+                query_name="q1",
+                status=JobStatus.COMPLETED,
+                rows_extracted=rows_extracted,
+                table_name=self._FAKE_TABLE,
+                duration_seconds=1.0,
+            ),
         ]
-        _trigger_jobs["dl-1"] = _make_job_record(
-            "dl-1", "bolivia",
+        _trigger_jobs[job_id] = _make_job_record(
+            job_id, country,
             status=JobStatus.COMPLETED,
             results=results,
         )
-        # Need calibration steps for download (it checks steps too)
         from sql_databricks_bridge.core.calibration_tracker import calibration_tracker
-        calibration_tracker.create("dl-1", country="bolivia")
-        calibration_tracker.start_step("dl-1", "sync_data")
-        calibration_tracker.complete_step("dl-1", "sync_data")
+        calibration_tracker.create(job_id, country=country)
+        calibration_tracker.start_step(job_id, "sync_data")
+        calibration_tracker.complete_step(job_id, "sync_data")
 
+    def _cleanup(self, job_id):
+        from sql_databricks_bridge.core.calibration_tracker import calibration_tracker
+        calibration_tracker.delete(job_id)
+
+    def test_download_completed_job_returns_200(self, admin_client):
+        self._setup_completed_job("dl-1")
+        # Mock Databricks to return actual rows
+        admin_client.app.state.databricks_client.execute_sql.return_value = self._FAKE_ROWS
         response = admin_client.get("/api/v1/events/dl-1/download")
         assert response.status_code == 200
-        calibration_tracker.delete("dl-1")
+        self._cleanup("dl-1")
 
     def test_download_returns_csv_content_type(self, admin_client):
-        results = [
-            QueryResult(query_name="q1", status=JobStatus.COMPLETED, rows_extracted=50, duration_seconds=1.0),
-        ]
-        _trigger_jobs["dl-2"] = _make_job_record(
-            "dl-2", "bolivia",
-            status=JobStatus.COMPLETED,
-            results=results,
-        )
-        from sql_databricks_bridge.core.calibration_tracker import calibration_tracker
-        calibration_tracker.create("dl-2", country="bolivia")
-        calibration_tracker.start_step("dl-2", "sync_data")
-        calibration_tracker.complete_step("dl-2", "sync_data")
-
+        self._setup_completed_job("dl-2")
+        admin_client.app.state.databricks_client.execute_sql.return_value = self._FAKE_ROWS
         response = admin_client.get("/api/v1/events/dl-2/download")
         assert "text/csv" in response.headers.get("content-type", "")
-        calibration_tracker.delete("dl-2")
+        self._cleanup("dl-2")
 
     def test_download_not_found(self, admin_client):
         response = admin_client.get("/api/v1/events/nonexistent/download")
@@ -856,45 +862,65 @@ class TestDownloadEndpoint:
         response = admin_client.get("/api/v1/events/dl-4/download")
         assert response.status_code == 409
 
-    def test_download_csv_contains_job_metadata(self, admin_client):
-        results = [
-            QueryResult(query_name="q1", status=JobStatus.COMPLETED, rows_extracted=100, duration_seconds=2.0),
+    def test_download_csv_contains_real_data(self, admin_client):
+        """CSV body contains actual table data (column headers + rows)."""
+        self._setup_completed_job("dl-5", country="chile", rows_extracted=100)
+        admin_client.app.state.databricks_client.execute_sql.return_value = [
+            {"id": 1, "periodo": "202601", "value": 99.9},
+            {"id": 2, "periodo": "202602", "value": 50.0},
         ]
-        _trigger_jobs["dl-5"] = _make_job_record(
-            "dl-5", "chile",
-            status=JobStatus.COMPLETED,
-            results=results,
-        )
-        from sql_databricks_bridge.core.calibration_tracker import calibration_tracker
-        calibration_tracker.create("dl-5", country="chile")
-        calibration_tracker.start_step("dl-5", "sync_data")
-        calibration_tracker.complete_step("dl-5", "sync_data")
-
         response = admin_client.get("/api/v1/events/dl-5/download")
         content = response.text
-        assert "dl-5" in content
-        assert "chile" in content
-        calibration_tracker.delete("dl-5")
+        assert "id,periodo,value" in content
+        assert "202601" in content
+        assert "99.9" in content
+        self._cleanup("dl-5")
 
     def test_download_filename_header(self, admin_client):
-        results = [
-            QueryResult(query_name="q1", status=JobStatus.COMPLETED, rows_extracted=10, duration_seconds=0.5),
-        ]
-        _trigger_jobs["dl-6"] = _make_job_record(
-            "dl-6", "bolivia",
-            status=JobStatus.COMPLETED,
-            results=results,
-        )
-        from sql_databricks_bridge.core.calibration_tracker import calibration_tracker
-        calibration_tracker.create("dl-6", country="bolivia")
-        calibration_tracker.start_step("dl-6", "sync_data")
-        calibration_tracker.complete_step("dl-6", "sync_data")
-
+        self._setup_completed_job("dl-6")
+        admin_client.app.state.databricks_client.execute_sql.return_value = self._FAKE_ROWS
         response = admin_client.get("/api/v1/events/dl-6/download")
         disposition = response.headers.get("content-disposition", "")
         assert "attachment" in disposition
         assert ".csv" in disposition
-        calibration_tracker.delete("dl-6")
+        assert "j_atoscompra_new" in disposition
+        self._cleanup("dl-6")
+
+    def test_download_no_tables_returns_404(self, admin_client):
+        """Job completed but no result tables available."""
+        results = [
+            QueryResult(
+                query_name="q1",
+                status=JobStatus.COMPLETED,
+                rows_extracted=0,
+                duration_seconds=1.0,
+            ),
+        ]
+        _trigger_jobs["dl-7"] = _make_job_record(
+            "dl-7", "bolivia",
+            status=JobStatus.COMPLETED,
+            results=results,
+        )
+        from sql_databricks_bridge.core.calibration_tracker import calibration_tracker
+        calibration_tracker.create("dl-7", country="bolivia")
+        calibration_tracker.start_step("dl-7", "sync_data")
+        calibration_tracker.complete_step("dl-7", "sync_data")
+
+        response = admin_client.get("/api/v1/events/dl-7/download")
+        assert response.status_code == 404
+        assert response.json()["detail"]["error"] == "no_tables"
+        calibration_tracker.delete("dl-7")
+
+    def test_download_specific_table(self, admin_client):
+        """Can request a specific table via ?table= query param."""
+        self._setup_completed_job("dl-8")
+        admin_client.app.state.databricks_client.execute_sql.return_value = self._FAKE_ROWS
+        response = admin_client.get(
+            "/api/v1/events/dl-8/download",
+            params={"table": self._FAKE_TABLE},
+        )
+        assert response.status_code == 200
+        self._cleanup("dl-8")
 
 
 # ===========================================================================

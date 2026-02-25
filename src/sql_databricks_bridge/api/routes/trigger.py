@@ -349,17 +349,27 @@ def _build_event_summary(row: dict, results: list[QueryResult]) -> EventSummary:
 
 
 def _launch_calibration_step(
-    job_id: str, step_name: str, country: str, period: str | None = None,
+    job_id: str,
+    step_name: str,
+    country: str,
+    period: str | None = None,
+    aggregations: dict[str, bool] | None = None,
 ) -> None:
     """Launch a Databricks job for a calibration step if a launcher is available."""
     if _calibration_launcher is None:
         logger.debug("No calibration launcher configured; skipping launch for %s/%s", job_id, step_name)
         return
-    extra_params: dict[str, str] | None = None
+    extra_params: dict[str, str] = {}
     if period:
-        extra_params = {"final_period": period}
+        extra_params["final_period"] = period
+    if aggregations:
+        for key, value in aggregations.items():
+            if value:
+                extra_params[key] = "true"
     try:
-        _calibration_launcher.launch_step(job_id, step_name, country, extra_params=extra_params)
+        _calibration_launcher.launch_step(
+            job_id, step_name, country, extra_params=extra_params or None,
+        )
     except Exception as exc:
         logger.error("Failed to launch step %s for job %s: %s", step_name, job_id, exc)
 
@@ -945,7 +955,12 @@ def _run_trigger_extraction(
             # Launch the Databricks job for copy_to_calibration
             if next_step:
                 period = record.period if record else None
-                _launch_calibration_step(job.job_id, next_step, job.country, period=period)
+                cal_info = calibration_tracker.get(job.job_id)
+                aggregations = cal_info.aggregations if cal_info else None
+                _launch_calibration_step(
+                    job.job_id, next_step, job.country,
+                    period=period, aggregations=aggregations,
+                )
 
     except Exception as e:
         job.current_query = None
@@ -1101,7 +1116,10 @@ async def trigger_extraction(
                 logger.warning(f"Failed to insert skip_sync job into SQLite: {sqlite_err}")
 
         # Create calibration tracking - immediately complete sync_data
-        calibration_tracker.create(job_id, country=request.country, period=request.period)
+        agg_dict = request.aggregations.model_dump() if request.aggregations else None
+        calibration_tracker.create(
+            job_id, country=request.country, period=request.period, aggregations=agg_dict,
+        )
         calibration_tracker.start_step(job_id, "sync_data")
         calibration_tracker.complete_step(job_id, "sync_data")
 
@@ -1119,7 +1137,10 @@ async def trigger_extraction(
         if db_path:
             _persist_steps(job_id, db_path)
         if next_step:
-            _launch_calibration_step(job_id, next_step, request.country, period=request.period)
+            _launch_calibration_step(
+                job_id, next_step, request.country,
+                period=request.period, aggregations=agg_dict,
+            )
 
         logger.info("SKIP_SYNC: job %s created, skipped sync%s, advancing to %s",
                      job_id, "+copy" if request.skip_copy else "", next_step)
@@ -1212,7 +1233,10 @@ async def trigger_extraction(
             logger.warning(f"Failed to insert job into SQLite: {sqlite_err}")
 
     # Create calibration step tracking
-    calibration_tracker.create(job.job_id, country=request.country, period=request.period)
+    agg_dict = request.aggregations.model_dump() if request.aggregations else None
+    calibration_tracker.create(
+        job.job_id, country=request.country, period=request.period, aggregations=agg_dict,
+    )
     calibration_tracker.start_step(job.job_id, "sync_data")
     # Persist initial step state to SQLite
     if db_path:
@@ -1807,11 +1831,30 @@ async def cancel_event(
 # --- Download CSV ---
 
 
+def _collect_table_names(detail: EventDetail) -> list[str]:
+    """Extract unique, non-empty table names from completed query results."""
+    tables: list[str] = []
+    seen: set[str] = set()
+    for r in detail.results:
+        if isinstance(r, QueryResult):
+            r_status = r.status.value if hasattr(r.status, "value") else str(r.status)
+            tbl = r.table_name
+        elif isinstance(r, dict):
+            r_status = r.get("status", "")
+            tbl = r.get("table_name")
+        else:
+            continue
+        if tbl and r_status == "completed" and tbl not in seen:
+            tables.append(tbl)
+            seen.add(tbl)
+    return tables
+
+
 @router.get(
     "/events/{job_id}/download",
     summary="Download job results as CSV",
     responses={
-        200: {"content": {"text/csv": {}}, "description": "CSV file"},
+        200: {"content": {"text/csv": {}}, "description": "CSV file with extracted data"},
         404: {"description": "Job not found"},
         409: {"description": "Job not yet completed"},
     },
@@ -1820,14 +1863,21 @@ async def download_event_csv(
     job_id: str,
     user: CurrentAzureADUser,
     raw_request: Request,
+    table: str | None = Query(
+        default=None,
+        description="Specific table to download. If omitted, downloads the largest result table.",
+    ),
 ) -> StreamingResponse:
-    """Generate and return a CSV report for a completed calibration job."""
-    # Reuse get_event_detail to gather all data
+    """Download actual extracted data from Databricks as CSV.
+
+    Reads the Delta table written during the calibration job and streams
+    its contents as a CSV file.  When *table* is not specified, the result
+    table with the most rows extracted is selected automatically.
+    """
     detail = await get_event_detail(job_id, user, raw_request)
 
     job_status = detail.status if isinstance(detail.status, str) else detail.status.value
 
-    # Also allow download when all steps are completed (overall status may lag)
     all_steps_done = all(
         (s.status if isinstance(s.status, str) else s.status.value) in ("completed", "failed")
         for s in detail.steps
@@ -1842,66 +1892,91 @@ async def download_event_csv(
             },
         )
 
-    output = io.StringIO()
-    writer = csv.writer(output)
+    # Determine which Delta table to read
+    available_tables = _collect_table_names(detail)
 
-    # Section 1: Job metadata
-    writer.writerow(["# Calibration Job Report"])
-    writer.writerow(["job_id", job_id])
-    writer.writerow(["country", detail.country])
-    writer.writerow(["stage", detail.stage])
-    writer.writerow(["period", detail.period or ""])
-    writer.writerow(["tag", detail.tag])
-    writer.writerow(["status", job_status])
-    writer.writerow(["triggered_by", detail.triggered_by])
-    writer.writerow(["started_at", str(detail.started_at) if detail.started_at else ""])
-    writer.writerow(["completed_at", str(detail.completed_at) if detail.completed_at else ""])
-    writer.writerow(["error", detail.error or ""])
-    writer.writerow([])
+    if table:
+        # Caller requested a specific table — validate it exists in results
+        if table not in available_tables:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": "table_not_found",
+                    "message": (
+                        f"Table '{table}' not found in job results. "
+                        f"Available: {available_tables}"
+                    ),
+                },
+            )
+        target_table = table
+    elif available_tables:
+        # Pick the table with the most rows extracted
+        best: tuple[str, int] = (available_tables[0], 0)
+        for r in detail.results:
+            if isinstance(r, QueryResult):
+                tbl, rows = r.table_name, r.rows_extracted
+            elif isinstance(r, dict):
+                tbl, rows = r.get("table_name"), r.get("rows_extracted", 0)
+            else:
+                continue
+            if tbl and tbl in available_tables and (rows or 0) > best[1]:
+                best = (tbl, rows or 0)
+        target_table = best[0]
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "no_tables",
+                "message": "No completed result tables available for this job.",
+            },
+        )
 
-    # Section 2: Pipeline steps
-    writer.writerow(["# Pipeline Steps"])
-    writer.writerow(["step_name", "status", "started_at", "completed_at", "duration_seconds", "error"])
-    for s in detail.steps:
-        s_status = s.status if isinstance(s.status, str) else s.status.value
-        s_start = str(s.started_at) if s.started_at else ""
-        s_end = str(s.completed_at) if s.completed_at else ""
-        duration = ""
-        if s.started_at and s.completed_at:
-            try:
-                duration = str(round((s.completed_at - s.started_at).total_seconds(), 2))
-            except Exception:
-                pass
-        writer.writerow([s.name, s_status, s_start, s_end, duration, s.error or ""])
-    writer.writerow([])
+    # Query the Delta table from Databricks
+    db_client = _get_databricks_client(raw_request)
+    try:
+        rows = db_client.execute_sql(f"SELECT * FROM {target_table}")
+    except Exception as exc:
+        logger.error("Failed to read table %s for job %s: %s", target_table, job_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": "databricks_read_failed",
+                "message": f"Could not read table {target_table}: {exc}",
+            },
+        ) from exc
 
-    # Section 3: Query results
-    writer.writerow(["# Query Results"])
-    writer.writerow(["query_name", "status", "rows_extracted", "table_name", "duration_seconds", "error"])
-    for r in detail.results:
-        if isinstance(r, QueryResult):
-            r_status = r.status.value if hasattr(r.status, "value") else str(r.status)
-            writer.writerow([
-                r.query_name, r_status, r.rows_extracted,
-                r.table_name or "", round(r.duration_seconds, 2),
-                r.error or "",
-            ])
-        elif isinstance(r, dict):
-            writer.writerow([
-                r.get("query_name", ""), r.get("status", ""),
-                r.get("rows_extracted", 0), r.get("table_name", ""),
-                round(r.get("duration_seconds", 0), 2), r.get("error", ""),
-            ])
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "empty_table",
+                "message": f"Table {target_table} returned no rows.",
+            },
+        )
 
-    csv_content = output.getvalue()
-    output.close()
+    columns = list(rows[0].keys())
+
+    def _generate_csv():
+        buf = io.StringIO()
+        w = csv.DictWriter(buf, fieldnames=columns)
+        w.writeheader()
+        yield buf.getvalue()
+        buf.seek(0)
+        buf.truncate(0)
+        for row in rows:
+            w.writerow(row)
+            yield buf.getvalue()
+            buf.seek(0)
+            buf.truncate(0)
 
     country = detail.country
     period = detail.period or "no-period"
-    filename = f"calibration_{country}_{period}_{job_id[:8]}.csv"
+    # Use only the table leaf name (last segment after the last dot)
+    table_short = target_table.rsplit(".", 1)[-1].strip("`")
+    filename = f"{table_short}_{country}_{period}_{job_id[:8]}.csv"
 
     return StreamingResponse(
-        iter([csv_content]),
+        _generate_csv(),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
