@@ -3,6 +3,7 @@ import { PeriodSelector } from "@/components/PeriodSelector"
 import { EligibilityCountryCard } from "@/components/EligibilityCountryCard"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCountries } from "@/hooks/useCountries"
+import { useLastElegibilidad } from "@/hooks/useLastElegibilidad"
 
 function currentPeriod(): string {
   const now = new Date()
@@ -15,6 +16,7 @@ function currentPeriod(): string {
 export function ElegibilidadPage() {
   const [period, setPeriod] = useState(currentPeriod)
   const { data, isLoading, error } = useCountries()
+  const { data: lastElegibilidad } = useLastElegibilidad()
 
   return (
     <div className="space-y-6">
@@ -51,6 +53,7 @@ export function ElegibilidadPage() {
               key={c.code}
               countryCode={c.code}
               period={period}
+              lastFinalizedDate={lastElegibilidad?.[c.code]?.completed_at ?? null}
             />
           ))}
         </div>

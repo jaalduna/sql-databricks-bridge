@@ -249,6 +249,28 @@ def get_last_completed_per_country(db_path: str) -> list[dict[str, Any]]:
         conn.close()
 
 
+def get_last_completed_per_country_by_stage(
+    db_path: str, stage: str,
+) -> list[dict[str, Any]]:
+    """Return the most recent completed job for each country filtered by stage."""
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT country, job_id, stage, completed_at
+            FROM trigger_jobs
+            WHERE status = 'completed' AND completed_at IS NOT NULL AND stage = ?
+            GROUP BY country
+            HAVING completed_at = MAX(completed_at)
+            ORDER BY country
+            """,
+            (stage,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
 def mark_orphaned_jobs(db_path: str) -> int:
     """Mark pending/running jobs as failed on startup (crash recovery). Returns count."""
     conn = _connect(db_path)
