@@ -22,6 +22,17 @@ import { CalibrationDetailModal } from "./CalibrationDetailModal"
 import { useCalibration } from "@/hooks/useCalibration"
 import type { CountryInfo, DataAvailability, CalibrationConfig } from "@/types/api"
 
+function formatRelativeTime(isoDate: string): string {
+  const diff = Date.now() - new Date(isoDate).getTime()
+  const minutes = Math.floor(diff / 60000)
+  if (minutes < 1) return "just now"
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
+}
+
 const COUNTRY_LABELS: Record<string, string> = {
   argentina: "Argentina",
   bolivia: "Bolivia",
@@ -40,9 +51,10 @@ interface CountryCardProps {
   period: string
   availability: DataAvailability
   calibrationConfig: CalibrationConfig
+  lastSyncDate: string | null
 }
 
-export function CountryCard({ country, period, availability, calibrationConfig }: CountryCardProps) {
+export function CountryCard({ country, period, availability, calibrationConfig, lastSyncDate }: CountryCardProps) {
   const [showDetail, setShowDetail] = useState(false)
   const [skipSync, setSkipSync] = useState(false)
   const [skipCopy, setSkipCopy] = useState(false)
@@ -65,7 +77,9 @@ export function CountryCard({ country, period, availability, calibrationConfig }
               {countryLabel}
             </CardTitle>
             <Badge variant="outline" className="text-xs">
-              {country.queries_count} queries
+              {lastSyncDate
+                ? `${lastSyncDate.replace("T", " ").slice(0, 16)} (${formatRelativeTime(lastSyncDate)})`
+                : "Never synced"}
             </Badge>
           </div>
         </CardHeader>
@@ -118,8 +132,7 @@ export function CountryCard({ country, period, availability, calibrationConfig }
                       <p>
                         Start calibration for{" "}
                         <strong>{countryLabel}</strong> period{" "}
-                        <strong>{period}</strong>? This will trigger{" "}
-                        {country.queries_count} queries.
+                        <strong>{period}</strong>?
                       </p>
                       {(calibrationConfig.aggregations.region || calibrationConfig.aggregations.nivel_2) && (
                         <p className="mt-2">
@@ -173,8 +186,12 @@ export function CountryCard({ country, period, availability, calibrationConfig }
                       lookback_months: calibrationConfig.lookback_months,
                       skip_sync: skipSync,
                       skip_copy: skipCopy,
+                    }).then(() => {
+                      toast.success(`Calibration started for ${countryLabel}`);
+                    }).catch((err: unknown) => {
+                      const message = (err as { message?: string })?.message ?? "Unknown error";
+                      toast.error(`Failed to start calibration for ${countryLabel}: ${message}`);
                     });
-                    toast.success(`Calibration started for ${countryLabel}`);
                   }}>
                     Confirm
                   </AlertDialogAction>
