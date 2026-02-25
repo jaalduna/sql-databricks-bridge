@@ -50,11 +50,12 @@ interface CountryCardProps {
   country: CountryInfo
   period: string
   availability: DataAvailability
+  availabilityLoading: boolean
   calibrationConfig: CalibrationConfig
   lastSyncDate: string | null
 }
 
-export function CountryCard({ country, period, availability, calibrationConfig, lastSyncDate }: CountryCardProps) {
+export function CountryCard({ country, period, availability, availabilityLoading, calibrationConfig, lastSyncDate }: CountryCardProps) {
   const [showDetail, setShowDetail] = useState(false)
   const [skipSync, setSkipSync] = useState(false)
   const [skipCopy, setSkipCopy] = useState(false)
@@ -86,8 +87,8 @@ export function CountryCard({ country, period, availability, calibrationConfig, 
         <CardContent className="space-y-3">
           {/* Data availability */}
           <div className="flex gap-4">
-            <DataAvailabilityBadge label="Elegibilidad" available={availability.elegibilidad} />
-            <DataAvailabilityBadge label="Pesaje" available={availability.pesaje} />
+            <DataAvailabilityBadge label="Elegibilidad" available={availability.elegibilidad} loading={availabilityLoading} />
+            <DataAvailabilityBadge label="Pesaje" available={availability.pesaje} loading={availabilityLoading} />
           </div>
 
           {/* Progress bar with step indicators */}

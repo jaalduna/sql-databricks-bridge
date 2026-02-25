@@ -24,7 +24,7 @@ export function CalibrationPage() {
   const [period, setPeriod] = useState(currentPeriod)
   const [calibrationConfig, setCalibrationConfig] = useState<CalibrationConfig>(DEFAULT_CALIBRATION_CONFIG)
   const { data, isLoading, error } = useCountries()
-  const { data: availability } = useDataAvailability(period)
+  const { data: availability, isLoading: availabilityLoading } = useDataAvailability(period)
   const { data: lastSync } = useLastSync()
 
   return (
@@ -66,6 +66,7 @@ export function CalibrationPage() {
               country={c}
               period={period}
               availability={availability?.[c.code] ?? NO_DATA}
+              availabilityLoading={availabilityLoading}
               calibrationConfig={calibrationConfig}
               lastSyncDate={lastSync?.[c.code]?.completed_at ?? null}
             />
