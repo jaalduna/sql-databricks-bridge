@@ -50,7 +50,7 @@ const COUNTRY_LABELS: Record<string, string> = {
   bolivia: "Bolivia",
   brasil: "Brasil",
   brazil: "Brasil",
-  cam: "Centroamerica",
+  cam: "CAM",
   chile: "Chile",
   colombia: "Colombia",
   ecuador: "Ecuador",
