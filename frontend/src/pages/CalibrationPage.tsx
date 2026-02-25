@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useCountries } from "@/hooks/useCountries"
 import { useDataAvailability } from "@/hooks/useDataAvailability"
 import { useLastSync } from "@/hooks/useLastSync"
+import { useLastCalibration } from "@/hooks/useLastCalibration"
 import type { DataAvailability, CalibrationConfig } from "@/types/api"
 import { DEFAULT_CALIBRATION_CONFIG } from "@/types/api"
 
@@ -26,6 +27,7 @@ export function CalibrationPage() {
   const { data, isLoading, error } = useCountries()
   const { data: availability, isLoading: availabilityLoading } = useDataAvailability(period)
   const { data: lastSync } = useLastSync()
+  const { data: lastCalibration } = useLastCalibration()
 
   return (
     <div className="space-y-6">
@@ -45,7 +47,7 @@ export function CalibrationPage() {
 
       {/* Country grid */}
       {isLoading && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-48 rounded-xl" />
           ))}
@@ -59,7 +61,7 @@ export function CalibrationPage() {
       )}
 
       {data && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {data.countries.filter((c) => c.type === "country").map((c) => (
             <CountryCard
               key={c.code}
@@ -69,6 +71,7 @@ export function CalibrationPage() {
               availabilityLoading={availabilityLoading}
               calibrationConfig={calibrationConfig}
               lastSyncDate={lastSync?.[c.code]?.completed_at ?? null}
+              lastCalibrationDate={lastCalibration?.[c.code]?.completed_at ?? null}
             />
           ))}
         </div>

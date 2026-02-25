@@ -177,6 +177,18 @@ export interface LastSyncResponse {
   countries: Record<string, LastSyncEntry>
 }
 
+/** Last elegibilidad entry for a country from GET /metadata/last-elegibilidad */
+export interface LastElegibilidadEntry {
+  country: string
+  completed_at: string
+  run_id: string
+  period: number
+}
+
+export interface LastElegibilidadResponse {
+  countries: Record<string, LastElegibilidadEntry>
+}
+
 /** Country metadata from GET /metadata/countries */
 export interface CountryInfo {
   code: string

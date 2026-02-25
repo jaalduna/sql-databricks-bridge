@@ -14,6 +14,17 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { CheckCircle2, Eye, Loader2, Square } from "lucide-react"
+
+function formatRelativeTime(isoDate: string): string {
+  const diff = Date.now() - new Date(isoDate).getTime()
+  const minutes = Math.floor(diff / 60000)
+  if (minutes < 1) return "just now"
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
+}
 import { toast } from "sonner"
 import { useEligibilityRuns, useCreateEligibilityRun, useExecuteEligibility, useCancelEligibility } from "@/hooks/useEligibility"
 import { EligibilityProgress } from "@/components/EligibilityProgress"
@@ -38,7 +49,7 @@ const COUNTRY_LABELS: Record<string, string> = {
   bolivia: "Bolivia",
   brasil: "Brasil",
   brazil: "Brasil",
-  cam: "Centroamerica",
+  cam: "CAM",
   chile: "Chile",
   colombia: "Colombia",
   ecuador: "Ecuador",
@@ -49,13 +60,14 @@ const COUNTRY_LABELS: Record<string, string> = {
 interface EligibilityCountryCardProps {
   countryCode: string
   period: string
+  lastFinalizedDate: string | null
 }
 
 function periodStringToNumber(period: string): number {
   return parseInt(period, 10)
 }
 
-export function EligibilityCountryCard({ countryCode, period }: EligibilityCountryCardProps) {
+export function EligibilityCountryCard({ countryCode, period, lastFinalizedDate }: EligibilityCountryCardProps) {
   const [modalOpen, setModalOpen] = useState(false)
 
   const { data: runs, isLoading } = useEligibilityRuns(countryCode, periodStringToNumber(period))
@@ -107,8 +119,10 @@ export function EligibilityCountryCard({ countryCode, period }: EligibilityCount
               {flag && <span className="mr-1.5">{flag}</span>}
               {countryLabel}
             </CardTitle>
-            <Badge variant="outline" className="text-xs font-mono">
-              {countryCode.toUpperCase()}
+            <Badge variant="outline" className="text-xs" title={lastFinalizedDate ? `Last: ${lastFinalizedDate.replace("T", " ").slice(0, 16)}` : undefined}>
+              {lastFinalizedDate
+                ? formatRelativeTime(lastFinalizedDate)
+                : "never"}
             </Badge>
           </div>
         </CardHeader>
