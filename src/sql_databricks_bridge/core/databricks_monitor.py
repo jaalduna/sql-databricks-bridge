@@ -421,7 +421,10 @@ class DatabricksJobMonitor:
             info = calibration_tracker.get(job_id)
             country = info.country if info else ""
             if country:
-                self._launcher.launch_step(job_id, next_step, country)
+                extra_params: dict[str, str] | None = None
+                if info and info.period:
+                    extra_params = {"final_period": info.period}
+                self._launcher.launch_step(job_id, next_step, country, extra_params=extra_params)
 
         # Persist step changes after launch
         self._persist_steps_to_sqlite(job_id)

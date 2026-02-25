@@ -5,6 +5,7 @@ import type {
   DataAvailabilityResponse,
   EventDetail,
   EventListResponse,
+  LastSyncResponse,
   StagesResponse,
   TriggerRequest,
   TriggerResponse,
@@ -110,6 +111,10 @@ export function getDataAvailability(period: string) {
   return api
     .get<DataAvailabilityResponse>("/metadata/data-availability", { params: { period } })
     .then((r) => r.data)
+}
+
+export function getLastSync() {
+  return api.get<LastSyncResponse>("/metadata/last-sync").then((r) => r.data)
 }
 
 // -- Eligibility --

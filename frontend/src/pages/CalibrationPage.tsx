@@ -5,6 +5,7 @@ import { CountryCard } from "@/components/CountryCard"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCountries } from "@/hooks/useCountries"
 import { useDataAvailability } from "@/hooks/useDataAvailability"
+import { useLastSync } from "@/hooks/useLastSync"
 import type { DataAvailability, CalibrationConfig } from "@/types/api"
 import { DEFAULT_CALIBRATION_CONFIG } from "@/types/api"
 
@@ -24,6 +25,7 @@ export function CalibrationPage() {
   const [calibrationConfig, setCalibrationConfig] = useState<CalibrationConfig>(DEFAULT_CALIBRATION_CONFIG)
   const { data, isLoading, error } = useCountries()
   const { data: availability } = useDataAvailability(period)
+  const { data: lastSync } = useLastSync()
 
   return (
     <div className="space-y-6">
@@ -65,6 +67,7 @@ export function CalibrationPage() {
               period={period}
               availability={availability?.[c.code] ?? NO_DATA}
               calibrationConfig={calibrationConfig}
+              lastSyncDate={lastSync?.[c.code]?.completed_at ?? null}
             />
           ))}
         </div>

@@ -31,11 +31,14 @@ class CalibrationTracker:
 
     # --- Create / Get / Delete ---
 
-    def create(self, job_id: str, country: str = "") -> CalibrationJobInfo:
+    def create(
+        self, job_id: str, country: str = "", period: str | None = None,
+    ) -> CalibrationJobInfo:
         """Create calibration step tracking for a trigger job."""
         info = CalibrationJobInfo(
             job_id=job_id,
             country=country,
+            period=period,
             steps=build_calibration_steps(),
         )
         self._jobs[job_id] = info
