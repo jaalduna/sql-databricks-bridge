@@ -10,11 +10,11 @@ export function DataAvailabilityBadge({ label, available, loading }: DataAvailab
   return (
     <div className="flex items-center gap-1.5 text-sm">
       {loading ? (
-        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       ) : available ? (
-        <CheckCircle2 className="h-4 w-4 text-green-600" />
+        <CheckCircle2 className="h-5 w-5 text-green-600" />
       ) : (
-        <XCircle className="h-4 w-4 text-red-500" />
+        <XCircle className="h-5 w-5 text-red-500" />
       )}
       <span className={available ? "text-foreground" : "text-muted-foreground"}>
         {label}
