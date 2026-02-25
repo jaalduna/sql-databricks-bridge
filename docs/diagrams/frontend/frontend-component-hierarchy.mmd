@@ -1,8 +1,11 @@
 flowchart TD
     App["App"]
+    Auth["AuthProvider<br/><i>MsalAuthProvider | DevAuthProvider</i>"]
     QCP["QueryClientProvider<br/><i>React Query</i>"]
     BR["BrowserRouter"]
-    AL["AppLayout<br/><i>NavBar + Outlet</i>"]
+    PR["ProtectedRoute"]
+    AL["AuthenticatedLayout<br/><i>NavBar + Outlet</i>"]
+    ATB["ApiTokenBinder<br/><i>Axios interceptor</i>"]
 
     LP["LoginPage"]
     DP["DashboardPage"]
@@ -30,11 +33,14 @@ flowchart TD
     EDP_DT["DataTable<br/><i>Query Results</i>"]
     EDP_QD["QueryDetailDialog"]
 
-    App --> QCP
+    App --> Auth
+    Auth --> ATB
+    Auth --> QCP
     QCP --> BR
 
     BR -->|"/"| LP
-    BR --> AL
+    BR --> PR
+    PR --> AL
 
     AL -->|"/dashboard"| DP
     AL -->|"/history"| HP
@@ -66,7 +72,7 @@ flowchart TD
     classDef page fill:#e6f4ea,stroke:#34a853,stroke-width:2px,color:#137333
     classDef component fill:#fef7e0,stroke:#f9ab00,stroke-width:1px,color:#b06000
 
-    class App,QCP,BR provider
-    class AL layout
+    class App,Auth,QCP,BR provider
+    class PR,AL,ATB layout
     class LP,DP,HP,CP,EDP page
     class DP_CS,DP_SS,DP_DT,DP_AD,HP_FLT,HP_DT,CP_PS,CP_CFG,CP_CC,CC_DAB,CC_CP,CC_CDM,EDP_SC,EDP_DT,EDP_QD component

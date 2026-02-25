@@ -1,0 +1,704 @@
+[
+  {
+    "query": "a_canal",
+    "status": "OK",
+    "columns": 15,
+    "has_row": true,
+    "duration_s": 0.13,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "a_conteudoproduto",
+    "status": "OK",
+    "columns": 17,
+    "has_row": true,
+    "duration_s": 0.16,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "a_flgscanner",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.14,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "a_marcaproduto",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.29,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "a_painelproduto",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.39,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "a_produto",
+    "status": "OK",
+    "columns": 20,
+    "has_row": true,
+    "duration_s": 0.07,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "a_sector",
+    "status": "OK",
+    "columns": 7,
+    "has_row": true,
+    "duration_s": 0.1,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "cidade",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.1,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "cm_region_estrato",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.07,
+    "error": "(pyodbc.ProgrammingError) ('42S02', \"[42S02] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid object name 'cm_region_estrato'. (208) (SQLExecDirectW)\")",
+    "country": "argentina"
+  },
+  {
+    "query": "domicilio_posse_bens",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.8,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "domicilios",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.11,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "dt_mes",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.12,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "dt_mescalendar",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.02,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "entrevistador",
+    "status": "OK",
+    "columns": 33,
+    "has_row": true,
+    "duration_s": 0.08,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "hato_cabecalho",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.05,
+    "error": "(pyodbc.ProgrammingError) ('42S22', \"[42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'acceso_canal'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'flg_scanner'. (207); [42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'forma_compra'. (207); [42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'numpack'. (207); [42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'unipack'. (207)\")",
+    "country": "argentina"
+  },
+  {
+    "query": "hato_ruim_cabecalho",
+    "status": "OK",
+    "columns": 48,
+    "has_row": true,
+    "duration_s": 0.18,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "htipo_ato",
+    "status": "OK",
+    "columns": 3,
+    "has_row": true,
+    "duration_s": 0.12,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "individuo",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.16,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "itf_bases",
+    "status": "OK",
+    "columns": 24,
+    "has_row": true,
+    "duration_s": 1.24,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "j_atoscompra_new",
+    "status": "OK",
+    "columns": 30,
+    "has_row": true,
+    "duration_s": 0.07,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "j_vista_artigos",
+    "status": "OK",
+    "columns": 21,
+    "has_row": true,
+    "duration_s": 1.53,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "mordom",
+    "status": "OK",
+    "columns": 5,
+    "has_row": true,
+    "duration_s": 0.15,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "nac_ato",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.06,
+    "error": "(pyodbc.OperationalError) ('08004', '[08004] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]The server principal \"KT\\\\70088287\" is not able to access the database \"CO_SINC\" under the current security context. (916) (SQLExecDirectW)')",
+    "country": "argentina"
+  },
+  {
+    "query": "origen",
+    "status": "OK",
+    "columns": 2,
+    "has_row": true,
+    "duration_s": 0.14,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "paineis",
+    "status": "OK",
+    "columns": 9,
+    "has_row": true,
+    "duration_s": 0.06,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "paineis_domicilios",
+    "status": "OK",
+    "columns": 4,
+    "has_row": true,
+    "duration_s": 0.06,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "paineis_individuos",
+    "status": "OK",
+    "columns": 8,
+    "has_row": true,
+    "duration_s": 0.09,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "pais",
+    "status": "OK",
+    "columns": 6,
+    "has_row": true,
+    "duration_s": 0.06,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "pre_mordom",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.02,
+    "error": "(pyodbc.ProgrammingError) ('42S22', \"[42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'origen_dom'. (207) (SQLExecDirectW)\")",
+    "country": "argentina"
+  },
+  {
+    "query": "rg_domicilios_pesos",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.05,
+    "error": "(pyodbc.ProgrammingError) ('42S22', \"[42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'seqdom'. (207) (SQLExecDirectW)\")",
+    "country": "argentina"
+  },
+  {
+    "query": "rg_panelis",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0.08,
+    "error": "(pyodbc.ProgrammingError) ('42S22', \"[42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'ciudad'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'edpsh'. (207); [42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'ime'. (207); [42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'ni'. (207); [42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'nse_loc'. (207); [42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'origen_dom'. (207); [42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'seqdom'. (207)\")",
+    "country": "argentina"
+  },
+  {
+    "query": "vw_artigoz",
+    "status": "OK",
+    "columns": 69,
+    "has_row": true,
+    "duration_s": 10.93,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "query": "vw_venues",
+    "status": "OK",
+    "columns": 45,
+    "has_row": true,
+    "duration_s": 5.84,
+    "error": null,
+    "country": "argentina"
+  },
+  {
+    "country": "bolivia",
+    "query": "a_accesocanal",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "a_canal",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "a_conteudoproduto",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "a_fabricanteproduto",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "a_flgscanner",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "a_formapagto",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "a_marcaproduto",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "a_painelproduto",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "a_produto",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "a_produtocoeficienteprincipal",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "a_sector",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "a_subproduto",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "a_tipocanal",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "cidade",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "cm_region_estrato",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "dbm_da2",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "dbm_da2_items",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "dbm_filtros",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "dolar",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "domicilio_posse_bens",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "domicilios",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "dt_mes",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "dt_mescalendar",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "entrevistador",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "hato_cabecalho",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "hato_ruim_cabecalho",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "htipo_ato",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "individuo",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "j_atoscompra_new",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "j_vista_artigos",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "mordom",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "nac_ato",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "origen",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "paineis",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "paineis_domicilios",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "paineis_individuos",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "pais",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "pre_mordom",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "rg_domicilios_pesos",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "rg_panelis",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "tblproductosinternos",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "ventasuelta",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "vw_artigoz",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "vw_artigoz_all",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  },
+  {
+    "country": "bolivia",
+    "query": "vw_venues",
+    "status": "FAIL",
+    "columns": 0,
+    "has_row": false,
+    "duration_s": 0,
+    "error": "Connection test failed"
+  }
+]

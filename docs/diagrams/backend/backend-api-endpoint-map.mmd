@@ -8,6 +8,10 @@ flowchart TD
             H3["GET /health/startup"]
         end
 
+        subgraph AUTH["Auth"]
+            A1["GET /auth/me"]
+        end
+
         subgraph META["Metadata"]
             M1["GET /metadata/countries"]
             M2["GET /metadata/stages"]
@@ -60,15 +64,23 @@ flowchart TD
         end
     end
 
+    %% Auth requirements
+    A1 -.->|JWT required| AUTH_NOTE["Azure AD JWT"]
+    T1 -.->|JWT + can_trigger_sync| AUTH_NOTE
+    P1 -.->|JWT + can_trigger_sync| AUTH_NOTE
+    D1 -.->|JWT + can_trigger_sync| AUTH_NOTE
+
     %% Styling
     classDef get fill:#61AFFE,stroke:#4A90D9,color:#fff
     classDef post fill:#49CC90,stroke:#3DAA76,color:#fff
     classDef delete fill:#F93E3E,stroke:#D63333,color:#fff
     classDef patch fill:#FCA130,stroke:#D88A28,color:#fff
     classDef ws fill:#9B59B6,stroke:#7D3C98,color:#fff
+    classDef authNote fill:#F39C12,stroke:#D68910,color:#fff
 
-    class H1,H2,H3,M1,M2,M3,T2,T3,T4,S2,S3,S6,S7,P2,P3,D2,V2,V4 get
+    class H1,H2,H3,A1,M1,M2,M3,T2,T3,T4,S2,S3,S6,S7,P2,P3,D2,V2,V4 get
     class E1,T1,S1,S4,S8,P1,P4,D1,V1 post
     class S5,P7,V3 delete
     class P5,P6 patch
     class S9 ws
+    class AUTH_NOTE authNote

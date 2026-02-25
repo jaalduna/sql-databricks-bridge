@@ -4,12 +4,14 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from sql_databricks_bridge.core.config import get_settings
 from sql_databricks_bridge.core.country_query_loader import CountryAwareQueryLoader
 from sql_databricks_bridge.core.stages import load_stages
+from sql_databricks_bridge.db import local_store
+from sql_databricks_bridge.db import eligibility_store
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 
 logger = logging.getLogger(__name__)
@@ -120,7 +122,7 @@ def _check_country_availability(country: str, year: int, month: int) -> tuple[st
 
         # Pesaje check – if pesaje exists, elegibilidad is implied
         pesaje_df = client.execute_query(
-            f"SELECT TOP 1 1 AS flag FROM rg_domicilios_pesos WHERE ano = {year} AND messem = {month}"
+            f"SELECT TOP 1 1 AS flag FROM rg_domicilios_pesos WHERE ano = {year} AND messem = '{month}'"
         )
         has_pesaje = len(pesaje_df) > 0
 
@@ -129,7 +131,7 @@ def _check_country_availability(country: str, year: int, month: int) -> tuple[st
 
         # Elegibilidad check (only when pesaje is absent)
         eleg_df = client.execute_query(
-            f"SELECT TOP 1 1 AS flag FROM mordom WHERE ano = {year} AND mes = {month}"
+            f"SELECT TOP 1 1 AS flag FROM mordom WHERE ano = {year} AND mes = '{month}'"
         )
         has_eleg = len(eleg_df) > 0
 
@@ -182,3 +184,121 @@ async def data_availability(
             results[code] = avail
 
     return DataAvailabilityResponse(period=period, countries=results)
+
+
+# -- Last completed sync per country ----------------------------------------
+
+
+class LastSyncEntry(BaseModel):
+    country: str
+    completed_at: str
+    job_id: str
+    stage: str
+
+
+class LastSyncResponse(BaseModel):
+    countries: dict[str, LastSyncEntry]
+
+
+def _get_db_path(request: Request) -> str | None:
+    """Get SQLite database path from app.state."""
+    return getattr(request.app.state, "sqlite_db_path", None)
+
+
+@router.get(
+    "/last-sync",
+    response_model=LastSyncResponse,
+    summary="Last completed sync per country",
+    description="Returns the most recent completed extraction job for each country.",
+)
+async def last_sync(request: Request) -> LastSyncResponse:
+    """Return the last completed job for each country from the local SQLite store."""
+    db_path = _get_db_path(request)
+    if db_path is None:
+        logger.warning("last-sync called but SQLite store is not initialised")
+        raise HTTPException(status_code=503, detail="Local job store not available")
+
+    rows = local_store.get_last_completed_per_country(db_path)
+    countries: dict[str, LastSyncEntry] = {
+        row["country"]: LastSyncEntry(
+            country=row["country"],
+            completed_at=row["completed_at"],
+            job_id=row["job_id"],
+            stage=row["stage"],
+        )
+        for row in rows
+    }
+    return LastSyncResponse(countries=countries)
+
+
+@router.get(
+    "/last-calibration",
+    response_model=LastSyncResponse,
+    summary="Last successful calibration per country",
+    description="Returns the most recent completed calibration job for each country.",
+)
+async def last_calibration(request: Request) -> LastSyncResponse:
+    """Return the last completed calibration job for each country."""
+    db_path = _get_db_path(request)
+    if db_path is None:
+        logger.warning("last-calibration called but SQLite store is not initialised")
+        raise HTTPException(status_code=503, detail="Local job store not available")
+
+    rows = local_store.get_last_completed_per_country_by_stage(db_path, "calibracion")
+    countries: dict[str, LastSyncEntry] = {
+        row["country"]: LastSyncEntry(
+            country=row["country"],
+            completed_at=row["completed_at"],
+            job_id=row["job_id"],
+            stage=row["stage"],
+        )
+        for row in rows
+    }
+    return LastSyncResponse(countries=countries)
+
+
+class LastElegibilidadEntry(BaseModel):
+    country: str
+    completed_at: str
+    run_id: str
+    period: int
+
+
+class LastElegibilidadResponse(BaseModel):
+    countries: dict[str, LastElegibilidadEntry]
+
+
+def _get_eligibility_db_path(request: Request) -> str | None:
+    """Resolve the eligibility SQLite DB path from app state."""
+    import os
+
+    sqlite_db_path = getattr(request.app.state, "sqlite_db_path", None)
+    if sqlite_db_path:
+        return os.path.join(os.path.dirname(sqlite_db_path), "eligibility.db")
+    return None
+
+
+@router.get(
+    "/last-elegibilidad",
+    response_model=LastElegibilidadResponse,
+    summary="Last finalized elegibilidad per country",
+    description="Returns the most recent finalized elegibilidad run for each country.",
+)
+async def last_elegibilidad(request: Request) -> LastElegibilidadResponse:
+    """Return the last finalized elegibilidad run for each country."""
+    db_path = _get_eligibility_db_path(request)
+    if db_path is None:
+        logger.warning("last-elegibilidad called but SQLite store is not initialised")
+        raise HTTPException(status_code=503, detail="Local job store not available")
+
+    rows = eligibility_store.get_last_finalized_per_country(db_path)
+    countries: dict[str, LastElegibilidadEntry] = {
+        row["country"]: LastElegibilidadEntry(
+            country=row["country"],
+            completed_at=row["completed_at"],
+            run_id=row["run_id"],
+            period=row["period"],
+        )
+        for row in rows
+    }
+    return LastElegibilidadResponse(countries=countries)

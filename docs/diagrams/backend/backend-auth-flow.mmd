@@ -1,0 +1,61 @@
+sequenceDiagram
+    autonumber
+    participant App as Desktop App<br/>(Tauri + React)
+    participant AAD as Azure AD<br/>(login.microsoftonline.com)
+    participant API as Backend API<br/>(FastAPI)
+    participant TV as AzureADTokenValidator
+    participant JWKS as Azure AD JWKS<br/>(Public Keys)
+    participant AU as AuthorizedUsersStore<br/>(authorized_users.yml)
+    participant Perms as Permissions<br/>(Roles & Countries)
+
+    Note over App,AAD: 1. Login (handled by MSAL in desktop app)
+    App->>AAD: OAuth2 Authorization Code Flow
+    AAD-->>App: JWT access_token (RS256 signed)
+
+    Note over App,API: 2. API Request with Bearer Token
+    App->>API: GET /trigger (Authorization: Bearer {jwt})
+
+    Note over API,Perms: 3. Token Validation Pipeline
+    API->>TV: validate(token)
+
+    TV->>TV: Decode header, extract 'kid'
+
+    alt JWKS cache valid (< 24h)
+        TV->>TV: Use cached public keys
+    else JWKS cache expired or kid not found
+        TV->>JWKS: GET /discovery/v2.0/keys
+        JWKS-->>TV: JWKS key set (RSA public keys)
+        TV->>TV: Cache keys (TTL: 24h)
+    end
+
+    TV->>TV: jwt.decode(token, public_key, RS256)
+    Note over TV: Verify: signature, exp, iss, aud, oid
+
+    alt Token invalid or expired
+        TV-->>API: InvalidTokenError
+        API-->>App: 401 Unauthorized
+    else Token valid
+        TV-->>API: AzureADTokenClaims(email, name, oid, tid)
+    end
+
+    Note over API,Perms: 4. Authorization Check
+    API->>AU: get_user(email)
+
+    alt User not in allowlist
+        AU-->>API: None
+        API-->>App: 403 Forbidden (not authorized)
+    else User found
+        AU-->>API: AuthorizedUser(email, roles, countries)
+    end
+
+    API->>Perms: Check role permissions
+    Note over Perms: Roles: admin, operator, viewer
+    Perms->>Perms: is_admin? can_trigger_sync? can_access_country?
+
+    alt Permission denied
+        Perms-->>API: Forbidden
+        API-->>App: 403 Forbidden (insufficient permissions)
+    else Permission granted
+        Perms-->>API: Authorized
+        API-->>App: 200 OK (response data)
+    end

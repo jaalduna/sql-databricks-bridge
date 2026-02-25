@@ -1,6 +1,7 @@
 interface ModuleConfig {
   sync: boolean
   calibration: boolean
+  elegibilidad: boolean
 }
 
 export function useModuleConfig(): ModuleConfig {
@@ -8,5 +9,6 @@ export function useModuleConfig(): ModuleConfig {
   return {
     sync: config?.sync ?? true,
     calibration: config?.calibration ?? true,
+    elegibilidad: config?.elegibilidad ?? true,
   }
 }

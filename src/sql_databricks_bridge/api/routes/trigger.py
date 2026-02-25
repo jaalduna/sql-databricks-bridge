@@ -348,13 +348,18 @@ def _build_event_summary(row: dict, results: list[QueryResult]) -> EventSummary:
     )
 
 
-def _launch_calibration_step(job_id: str, step_name: str, country: str) -> None:
+def _launch_calibration_step(
+    job_id: str, step_name: str, country: str, period: str | None = None,
+) -> None:
     """Launch a Databricks job for a calibration step if a launcher is available."""
     if _calibration_launcher is None:
         logger.debug("No calibration launcher configured; skipping launch for %s/%s", job_id, step_name)
         return
+    extra_params: dict[str, str] | None = None
+    if period:
+        extra_params = {"final_period": period}
     try:
-        _calibration_launcher.launch_step(job_id, step_name, country)
+        _calibration_launcher.launch_step(job_id, step_name, country, extra_params=extra_params)
     except Exception as exc:
         logger.error("Failed to launch step %s for job %s: %s", step_name, job_id, exc)
 
@@ -939,7 +944,8 @@ def _run_trigger_extraction(
                 _persist_steps(job.job_id, db_path)
             # Launch the Databricks job for copy_to_calibration
             if next_step:
-                _launch_calibration_step(job.job_id, next_step, job.country)
+                period = record.period if record else None
+                _launch_calibration_step(job.job_id, next_step, job.country, period=period)
 
     except Exception as e:
         job.current_query = None
@@ -1095,7 +1101,7 @@ async def trigger_extraction(
                 logger.warning(f"Failed to insert skip_sync job into SQLite: {sqlite_err}")
 
         # Create calibration tracking - immediately complete sync_data
-        calibration_tracker.create(job_id, country=request.country)
+        calibration_tracker.create(job_id, country=request.country, period=request.period)
         calibration_tracker.start_step(job_id, "sync_data")
         calibration_tracker.complete_step(job_id, "sync_data")
 
@@ -1113,7 +1119,7 @@ async def trigger_extraction(
         if db_path:
             _persist_steps(job_id, db_path)
         if next_step:
-            _launch_calibration_step(job_id, next_step, request.country)
+            _launch_calibration_step(job_id, next_step, request.country, period=request.period)
 
         logger.info("SKIP_SYNC: job %s created, skipped sync%s, advancing to %s",
                      job_id, "+copy" if request.skip_copy else "", next_step)
@@ -1168,21 +1174,24 @@ async def trigger_extraction(
     settings = get_settings()
     jobs_tbl = settings.jobs_table
 
-    # Persist to Databricks Delta table
+    # Persist to Databricks Delta table (best-effort, may fail if unreachable/token expired)
     aggregations_dict = request.aggregations.model_dump() if request.aggregations else None
-    insert_job(
-        db_client,
-        jobs_tbl,
-        job_id=job.job_id,
-        country=request.country,
-        stage=request.stage,
-        tag=tag,
-        queries=job.queries,
-        triggered_by=user.email,
-        created_at=job.created_at,
-        period=request.period,
-        aggregations=aggregations_dict,
-    )
+    try:
+        insert_job(
+            db_client,
+            jobs_tbl,
+            job_id=job.job_id,
+            country=request.country,
+            stage=request.stage,
+            tag=tag,
+            queries=job.queries,
+            triggered_by=user.email,
+            created_at=job.created_at,
+            period=request.period,
+            aggregations=aggregations_dict,
+        )
+    except Exception as e:
+        logger.warning("insert_job to Delta table failed (job=%s): %s", job.job_id, e)
 
     # Persist to local SQLite for crash recovery and fast reads
     db_path = _get_db_path(raw_request)
@@ -1203,7 +1212,7 @@ async def trigger_extraction(
             logger.warning(f"Failed to insert job into SQLite: {sqlite_err}")
 
     # Create calibration step tracking
-    calibration_tracker.create(job.job_id, country=request.country)
+    calibration_tracker.create(job.job_id, country=request.country, period=request.period)
     calibration_tracker.start_step(job.job_id, "sync_data")
     # Persist initial step state to SQLite
     if db_path:
