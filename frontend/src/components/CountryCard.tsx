@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Loader2, Eye, Square } from "lucide-react"
 import { toast } from "sonner"
+import { cn } from "@/lib/utils"
 import { DataAvailabilityBadge } from "./DataAvailabilityBadge"
 import { CalibrationProgress } from "./CalibrationProgress"
 import { CalibrationDetailModal } from "./CalibrationDetailModal"
@@ -33,12 +34,25 @@ function formatRelativeTime(isoDate: string): string {
   return `${days}d ago`
 }
 
+const COUNTRY_FLAGS: Record<string, string> = {
+  argentina: "\u{1F1E6}\u{1F1F7}",
+  bolivia: "\u{1F1E7}\u{1F1F4}",
+  brasil: "\u{1F1E7}\u{1F1F7}",
+  brazil: "\u{1F1E7}\u{1F1F7}",
+  cam: "\u{1F30E}",
+  chile: "\u{1F1E8}\u{1F1F1}",
+  colombia: "\u{1F1E8}\u{1F1F4}",
+  ecuador: "\u{1F1EA}\u{1F1E8}",
+  mexico: "\u{1F1F2}\u{1F1FD}",
+  peru: "\u{1F1F5}\u{1F1EA}",
+}
+
 const COUNTRY_LABELS: Record<string, string> = {
   argentina: "Argentina",
   bolivia: "Bolivia",
   brasil: "Brasil",
   brazil: "Brazil",
-  cam: "Centroamerica",
+  cam: "CAM",
   chile: "Chile",
   colombia: "Colombia",
   ecuador: "Ecuador",
@@ -53,9 +67,10 @@ interface CountryCardProps {
   availabilityLoading: boolean
   calibrationConfig: CalibrationConfig
   lastSyncDate: string | null
+  lastCalibrationDate: string | null
 }
 
-export function CountryCard({ country, period, availability, availabilityLoading, calibrationConfig, lastSyncDate }: CountryCardProps) {
+export function CountryCard({ country, period, availability, availabilityLoading, calibrationConfig, lastSyncDate, lastCalibrationDate }: CountryCardProps) {
   const [showDetail, setShowDetail] = useState(false)
   const [skipSync, setSkipSync] = useState(false)
   const [skipCopy, setSkipCopy] = useState(false)
@@ -68,23 +83,42 @@ export function CountryCard({ country, period, availability, availabilityLoading
   const canTrigger = availability.elegibilidad && !isRunning && !isPending
 
   const countryLabel = COUNTRY_LABELS[country.code] ?? country.code
+  const flag = COUNTRY_FLAGS[country.code] ?? ""
 
   return (
     <>
       <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">
+        <CardHeader className="pb-2">
+          <div className="space-y-1.5">
+            <CardTitle className="text-lg whitespace-nowrap">
+              {flag && <span className="mr-2">{flag}</span>}
               {countryLabel}
             </CardTitle>
-            <Badge variant="outline" className="text-xs">
-              {lastSyncDate
-                ? `${lastSyncDate.replace("T", " ").slice(0, 16)} (${formatRelativeTime(lastSyncDate)})`
-                : "Never synced"}
-            </Badge>
+            <div className="flex gap-2">
+              <Badge
+                variant="outline"
+                className={cn(
+                  "text-xs",
+                  lastSyncDate ? "text-muted-foreground" : "text-amber-600 border-amber-300 bg-amber-50",
+                )}
+                title={lastSyncDate ? `Sync: ${lastSyncDate.replace("T", " ").slice(0, 16)}` : undefined}
+              >
+                Sync: {lastSyncDate ? formatRelativeTime(lastSyncDate) : "never"}
+              </Badge>
+              <Badge
+                variant="outline"
+                className={cn(
+                  "text-xs",
+                  lastCalibrationDate ? "text-muted-foreground" : "text-amber-600 border-amber-300 bg-amber-50",
+                )}
+                title={lastCalibrationDate ? `Cal: ${lastCalibrationDate.replace("T", " ").slice(0, 16)}` : undefined}
+              >
+                Cal: {lastCalibrationDate ? formatRelativeTime(lastCalibrationDate) : "never"}
+              </Badge>
+            </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-2">
           {/* Data availability */}
           <div className="flex gap-4">
             <DataAvailabilityBadge label="Elegibilidad" available={availability.elegibilidad} loading={availabilityLoading} />

@@ -203,6 +203,25 @@ def list_runs(
         conn.close()
 
 
+def get_last_finalized_per_country(db_path: str) -> list[dict[str, Any]]:
+    """Return the most recent finalized eligibility run for each country."""
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT country, run_id, period, status, completed_at
+            FROM eligibility_runs
+            WHERE status = 'finalized' AND completed_at IS NOT NULL
+            GROUP BY country
+            HAVING completed_at = MAX(completed_at)
+            ORDER BY country
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
 def delete_run(db_path: str, run_id: str) -> bool:
     """Delete a run by ID. Returns True if a row was deleted."""
     conn = _connect(db_path)
