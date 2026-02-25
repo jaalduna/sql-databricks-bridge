@@ -39,7 +39,7 @@ export function useCalibration(country: string, stage: string) {
   })
 
   const startCalibration = useCallback((overrides?: CalibrationOverrides) => {
-    trigger.mutate({
+    return trigger.mutateAsync({
       country,
       stage,
       period: overrides?.period,
