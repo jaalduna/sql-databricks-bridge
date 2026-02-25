@@ -202,7 +202,14 @@ export async function downloadCSV(jobId: string): Promise<void> {
   const url = URL.createObjectURL(new Blob([response.data]))
   const a = document.createElement("a")
   a.href = url
-  a.download = `calibration-${jobId}.csv`
+
+  // Parse filename from Content-Disposition header, fall back to generic name
+  const disposition = response.headers["content-disposition"] ?? ""
+  const match = disposition.match(/filename="?([^";\n]+)"?/)
+  a.download = match?.[1] ?? `calibration_${jobId.slice(0, 8)}.csv`
+
+  document.body.appendChild(a)
   a.click()
+  a.remove()
   URL.revokeObjectURL(url)
 }
