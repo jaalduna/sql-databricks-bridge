@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils"
 import { DataAvailabilityBadge } from "./DataAvailabilityBadge"
 import { CalibrationProgress } from "./CalibrationProgress"
 import { CalibrationDetailModal } from "./CalibrationDetailModal"
+import { CalibrationHistoryModal } from "./CalibrationHistoryModal"
 import { useCalibration } from "@/hooks/useCalibration"
 import type { CountryInfo, DataAvailability, CalibrationConfig } from "@/types/api"
 
@@ -72,6 +73,7 @@ interface CountryCardProps {
 
 export function CountryCard({ country, period, availability, availabilityLoading, calibrationConfig, lastSyncDate, lastCalibrationDate }: CountryCardProps) {
   const [showDetail, setShowDetail] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   const [skipSync, setSkipSync] = useState(false)
   const [skipCopy, setSkipCopy] = useState(false)
   const { job, isPending, isCancelling, startCalibration, cancelCalibration } = useCalibration(country.code, "calibracion")
@@ -87,7 +89,14 @@ export function CountryCard({ country, period, availability, availabilityLoading
 
   return (
     <>
-      <Card>
+      <Card
+        className="cursor-pointer hover:shadow-md transition-shadow"
+        role="button"
+        tabIndex={0}
+        aria-label={`View calibration history for ${countryLabel}`}
+        onClick={() => setShowHistory(true)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setShowHistory(true) } }}
+      >
         <CardHeader className="pb-2">
           <div className="space-y-1.5">
             <CardTitle className="text-lg whitespace-nowrap">
@@ -140,149 +149,151 @@ export function CountryCard({ country, period, availability, availabilityLoading
           {isCancelled && <Badge variant="secondary">Cancelled</Badge>}
 
           {/* Actions */}
-          <div className="flex gap-2">
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  size="sm"
-                  disabled={!canTrigger}
-                  className="flex-1"
-                  title={!canTrigger ? "Data extraction (Elegibilidad) required before calibration" : undefined}
-                >
-                  {isPending || isRunning ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {isPending ? "Starting..." : "Running..."}
-                    </>
-                  ) : (
-                    "Calibrar"
-                  )}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Confirm Calibration</AlertDialogTitle>
-                  <AlertDialogDescription asChild>
-                    <div className="text-sm text-muted-foreground">
-                      <p>
-                        Start calibration for{" "}
-                        <strong>{countryLabel}</strong> period{" "}
-                        <strong>{period}</strong>?
-                      </p>
-                      {(calibrationConfig.aggregations.region || calibrationConfig.aggregations.nivel_2) && (
-                        <p className="mt-2">
-                          Aggregations:{" "}
-                          {[calibrationConfig.aggregations.region && "Region", calibrationConfig.aggregations.nivel_2 && "Nivel 2"]
-                            .filter(Boolean)
-                            .join(", ")}
-                        </p>
-                      )}
-                      {(calibrationConfig.row_limit != null || calibrationConfig.lookback_months != null) && (
-                        <p className="mt-2">
-                          Overrides:{" "}
-                          {[
-                            calibrationConfig.row_limit != null && `Top ${calibrationConfig.row_limit} rows`,
-                            calibrationConfig.lookback_months != null && `${calibrationConfig.lookback_months} months lookback`,
-                          ]
-                            .filter(Boolean)
-                            .join(", ")}
-                        </p>
-                      )}
-                    </div>
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={skipSync}
-                    onCheckedChange={(v) => setSkipSync(v === true)}
-                  />
-                  <span>Skip data sync</span>
-                </label>
-                <p className="text-xs text-muted-foreground -mt-2">
-                  Use when data is already synced for this country
-                </p>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={skipCopy}
-                    onCheckedChange={(v) => setSkipCopy(v === true)}
-                  />
-                  <span>Skip data copy</span>
-                </label>
-                <p className="text-xs text-muted-foreground -mt-2">
-                  Use when data is already in the calibration catalog
-                </p>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => {
-                    startCalibration({
-                      period,
-                      aggregations: calibrationConfig.aggregations,
-                      row_limit: calibrationConfig.row_limit,
-                      lookback_months: calibrationConfig.lookback_months,
-                      skip_sync: skipSync,
-                      skip_copy: skipCopy,
-                    }).then(() => {
-                      toast.success(`Calibration started for ${countryLabel}`);
-                    }).catch((err: unknown) => {
-                      const message = (err as { message?: string })?.message ?? "Unknown error";
-                      toast.error(`Failed to start calibration for ${countryLabel}: ${message}`);
-                    });
-                  }}>
-                    Confirm
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-
-            {isRunning && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <div className="flex gap-2">
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button
                     size="sm"
-                    variant="destructive"
-                    aria-label="Stop calibration"
-                    disabled={isCancelling}
+                    disabled={!canTrigger}
+                    className="flex-1"
+                    title={!canTrigger ? "Data extraction (Elegibilidad) required before calibration" : undefined}
                   >
-                    {isCancelling ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                    {isPending || isRunning ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {isPending ? "Starting..." : "Running..."}
+                      </>
                     ) : (
-                      <Square className="h-4 w-4" />
+                      "Calibrar"
                     )}
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Stop Calibration</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Stop the running calibration for <strong>{countryLabel}</strong>? This will cancel all pending steps.
+                    <AlertDialogTitle>Confirm Calibration</AlertDialogTitle>
+                    <AlertDialogDescription asChild>
+                      <div className="text-sm text-muted-foreground">
+                        <p>
+                          Start calibration for{" "}
+                          <strong>{countryLabel}</strong> period{" "}
+                          <strong>{period}</strong>?
+                        </p>
+                        {(calibrationConfig.aggregations.region || calibrationConfig.aggregations.nivel_2) && (
+                          <p className="mt-2">
+                            Aggregations:{" "}
+                            {[calibrationConfig.aggregations.region && "Region", calibrationConfig.aggregations.nivel_2 && "Nivel 2"]
+                              .filter(Boolean)
+                              .join(", ")}
+                          </p>
+                        )}
+                        {(calibrationConfig.row_limit != null || calibrationConfig.lookback_months != null) && (
+                          <p className="mt-2">
+                            Overrides:{" "}
+                            {[
+                              calibrationConfig.row_limit != null && `Top ${calibrationConfig.row_limit} rows`,
+                              calibrationConfig.lookback_months != null && `${calibrationConfig.lookback_months} months lookback`,
+                            ]
+                              .filter(Boolean)
+                              .join(", ")}
+                          </p>
+                        )}
+                      </div>
                     </AlertDialogDescription>
                   </AlertDialogHeader>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={skipSync}
+                      onCheckedChange={(v) => setSkipSync(v === true)}
+                    />
+                    <span>Skip data sync</span>
+                  </label>
+                  <p className="text-xs text-muted-foreground -mt-2">
+                    Use when data is already synced for this country
+                  </p>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={skipCopy}
+                      onCheckedChange={(v) => setSkipCopy(v === true)}
+                    />
+                    <span>Skip data copy</span>
+                  </label>
+                  <p className="text-xs text-muted-foreground -mt-2">
+                    Use when data is already in the calibration catalog
+                  </p>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>Keep Running</AlertDialogCancel>
-                    <AlertDialogAction
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                      onClick={() => {
-                        cancelCalibration()
-                        toast.info(`Calibration stopped for ${countryLabel}`)
-                      }}
-                    >
-                      Stop
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => {
+                      startCalibration({
+                        period,
+                        aggregations: calibrationConfig.aggregations,
+                        row_limit: calibrationConfig.row_limit,
+                        lookback_months: calibrationConfig.lookback_months,
+                        skip_sync: skipSync,
+                        skip_copy: skipCopy,
+                      }).then(() => {
+                        toast.success(`Calibration started for ${countryLabel}`);
+                      }).catch((err: unknown) => {
+                        const message = (err as { message?: string })?.message ?? "Unknown error";
+                        toast.error(`Failed to start calibration for ${countryLabel}: ${message}`);
+                      });
+                    }}>
+                      Confirm
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
-            )}
 
-            {job && (
-              <Button
-                size="sm"
-                variant="outline"
-                aria-label="View calibration details"
-                onClick={() => setShowDetail(true)}
-              >
-                <Eye className="h-4 w-4" />
-              </Button>
-            )}
+              {isRunning && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      aria-label="Stop calibration"
+                      disabled={isCancelling}
+                    >
+                      {isCancelling ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Square className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Stop Calibration</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Stop the running calibration for <strong>{countryLabel}</strong>? This will cancel all pending steps.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Keep Running</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        onClick={() => {
+                          cancelCalibration()
+                          toast.info(`Calibration stopped for ${countryLabel}`)
+                        }}
+                      >
+                        Stop
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+
+              {job && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  aria-label="View calibration details"
+                  onClick={() => setShowDetail(true)}
+                >
+                  <Eye className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -291,6 +302,13 @@ export function CountryCard({ country, period, availability, availabilityLoading
         job={job}
         open={showDetail}
         onClose={() => setShowDetail(false)}
+      />
+      <CalibrationHistoryModal
+        country={country.code}
+        countryLabel={countryLabel}
+        countryFlag={flag}
+        open={showHistory}
+        onClose={() => setShowHistory(false)}
       />
     </>
   )
