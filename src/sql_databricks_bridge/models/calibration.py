@@ -59,6 +59,7 @@ class CalibrationJobInfo(BaseModel):
 
     job_id: str
     country: str = ""
+    period: str | None = None
     steps: list[CalibrationStep] = Field(default_factory=list)
 
     @property
