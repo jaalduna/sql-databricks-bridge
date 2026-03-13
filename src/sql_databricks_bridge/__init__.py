@@ -1,3 +1,3 @@
 """SQL-Databricks Bridge - Bidirectional data sync service."""
 
-__version__ = "0.1.14"
+__version__ = "0.1.26"
