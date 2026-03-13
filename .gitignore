@@ -70,7 +70,6 @@ test_*.txt
 *.txt
 nul
 output/
-claude-*-cwd
 
 # Tauri
 frontend/src-tauri/target/
@@ -85,12 +84,48 @@ frontend/dist/
 
 # Screenshots and temp artifacts
 /*.png
+/*.csv
 /dist-artifacts/
+/dist-test/
+/deploy-frontend/
+/debug-screenshots/
 .playwright-mcp/
+squashfs-root/
 
-# Scripts (keep only in scripts/ dir)
+# Temp data files in root
+/*.json
+!package.json
+/*.spec
+/*.html
+
+# Temp scripts in root (keep only in scripts/ dir)
 /check_*.py
+/check_*.ps1
 /find_*.py
 /inspect_*.py
 /run_*.py
 /verify_*.py
+/extract_*.py
+/extract_*.sh
+/extract_*.ps1
+/sync_*.py
+/poll_*.py
+/poll_*.ps1
+/diagnose_*.py
+/cleanup_*.py
+/cleanup_*.ps1
+/copy_*.ps1
+/count_*.py
+/create_*.py
+/create_*.sql
+/cancel_*.py
+/diff_*.py
+/get_*.py
+/monitor_*.sh
+/validate_*.py
+/e2e_*.py
+/e2e-*.js
+/_gen*.py
+/_gen*.js
+/_write_*.py
+/publish_*.mjs
