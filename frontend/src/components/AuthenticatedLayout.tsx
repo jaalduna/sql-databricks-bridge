@@ -5,7 +5,7 @@ import { useUpdater } from "@/hooks/useUpdater"
 import { useModuleConfig } from "@/hooks/useModuleConfig"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { CalibrationProvider } from "@/contexts/CalibrationContext"
+import { CalibrationProvider } from "@/modules/calibracion/contexts/CalibrationContext"
 
 export function AuthenticatedLayout() {
   const { user, logout } = useAuth()

@@ -8,11 +8,12 @@ import type {
   LastElegibilidadResponse,
   LastSyncResponse,
   StagesResponse,
+  TablesResponse,
   TriggerRequest,
   TriggerResponse,
   UserInfo,
 } from "@/types/api"
-import type { EligibilityFile, EligibilityRun, EligibilityRunCreate } from "@/types/eligibility"
+import type { EligibilityFile, EligibilityRun, EligibilityRunCreate } from "@/modules/elegibilidad/types"
 
 function getBaseUrl(): string {
   return (
@@ -158,8 +159,12 @@ export function executeEligibility(runId: string) {
   return api.post<EligibilityRun>(`/eligibility/runs/${runId}/execute`).then((r) => r.data)
 }
 
-export function executeEligibilityStage2(runId: string) {
-  return api.post<EligibilityRun>(`/eligibility/runs/${runId}/execute-stage2`).then((r) => r.data)
+export function approveEligibility(runId: string) {
+  return api.post<EligibilityRun>(`/eligibility/runs/${runId}/approve`).then((r) => r.data)
+}
+
+export function applyMordom(runId: string) {
+  return api.post<EligibilityRun>(`/eligibility/runs/${runId}/apply-mordom`).then((r) => r.data)
 }
 
 export function getEligibilityFiles(runId: string) {
@@ -187,18 +192,19 @@ export async function uploadEligibilityFiles(runId: string, file: File): Promise
   return data
 }
 
-export function finalizeEligibility(runId: string) {
-  return api.post<EligibilityRun>(`/eligibility/runs/${runId}/finalize`).then((r) => r.data)
-}
-
 export function cancelEligibility(runId: string) {
   return api.post<EligibilityRun>(`/eligibility/runs/${runId}/cancel`).then((r) => r.data)
 }
 
 // -- Downloads --
 
-export async function downloadCSV(jobId: string): Promise<void> {
-  const response = await api.get(`/events/${jobId}/download`, { responseType: "blob" })
+export function getJobTables(jobId: string) {
+  return api.get<TablesResponse>(`/events/${jobId}/tables`).then((r) => r.data)
+}
+
+export async function downloadCSV(jobId: string, table?: string): Promise<void> {
+  const params = table ? { table } : undefined
+  const response = await api.get(`/events/${jobId}/download`, { responseType: "blob", params })
   const url = URL.createObjectURL(new Blob([response.data]))
   const a = document.createElement("a")
   a.href = url

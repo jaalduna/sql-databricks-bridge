@@ -248,6 +248,7 @@ class SQLServerClient:
         parts: list[Path] = []
         total_rows = 0
         schema = None
+        null_upgraded: dict[str, pl.DataType] = {}  # col -> real type discovered later
 
         with self.engine.connect() as conn:
             result = conn.execute(text(query), params or {})
@@ -280,6 +281,7 @@ class SQLServerClient:
                             continue
                         if dtype == pl.Null:
                             schema[col] = chunk_type
+                            null_upgraded[col] = chunk_type
                         else:
                             try:
                                 chunk_df = chunk_df.with_columns(
@@ -296,6 +298,19 @@ class SQLServerClient:
 
                 if on_progress:
                     on_progress(len(chunk_df), total_rows)
+
+        # Rewrite earlier parts whose Null-typed columns were later discovered
+        # to have a real type, so all parquet files share a consistent schema.
+        if null_upgraded:
+            for part_path in parts:
+                part_df = pl.read_parquet(part_path)
+                casts = [
+                    pl.col(col).cast(real_type, strict=False)
+                    for col, real_type in null_upgraded.items()
+                    if col in part_df.columns and part_df[col].dtype == pl.Null
+                ]
+                if casts:
+                    part_df.with_columns(casts).write_parquet(part_path)
 
         return parts, total_rows
 

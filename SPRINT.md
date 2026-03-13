@@ -1,64 +1,44 @@
-# Sprint 9 - SQL-Databricks-Bridge: Fix "Calibrar" Silent Failure
+# Sprint 13 - SQL-Databricks-Bridge: Calibration Pipeline Integration & Validation
 
-**Started**: 2026-02-25
-**Status**: completed
-**Goal**: Fix calibration trigger flow so errors are visible and the card reflects actual state
+**Started**: 2026-03-04
+**Status**: planning
+**Goal**: Analyze how the KWP-IntelligenceCalibration pipeline maps to the sql-databricks-bridge frontend/backend, identify gaps, and plan implementation of Excel report generation + validation features in the bridge.
 
-## Bug Report (from PO)
-
-When pressing "Calibrar" for Argentina (no steps skipped):
-- Toast says "Calibration started from argentina"
-- No sync process actually starts
-- Frontend card doesn't change state
-
-## Root Cause Analysis (Architect)
-
-**Two bugs found:**
-
-### Bug 1 (PRIMARY - Frontend): Optimistic toast fires before request completes
-- **File**: `frontend/src/components/CountryCard.tsx` ~line 181
-- `toast.success()` fires synchronously on click, **before** the POST resolves
-- If POST fails (500, network error), user sees false "started" message
-- Mutation errors are never displayed — `triggerError` is captured but never shown
-- Card briefly shows "Starting..." then silently reverts to idle
-
-### Bug 2 (CONTRIBUTING - Backend): Unprotected `insert_job` in non-skip-sync path
-- **File**: `src/sql_databricks_bridge/api/routes/trigger.py` ~line 1179
-- `insert_job()` to Databricks Delta table is NOT wrapped in try/except
-- The skip-sync path (line ~1023-1038) correctly wraps this in try/except
-- If Databricks is unreachable/token expired → unhandled 500 error
-- This 500 is then silently swallowed by Bug 1
-
-## Backlog
+## Research Results
 
 | ID | Story | Priority | Status | Assignee | Notes |
 |----|-------|----------|--------|----------|-------|
-| S9-001 | Move toast to onSuccess callback, add onError toast | high | done | frontend-dev | CountryCard.tsx + useCalibration.ts |
-| S9-002 | Wrap insert_job in try/except (non-skip-sync path) | high | done | backend-dev | trigger.py ~line 1179 |
-| S9-003 | Test frontend error handling | medium | done | frontend-tester | tsc clean, 28/28 pass (11 pre-existing failures unrelated) |
-| S9-004 | Test backend insert_job resilience | medium | done | backend-tester | 555/555 pass (78 pre-existing failures unrelated) |
-| S9-005 | Code review | medium | done | code-reviewer | APPROVED WITH NITS — job_id nit addressed |
+| S13-001 | Architect: Pipeline mapping analysis | high | done | architect | 5 critical gaps found |
+| S13-002 | Architect: Excel report generation design | high | done | architect | Straightforward refactor |
+| S13-003 | Architect: Validation/analysis feature design | medium | done | architect | 3-tier approach |
+| S13-004 | UX: Frontend calibration UX gap analysis | medium | done | ux-designer | 10 gaps identified |
 
 ## Architecture Decisions
 
-- Toast success/error must reflect actual API response, not be optimistic
-- Delta table insert_job is best-effort — job should proceed if Delta record fails (SQLite has it too)
-- Match existing try/except pattern from skip-sync path
+See `docs/calibration_integration_analysis.md` for full analysis.
+See `docs/calibration_ux_gaps.md` for UX gap analysis.
 
-## Key Files Changed
+### Critical Gaps Found
 
-| File | Change |
-|------|--------|
-| `src/sql_databricks_bridge/api/routes/trigger.py` | Wrapped `insert_job` in try/except with logger.warning including job_id |
-| `frontend/src/hooks/useCalibration.ts` | Changed `trigger.mutate()` → `trigger.mutateAsync()` with `return` |
-| `frontend/src/components/CountryCard.tsx` | Replaced immediate toast with `.then()` success / `.catch()` error |
+1. `start_period` hardcoded to `"202102"` — should be `"202301"` or configurable
+2. `group_by` not passed for CAM — CAM needs `--group-by` parameter
+3. `task_step_map` only works for Bolivia (3-task job) — other countries get no granular progress
+4. `aggregations.region` and `aggregations.nivel_2` are dead params — KWP doesn't read them
+5. Volume calibration not supported — Brasil and Mexico need vol pipeline
+
+### Proposed Implementation Phases
+
+- **Phase 1**: Fix parameter mapping (critical, low effort)
+- **Phase 2**: Excel report download (medium effort)
+- **Phase 3**: Validation summary endpoint + UI (medium effort)
+- **Phase 4**: Full validation UI with charts (high effort)
+- **Phase 5**: Volume calibration support (high effort)
 
 ## Daily Log
 
-### 2026-02-25
-- PO reported: Calibrar for Argentina shows success toast but nothing happens
-- Architect traced full flow: button click → POST /trigger → insert_job → background task
-- Found 2 bugs: optimistic toast (frontend) + unprotected insert_job (backend)
-- Backend-dev and frontend-dev fixed both bugs in parallel
-- Testers confirmed no new regressions (all failures pre-existing)
-- Code reviewer: APPROVED WITH NITS — addressed job_id logging nit
+### 2026-03-04
+- PO requested analysis of KWP pipeline integration with sql-databricks-bridge
+- Spawned architect + UX designer for parallel research
+- Architect produced `docs/calibration_integration_analysis.md` (5 critical gaps, Excel/validation designs)
+- UX designer produced `docs/calibration_ux_gaps.md` (10 gaps, 4 proposed components)
+- Awaiting PO decision on which phases to prioritize

@@ -60,6 +60,7 @@ class CalibrationJobInfo(BaseModel):
     job_id: str
     country: str = ""
     period: str | None = None
+    aggregations: dict[str, bool] = Field(default_factory=dict)
     steps: list[CalibrationStep] = Field(default_factory=list)
 
     @property

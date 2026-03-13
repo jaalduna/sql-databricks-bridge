@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import time
@@ -1850,6 +1851,85 @@ def _collect_table_names(detail: EventDetail) -> list[str]:
     return tables
 
 
+class TableInfo(BaseModel):
+    full_name: str = Field(description="Backtick-quoted fully qualified table name")
+    catalog: str
+    schema_name: str
+    table_name: str
+
+
+class TablesResponse(BaseModel):
+    job_id: str
+    country: str
+    tables: list[TableInfo]
+
+
+def _list_catalog_tables(db_client: DatabricksClient, country: str) -> list[TableInfo]:
+    """List managed tables in 001-calibration-3-0 whose schema contains *country*."""
+    if not re.fullmatch(r"[A-Za-z0-9_]+", country):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_country", "message": f"Invalid country value: {country}"},
+        )
+    sql = (
+        "SELECT table_catalog, table_schema, table_name "
+        "FROM `001-calibration-3-0`.information_schema.tables "
+        f"WHERE table_schema LIKE '%{country}%' AND table_type = 'MANAGED' "
+        "ORDER BY table_schema, table_name"
+    )
+    rows = db_client.execute_sql(sql)
+    tables: list[TableInfo] = []
+    for row in rows:
+        catalog = row["table_catalog"]
+        schema = row["table_schema"]
+        tbl = row["table_name"]
+        tables.append(
+            TableInfo(
+                full_name=f"`{catalog}`.`{schema}`.`{tbl}`",
+                catalog=catalog,
+                schema_name=schema,
+                table_name=tbl,
+            )
+        )
+    return tables
+
+
+@router.get(
+    "/events/{job_id}/tables",
+    summary="List Databricks tables for a job's country",
+    response_model=TablesResponse,
+    responses={
+        404: {"description": "Job not found"},
+        502: {"description": "Databricks query failed"},
+    },
+)
+async def list_event_tables(
+    job_id: str,
+    user: CurrentAzureADUser,
+    raw_request: Request,
+) -> TablesResponse:
+    """List managed Delta tables in the calibration catalog for the job's country."""
+    detail = await get_event_detail(job_id, user, raw_request)
+    country = detail.country
+
+    db_client = _get_databricks_client(raw_request)
+    try:
+        tables = _list_catalog_tables(db_client, country)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to list tables for country=%s job=%s: %s", country, job_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": "databricks_query_failed",
+                "message": f"Could not list tables: {exc}",
+            },
+        ) from exc
+
+    return TablesResponse(job_id=job_id, country=country, tables=tables)
+
+
 @router.get(
     "/events/{job_id}/download",
     summary="Download job results as CSV",
@@ -1896,18 +1976,9 @@ async def download_event_csv(
     available_tables = _collect_table_names(detail)
 
     if table:
-        # Caller requested a specific table — validate it exists in results
-        if table not in available_tables:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "error": "table_not_found",
-                    "message": (
-                        f"Table '{table}' not found in job results. "
-                        f"Available: {available_tables}"
-                    ),
-                },
-            )
+        # Caller requested a specific table — use it directly.
+        # If the table doesn't exist, the Databricks query below will fail with 502,
+        # and if it's empty, it will return 404 — both already handled.
         target_table = table
     elif available_tables:
         # Pick the table with the most rows extracted
@@ -1923,13 +1994,24 @@ async def download_event_csv(
                 best = (tbl, rows or 0)
         target_table = best[0]
     else:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": "no_tables",
-                "message": "No completed result tables available for this job.",
-            },
-        )
+        # No tables in job results — try listing from the calibration catalog
+        country = detail.country
+        db_client = _get_databricks_client(raw_request)
+        try:
+            catalog_tables = _list_catalog_tables(db_client, country)
+        except Exception:
+            catalog_tables = []
+
+        if catalog_tables:
+            target_table = catalog_tables[0].full_name
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": "no_tables",
+                    "message": "No completed result tables available for this job.",
+                },
+            )
 
     # Query the Delta table from Databricks
     db_client = _get_databricks_client(raw_request)

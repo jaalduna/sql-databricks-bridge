@@ -3,26 +3,27 @@
 from datetime import datetime, timezone
 
 ELIGIBILITY_STEPS = [
-    {"name": "stage1_job", "label": "Ejecutando Fase 1"},
-    {"name": "stage1_download", "label": "Descarga Fase 1 lista"},
-    {"name": "stage1_upload", "label": "Subir CSV Fase 1"},
-    {"name": "stage2_job", "label": "Ejecutando Fase 2"},
-    {"name": "stage2_download", "label": "Descarga Fase 2 lista"},
-    {"name": "stage2_upload", "label": "Subir CSV Fase 2"},
-    {"name": "finalize", "label": "Finalizar"},
-    {"name": "complete", "label": "Completado"},
+    {"name": "run_pipeline", "label": "Ejecutar Pipeline (Phase 0–9)"},
+    {"name": "download_results", "label": "Descargar Resultados"},
+    {"name": "approve", "label": "Aprobar Resultados"},
+    {"name": "apply_sql", "label": "Aplicar a SQL Server"},
+    {"name": "download_mordom", "label": "Descargar MorDom actualizado"},
+    {"name": "upload_mordom", "label": "Subir MorDom corregido"},
+    {"name": "apply_mordom", "label": "Aplicar correcciones MorDom"},
+    {"name": "complete", "label": "Listo"},
 ]
 
 # Valid status transitions
 VALID_STATUSES = {
     "pending",
-    "stage1_running",
-    "stage1_ready",
-    "stage1_uploaded",
-    "stage2_running",
-    "stage2_ready",
-    "stage2_uploaded",
-    "finalized",
+    "running",
+    "results_ready",
+    "applying_sql",
+    "mordom_downloading",
+    "mordom_ready",
+    "mordom_uploaded",
+    "applying_mordom",
+    "ready",
     "failed",
     "cancelled",
 }
@@ -30,12 +31,13 @@ VALID_STATUSES = {
 # Statuses that can be cancelled
 CANCELLABLE_STATUSES = {
     "pending",
-    "stage1_running",
-    "stage1_ready",
-    "stage1_uploaded",
-    "stage2_running",
-    "stage2_ready",
-    "stage2_uploaded",
+    "running",
+    "results_ready",
+    "applying_sql",
+    "mordom_downloading",
+    "mordom_ready",
+    "mordom_uploaded",
+    "applying_mordom",
 }
 
 

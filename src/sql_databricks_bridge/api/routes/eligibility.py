@@ -1,4 +1,13 @@
-"""Elegibilidad run management API endpoints."""
+"""Elegibilidad run management API endpoints.
+
+Workflow:
+  1. Create run with parameters → pending
+  2. Execute pipeline → running → results_ready  (iterative: user can re-run)
+  3. Approve results → applying_sql (background writes to SQL)
+  4. SQL applied → mordom_downloading → mordom_ready (MorDom CSV available)
+  5. User downloads MorDom, reviews, uploads corrected CSV → mordom_uploaded
+  6. Apply MorDom corrections → applying_mordom → ready
+"""
 
 import csv
 import io
@@ -58,7 +67,8 @@ def _get_data_dir(request: Request) -> str:
     """Resolve the base data directory for file storage."""
     sqlite_db_path = getattr(request.app.state, "sqlite_db_path", None)
     if sqlite_db_path:
-        return os.path.join(os.path.dirname(sqlite_db_path), ".bridge_data")
+        # The DB is already inside .bridge_data/, so use its directory directly
+        return os.path.dirname(sqlite_db_path)
     return ".bridge_data"
 
 
@@ -91,56 +101,74 @@ def _run_to_response(run: dict, db_path: str) -> EligibilityRunResponse:
     )
 
 
-def _generate_mock_csv(country: str, period: int) -> str:
-    """Generate a mock eligibility CSV with sample data."""
+def _generate_mock_results_csv(country: str, period: int) -> str:
+    """Generate mock eligibility results CSV."""
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["panelistID", "period", "status", "score", "eligible"])
-    for i in range(1, 13):
+    writer.writerow(["panelistID", "period", "status", "score", "eligible",
+                     "purchases", "categories", "mortality_flag"])
+    for i in range(1, 25):
         score = round(random.uniform(0.1, 1.0), 3)
         eligible = 1 if score >= 0.5 else 0
-        writer.writerow([f"PAN{country}{i:04d}", period, "evaluated", score, eligible])
+        purchases = random.randint(1, 20)
+        cats = random.randint(1, 8)
+        mortality = 0 if random.random() > 0.15 else 1
+        writer.writerow([f"PAN{country}{i:04d}", period, "evaluated",
+                         score, eligible, purchases, cats, mortality])
     return output.getvalue()
 
 
-def _run_stage_job(db_path: str, data_dir: str, run_id: str, stage: int) -> None:
-    """Background job that simulates a stage execution."""
+def _generate_mock_mordom_csv(country: str, period: int) -> str:
+    """Generate mock MorDom CSV with new households."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["panelistID", "period", "household_size", "income_bracket",
+                     "region", "scanner_flag", "entry_date", "attributes_complete",
+                     "action"])
+    for i in range(1, 15):
+        hh_size = random.randint(1, 6)
+        income = random.choice(["A", "B", "C", "D", "E"])
+        region = random.randint(1, 13)
+        scanner = random.choice([0, 1])
+        complete = 1 if random.random() > 0.25 else 0
+        writer.writerow([f"PAN{country}{i:04d}", period, hh_size, income,
+                         region, scanner, "2024-01-15", complete, "keep"])
+    return output.getvalue()
+
+
+# ── Background jobs ─────────────────────────────────────────────────────────
+
+
+def _run_pipeline_job(db_path: str, data_dir: str, run_id: str) -> None:
+    """Background job: simulate pipeline execution (Phase 0–9)."""
     import time
-    time.sleep(2)
+    time.sleep(3)
 
     run = get_run(db_path, run_id)
-    if not run:
-        return
-
-    # Check run hasn't been cancelled while we were sleeping
-    if run["status"] in ("cancelled", "failed"):
+    if not run or run["status"] in ("cancelled", "failed"):
         return
 
     now = datetime.now(timezone.utc).isoformat()
     country = run["country"]
     period = run["period"]
 
-    # Generate mock CSV
-    csv_content = _generate_mock_csv(country, period)
-    stage_dir = os.path.join(
-        data_dir, "eligibility", run_id, f"stage{stage}", "download"
-    )
-    os.makedirs(stage_dir, exist_ok=True)
-    filename = f"elegibilidad_{country}_{period}_fase{stage}.csv"
-    file_path = os.path.join(stage_dir, filename)
+    # Generate results CSV
+    csv_content = _generate_mock_results_csv(country, period)
+    results_dir = os.path.join(data_dir, "eligibility", run_id, "results")
+    os.makedirs(results_dir, exist_ok=True)
+    filename = f"elegibilidad_{country}_{period}_resultados.csv"
+    file_path = os.path.join(results_dir, filename)
 
     with open(file_path, "w", newline="") as f:
         f.write(csv_content)
 
     file_size = os.path.getsize(file_path)
-
-    # Record file in DB
     file_id = str(uuid.uuid4())
     insert_file(
         db_path,
         file_id=file_id,
         run_id=run_id,
-        stage=stage,
+        stage=1,
         direction="download",
         filename=filename,
         stored_path=file_path,
@@ -148,28 +176,124 @@ def _run_stage_job(db_path: str, data_dir: str, run_id: str, stage: int) -> None
         created_at=now,
     )
 
-    # Update steps
     steps = run.get("steps_json") or []
     if isinstance(steps, str):
         steps = json.loads(steps)
 
-    job_step = f"stage{stage}_job"
-    download_step = f"stage{stage}_download"
-    steps = update_step_status(steps, job_step, "completed")
-    steps = update_step_status(steps, download_step, "completed")
-
-    ready_status = f"stage{stage}_ready"
-    current_step = f"stage{stage}_upload"
+    steps = update_step_status(steps, "run_pipeline", "completed")
+    steps = update_step_status(steps, "download_results", "completed")
 
     update_run(
         db_path,
         run_id,
-        status=ready_status,
+        status="results_ready",
         steps_json=json.dumps(steps),
-        current_step=current_step,
+        current_step="approve",
         updated_at=now,
     )
-    logger.info(f"Stage {stage} job completed for run {run_id}, status → {ready_status}")
+    logger.info(f"Pipeline completed for run {run_id}, status → results_ready")
+
+
+def _run_apply_sql_job(db_path: str, data_dir: str, run_id: str) -> None:
+    """Background job: write results to SQL Server, then download MorDom."""
+    import time
+    time.sleep(3)
+
+    run = get_run(db_path, run_id)
+    if not run or run["status"] in ("cancelled", "failed"):
+        return
+
+    now = datetime.now(timezone.utc).isoformat()
+    country = run["country"]
+    period = run["period"]
+
+    steps = run.get("steps_json") or []
+    if isinstance(steps, str):
+        steps = json.loads(steps)
+
+    # Mark SQL apply completed
+    steps = update_step_status(steps, "apply_sql", "completed")
+
+    update_run(
+        db_path,
+        run_id,
+        status="mordom_downloading",
+        steps_json=json.dumps(steps),
+        current_step="download_mordom",
+        updated_at=now,
+    )
+    logger.info(f"SQL applied for run {run_id}, downloading MorDom...")
+
+    # Simulate MorDom download
+    time.sleep(2)
+
+    # Generate MorDom CSV
+    csv_content = _generate_mock_mordom_csv(country, period)
+    mordom_dir = os.path.join(data_dir, "eligibility", run_id, "mordom")
+    os.makedirs(mordom_dir, exist_ok=True)
+    filename = f"mordom_{country}_{period}_hogares.csv"
+    file_path = os.path.join(mordom_dir, filename)
+
+    with open(file_path, "w", newline="") as f:
+        f.write(csv_content)
+
+    file_size = os.path.getsize(file_path)
+    file_id = str(uuid.uuid4())
+    insert_file(
+        db_path,
+        file_id=file_id,
+        run_id=run_id,
+        stage=2,
+        direction="download",
+        filename=filename,
+        stored_path=file_path,
+        file_size_bytes=file_size,
+        created_at=now,
+    )
+
+    steps = update_step_status(steps, "download_mordom", "completed")
+
+    update_run(
+        db_path,
+        run_id,
+        status="mordom_ready",
+        steps_json=json.dumps(steps),
+        current_step="upload_mordom",
+        updated_at=now,
+    )
+    logger.info(f"MorDom ready for run {run_id}, status → mordom_ready")
+
+
+def _run_apply_mordom_job(db_path: str, data_dir: str, run_id: str) -> None:
+    """Background job: apply MorDom corrections and mark as ready."""
+    import time
+    time.sleep(2)
+
+    run = get_run(db_path, run_id)
+    if not run or run["status"] in ("cancelled", "failed"):
+        return
+
+    now = datetime.now(timezone.utc).isoformat()
+    steps = run.get("steps_json") or []
+    if isinstance(steps, str):
+        steps = json.loads(steps)
+
+    steps = update_step_status(steps, "apply_mordom", "completed")
+    steps = update_step_status(steps, "complete", "completed")
+
+    update_run(
+        db_path,
+        run_id,
+        status="ready",
+        steps_json=json.dumps(steps),
+        current_step="complete",
+        completed_at=now,
+        updated_at=now,
+    )
+    logger.info(f"MorDom applied for run {run_id}, status → ready")
+
+
+# ── CRUD endpoints ──────────────────────────────────────────────────────────
 
 
 @router.post(
@@ -201,12 +325,11 @@ async def create_run(
         created_at=now,
         updated_at=now,
     )
-    # Set steps_json and current_step after insert (these are new columns)
     update_run(
         db_path,
         run_id,
         steps_json=json.dumps(steps),
-        current_step="stage1_job",
+        current_step="run_pipeline",
     )
     logger.info(f"Created eligibility run {run_id} for {body.country}/{body.period}")
 
@@ -326,13 +449,16 @@ async def delete_eligibility_run(
         )
 
 
+# ── Pipeline execution ──────────────────────────────────────────────────────
+
+
 @router.post(
     "/runs/{run_id}/execute",
     response_model=EligibilityRunResponse,
-    summary="Execute stage 1",
-    description="Start stage 1 eligibility processing. Returns immediately with status=stage1_running.",
+    summary="Execute pipeline",
+    description="Run the eligibility pipeline (Phase 0–9). Returns immediately with status=running.",
 )
-async def execute_stage1(
+async def execute_pipeline(
     run_id: str,
     request: Request,
     user: CurrentAzureADUser,
@@ -360,32 +486,35 @@ async def execute_stage1(
     steps = run.get("steps_json") or []
     if isinstance(steps, str):
         steps = json.loads(steps)
-    steps = update_step_status(steps, "stage1_job", "running")
+    steps = update_step_status(steps, "run_pipeline", "running")
 
     update_run(
         db_path,
         run_id,
-        status="stage1_running",
+        status="running",
         steps_json=json.dumps(steps),
-        current_step="stage1_job",
+        current_step="run_pipeline",
         started_at=now,
         updated_at=now,
     )
 
-    background_tasks.add_task(_run_stage_job, db_path, data_dir, run_id, 1)
+    background_tasks.add_task(_run_pipeline_job, db_path, data_dir, run_id)
 
     updated = get_run(db_path, run_id)
     assert updated is not None
     return _run_to_response(updated, db_path)
 
 
+# ── Approve & Apply to SQL ──────────────────────────────────────────────────
+
+
 @router.post(
-    "/runs/{run_id}/execute-stage2",
+    "/runs/{run_id}/approve",
     response_model=EligibilityRunResponse,
-    summary="Execute stage 2",
-    description="Start stage 2 eligibility processing. Requires status=stage1_uploaded.",
+    summary="Approve results and apply to SQL",
+    description="Approve the eligibility results. Triggers writing to SQL Server and MorDom download.",
 )
-async def execute_stage2(
+async def approve_and_apply(
     run_id: str,
     request: Request,
     user: CurrentAzureADUser,
@@ -400,12 +529,12 @@ async def execute_stage2(
             detail={"error": "not_found", "message": f"Eligibility run not found: {run_id}"},
         )
 
-    if run["status"] != "stage1_uploaded":
+    if run["status"] != "results_ready":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "error": "invalid_status",
-                "message": f"Cannot execute stage 2: run status is '{run['status']}', expected 'stage1_uploaded'",
+                "message": f"Cannot approve: run status is '{run['status']}', expected 'results_ready'",
             },
         )
 
@@ -413,22 +542,159 @@ async def execute_stage2(
     steps = run.get("steps_json") or []
     if isinstance(steps, str):
         steps = json.loads(steps)
-    steps = update_step_status(steps, "stage2_job", "running")
+    steps = update_step_status(steps, "approve", "completed")
+    steps = update_step_status(steps, "apply_sql", "running")
 
     update_run(
         db_path,
         run_id,
-        status="stage2_running",
+        status="applying_sql",
         steps_json=json.dumps(steps),
-        current_step="stage2_job",
+        current_step="apply_sql",
+        approved_by=user.email,
+        approved_at=now,
         updated_at=now,
     )
 
-    background_tasks.add_task(_run_stage_job, db_path, data_dir, run_id, 2)
+    background_tasks.add_task(_run_apply_sql_job, db_path, data_dir, run_id)
 
     updated = get_run(db_path, run_id)
     assert updated is not None
     return _run_to_response(updated, db_path)
+
+
+# ── MorDom upload & apply ───────────────────────────────────────────────────
+
+
+@router.post(
+    "/runs/{run_id}/upload",
+    response_model=EligibilityRunResponse,
+    summary="Upload corrected MorDom CSV",
+    description="Upload corrected MorDom CSV with households to remove/keep.",
+)
+async def upload_mordom(
+    run_id: str,
+    request: Request,
+    user: CurrentAzureADUser,
+    file: UploadFile = File(...),
+) -> EligibilityRunResponse:
+    db_path = _get_db_path(request)
+    data_dir = _get_data_dir(request)
+    run = get_run(db_path, run_id)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": f"Eligibility run not found: {run_id}"},
+        )
+
+    if run["status"] != "mordom_ready":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "invalid_status",
+                "message": f"Cannot upload: run status is '{run['status']}', expected 'mordom_ready'",
+            },
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Save file to disk
+    upload_dir = os.path.join(data_dir, "eligibility", run_id, "mordom", "upload")
+    os.makedirs(upload_dir, exist_ok=True)
+    filename = file.filename or f"mordom_corrected_{now}.csv"
+    file_path = os.path.join(upload_dir, filename)
+
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    file_size = len(content)
+    file_id = str(uuid.uuid4())
+    insert_file(
+        db_path,
+        file_id=file_id,
+        run_id=run_id,
+        stage=2,
+        direction="upload",
+        filename=filename,
+        stored_path=file_path,
+        file_size_bytes=file_size,
+        uploaded_by=user.email,
+        created_at=now,
+    )
+
+    steps = run.get("steps_json") or []
+    if isinstance(steps, str):
+        steps = json.loads(steps)
+    steps = update_step_status(steps, "upload_mordom", "completed")
+
+    update_run(
+        db_path,
+        run_id,
+        status="mordom_uploaded",
+        steps_json=json.dumps(steps),
+        current_step="apply_mordom",
+        updated_at=now,
+    )
+
+    updated = get_run(db_path, run_id)
+    assert updated is not None
+    return _run_to_response(updated, db_path)
+
+
+@router.post(
+    "/runs/{run_id}/apply-mordom",
+    response_model=EligibilityRunResponse,
+    summary="Apply MorDom corrections",
+    description="Apply final MorDom corrections and mark eligibility as ready.",
+)
+async def apply_mordom(
+    run_id: str,
+    request: Request,
+    user: CurrentAzureADUser,
+    background_tasks: BackgroundTasks,
+) -> EligibilityRunResponse:
+    db_path = _get_db_path(request)
+    data_dir = _get_data_dir(request)
+    run = get_run(db_path, run_id)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": f"Eligibility run not found: {run_id}"},
+        )
+
+    if run["status"] != "mordom_uploaded":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "invalid_status",
+                "message": f"Cannot apply MorDom: run status is '{run['status']}', expected 'mordom_uploaded'",
+            },
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+    steps = run.get("steps_json") or []
+    if isinstance(steps, str):
+        steps = json.loads(steps)
+    steps = update_step_status(steps, "apply_mordom", "running")
+
+    update_run(
+        db_path,
+        run_id,
+        status="applying_mordom",
+        steps_json=json.dumps(steps),
+        current_step="apply_mordom",
+        updated_at=now,
+    )
+
+    background_tasks.add_task(_run_apply_mordom_job, db_path, data_dir, run_id)
+
+    updated = get_run(db_path, run_id)
+    assert updated is not None
+    return _run_to_response(updated, db_path)
+
+
+# ── File management ─────────────────────────────────────────────────────────
 
 
 @router.get(
@@ -495,146 +761,7 @@ async def download_file(
     )
 
 
-@router.post(
-    "/runs/{run_id}/upload",
-    response_model=EligibilityRunResponse,
-    summary="Upload a CSV file",
-    description="Upload a CSV for the current stage. Detects stage from run status.",
-)
-async def upload_file(
-    run_id: str,
-    request: Request,
-    user: CurrentAzureADUser,
-    file: UploadFile = File(...),
-) -> EligibilityRunResponse:
-    db_path = _get_db_path(request)
-    data_dir = _get_data_dir(request)
-    run = get_run(db_path, run_id)
-    if not run:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "not_found", "message": f"Eligibility run not found: {run_id}"},
-        )
-
-    # Detect stage from status
-    status_to_stage = {
-        "stage1_ready": 1,
-        "stage2_ready": 2,
-    }
-    current_status = run["status"]
-    stage = status_to_stage.get(current_status)
-    if stage is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": "invalid_status",
-                "message": f"Cannot upload: run status is '{current_status}', expected 'stage1_ready' or 'stage2_ready'",
-            },
-        )
-
-    now = datetime.now(timezone.utc).isoformat()
-
-    # Save file to disk
-    upload_dir = os.path.join(
-        data_dir, "eligibility", run_id, f"stage{stage}", "upload"
-    )
-    os.makedirs(upload_dir, exist_ok=True)
-    filename = file.filename or f"upload_{now}.csv"
-    file_path = os.path.join(upload_dir, filename)
-
-    content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
-
-    file_size = len(content)
-
-    # Record file in DB
-    file_id = str(uuid.uuid4())
-    insert_file(
-        db_path,
-        file_id=file_id,
-        run_id=run_id,
-        stage=stage,
-        direction="upload",
-        filename=filename,
-        stored_path=file_path,
-        file_size_bytes=file_size,
-        uploaded_by=user.email,
-        created_at=now,
-    )
-
-    # Update steps and status
-    steps = run.get("steps_json") or []
-    if isinstance(steps, str):
-        steps = json.loads(steps)
-    upload_step = f"stage{stage}_upload"
-    steps = update_step_status(steps, upload_step, "completed")
-
-    new_status = f"stage{stage}_uploaded"
-    next_step = "stage2_job" if stage == 1 else "finalize"
-
-    update_run(
-        db_path,
-        run_id,
-        status=new_status,
-        steps_json=json.dumps(steps),
-        current_step=next_step,
-        updated_at=now,
-    )
-
-    updated = get_run(db_path, run_id)
-    assert updated is not None
-    return _run_to_response(updated, db_path)
-
-
-@router.post(
-    "/runs/{run_id}/finalize",
-    response_model=EligibilityRunResponse,
-    summary="Finalize run",
-    description="Mark run as finalized. Requires status=stage2_uploaded.",
-)
-async def finalize_run(
-    run_id: str,
-    request: Request,
-    user: CurrentAzureADUser,
-) -> EligibilityRunResponse:
-    db_path = _get_db_path(request)
-    run = get_run(db_path, run_id)
-    if not run:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "not_found", "message": f"Eligibility run not found: {run_id}"},
-        )
-
-    if run["status"] != "stage2_uploaded":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": "invalid_status",
-                "message": f"Cannot finalize: run status is '{run['status']}', expected 'stage2_uploaded'",
-            },
-        )
-
-    now = datetime.now(timezone.utc).isoformat()
-    steps = run.get("steps_json") or []
-    if isinstance(steps, str):
-        steps = json.loads(steps)
-    steps = update_step_status(steps, "finalize", "completed")
-    steps = update_step_status(steps, "complete", "completed")
-
-    update_run(
-        db_path,
-        run_id,
-        status="finalized",
-        steps_json=json.dumps(steps),
-        current_step="complete",
-        completed_at=now,
-        updated_at=now,
-    )
-
-    updated = get_run(db_path, run_id)
-    assert updated is not None
-    return _run_to_response(updated, db_path)
+# ── Cancel ──────────────────────────────────────────────────────────────────
 
 
 @router.post(

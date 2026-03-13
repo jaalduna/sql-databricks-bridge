@@ -19,11 +19,15 @@ vi.mock("@azure/msal-react", () => ({
 const mockGetEvents = vi.fn()
 vi.mock("@/lib/api", () => ({
   getEvents: (...args: unknown[]) => mockGetEvents(...args),
+  getCountries: vi.fn().mockResolvedValue({ countries: [
+    { code: "bolivia", queries: [], queries_count: 0, type: "country" },
+    { code: "chile", queries: [], queries_count: 0, type: "country" },
+  ] }),
   setTokenProvider: vi.fn(),
   api: { interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } } },
 }))
 
-import HistoryPage from "@/pages/HistoryPage"
+import HistoryPage from "@/modules/sync/pages/HistoryPage"
 
 const makeEvent = (overrides: Record<string, unknown> = {}) => ({
   job_id: "job-1",

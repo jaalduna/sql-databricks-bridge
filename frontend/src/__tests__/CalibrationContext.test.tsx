@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest"
 import { render, act, waitFor } from "@testing-library/react"
-import { CalibrationProvider, useCalibrationContext } from "@/contexts/CalibrationContext"
+import { CalibrationProvider, useCalibrationContext } from "@/modules/calibracion/contexts/CalibrationContext"
+import type { EventDetail } from "@/types/api"
 
 const STORAGE_KEY = "bridge:calibration-job-ids"
 
@@ -74,7 +75,7 @@ describe("CalibrationContext", () => {
     localStorage.clear()
     mockGetEvent.mockReset()
     // Default: return a running job so rehydration does not clear it unless overridden per test
-    mockGetEvent.mockResolvedValue({ status: "running" })
+    mockGetEvent.mockResolvedValue({ status: "running" } as EventDetail)
   })
 
   // -------------------------------------------------------------------------
@@ -158,7 +159,7 @@ describe("CalibrationContext", () => {
   describe("S10-002: backend rehydration", () => {
     it("clears completed jobs on mount", async () => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ bolivia: "job-done" }))
-      mockGetEvent.mockResolvedValue({ status: "completed" })
+      mockGetEvent.mockResolvedValue({ status: "completed" } as EventDetail)
 
       let capturedCtx: ReturnType<typeof useCalibrationContext> | null = null
 
@@ -175,7 +176,7 @@ describe("CalibrationContext", () => {
 
     it("keeps running jobs on mount", async () => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ bolivia: "job-running" }))
-      mockGetEvent.mockResolvedValue({ status: "running" })
+      mockGetEvent.mockResolvedValue({ status: "running" } as EventDetail)
 
       let capturedCtx: ReturnType<typeof useCalibrationContext> | null = null
 

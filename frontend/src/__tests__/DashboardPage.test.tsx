@@ -40,7 +40,7 @@ vi.mock("@/lib/api", () => ({
   api: { interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } } },
 }))
 
-import DashboardPage from "@/pages/DashboardPage"
+import DashboardPage from "@/modules/sync/pages/DashboardPage"
 
 const DEFAULT_COUNTRIES = {
   countries: [

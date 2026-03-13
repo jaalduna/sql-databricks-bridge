@@ -1,145 +1,61 @@
 # SQL-Databricks Bridge
 
-Bidirectional data synchronization service between SQL Server and Databricks.
+Bidirectional data synchronization service between SQL Server and Databricks, with a desktop UI for calibration and eligibility workflows.
 
 ---
 
-## Context
+## Overview
 
-In modern data architectures, organizations often need to maintain data across multiple platforms:
+Organizations using both SQL Server (operational/transactional) and Databricks (analytics/ML) need a reliable way to move data between them. This bridge provides:
 
-- **SQL Server**: Traditional OLTP databases for operational systems, legacy applications, and transactional workloads
-- **Databricks**: Modern lakehouse platform for analytics, machine learning, and big data processing
-
-This creates a common challenge: **how to keep data synchronized between these two worlds?**
-
-## Problem
-
-Data teams face several challenges when working with hybrid SQL Server + Databricks environments:
-
-1. **Manual Data Transfers**: Teams resort to manual exports/imports, leading to errors and inconsistencies
-2. **Lack of Automation**: No standardized way to schedule or trigger data movements
-3. **Bi-directional Sync**: Most solutions only support one-way data flow
-4. **Security Concerns**: Exposing database credentials across systems increases attack surface
-5. **No Audit Trail**: Difficult to track what data was moved, when, and by whom
-6. **Complex Setup**: Requires deep knowledge of both platforms to configure properly
-
-## Solution
-
-**SQL-Databricks Bridge** provides a unified service that solves these challenges:
-
-- **Bi-directional Sync**: Extract from SQL Server -> Databricks AND sync from Databricks -> SQL Server
-- **REST API + CLI**: Flexible interfaces for different use cases (automation, manual operations)
-- **Event-Driven Architecture**: Databricks jobs can trigger SQL operations via an events table
-- **Token-Based Security**: Per-table permissions with operation limits (e.g., max delete rows)
-- **Comprehensive Audit Logging**: Track all operations for compliance and debugging
-- **Python SDK**: Easy integration from Databricks notebooks and jobs
+- **SQL Server -> Databricks**: Extract tables via country-specific SQL queries, convert to Parquet, create Delta tables
+- **Databricks -> SQL Server**: Event-driven sync (INSERT/UPDATE/DELETE) via a bridge events table
+- **Calibration**: Trigger and monitor Databricks calibration jobs per country
+- **Eligibility**: Run and track eligibility workflows per country
+- **Desktop UI**: React + Tauri app for managing all operations visually
 
 ---
 
-## Architecture Diagram
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                                    ARCHITECTURE                                          │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────┐                                           ┌─────────────────────┐
-│                     │                                           │                     │
-│    SQL SERVER       │                                           │     DATABRICKS      │
-│                     │                                           │                     │
-│  ┌───────────────┐  │                                           │  ┌───────────────┐  │
-│  │  Operational  │  │                                           │  │   Volumes     │  │
-│  │    Tables     │  │        SQL -> Databricks                   │  │   (Parquet)   │  │
-│  │               │  │  <-----------------------------------> │  │               │  │
-│  │  dbo.Sales    │  │        Extraction + Upload                │  │  /extract/    │  │
-│  │  dbo.Products │  │                                           │  │    sales.pq   │  │
-│  │  dbo.Customers│  │                                           │  │    prods.pq   │  │
-│  └───────────────┘  │                                           │  └───────────────┘  │
-│                     │                                           │                     │
-│  ┌───────────────┐  │                                           │  ┌───────────────┐  │
-│  │   Target      │  │        Databricks -> SQL                   │  │   Events      │  │
-│  │   Tables      │  │  <-----------------------------------> │  │   Table       │  │
-│  │               │  │        Event-Driven Sync                  │  │               │  │
-│  │  dbo.Results  │  │        (INSERT/UPDATE/DELETE)             │  │ bridge_events │  │
-│  └───────────────┘  │                                           │  └───────────────┘  │
-│                     │                                           │                     │
-└──────────┬──────────┘                                           └──────────┬──────────┘
-           │                                                                  │
-           │                                                                  │
-           │              ┌───────────────────────────────────┐               │
-           │              │                                   │               │
-           │              │    SQL-DATABRICKS BRIDGE          │               │
-           │              │         (Service)                 │               │
-           │              │                                   │               │
-           │              │  ┌─────────────────────────────┐  │               │
-           └──────────────┤  │        REST API             │  ├───────────────┘
-                          │  │  POST /extract              │  │
-                          │  │  GET  /jobs/{id}            │  │
-                          │  │  POST /sync                 │  │
-                          │  │  GET  /health               │  │
-                          │  └─────────────────────────────┘  │
-                          │                                   │
-                          │  ┌─────────────────────────────┐  │
-                          │  │         CLI                 │  │
-                          │  │  $ bridge extract           │  │
-                          │  │  $ bridge serve             │  │
-                          │  │  $ bridge test-connection   │  │
-                          │  └─────────────────────────────┘  │
-                          │                                   │
-                          │  ┌─────────────────────────────┐  │
-                          │  │     Event Poller            │  │
-                          │  │  Monitors bridge_events     │  │
-                          │  │  Executes sync operations   │  │
-                          │  └─────────────────────────────┘  │
-                          │                                   │
-                          └───────────────────────────────────┘
-                                           │
-                                           │
-              ┌────────────────────────────┴────────────────────────────┐
-              │                                                         │
-              ▼                                                         ▼
-┌─────────────────────────────┐                       ┌─────────────────────────────┐
-│                             │                       │                             │
-│   Python SDK                │                       │   External Clients          │
-│   (Databricks Jobs)         │                       │   (CI/CD, Airflow, etc)     │
-│                             │                       │                             │
-│  from sql_databricks_       │                       │  curl -X POST /extract      │
-│    bridge_sdk import        │                       │    -H "Authorization: ..."  │
-│    BridgeEventsClient       │                       │    -d '{"country": "CO"}'   │
-│                             │                       │                             │
-│  client = BridgeEvents...() │                       │                             │
-│  client.create_insert_event │                       │                             │
-│  client.wait_for_completion │                       │                             │
-│                             │                       │                             │
-└─────────────────────────────┘                       └─────────────────────────────┘
+┌─────────────────────┐                              ┌─────────────────────┐
+│    SQL SERVER        │                              │     DATABRICKS      │
+│                      │    SQL -> Databricks         │                     │
+│  Operational Tables  │  ──────────────────────────> │  Delta Tables       │
+│  (9 countries,       │    Extract + Parquet + CTAS  │  (Unity Catalog)    │
+│   5 servers)         │                              │                     │
+│                      │    Databricks -> SQL         │  Calibration Jobs   │
+│  Target Tables       │  <────────────────────────── │  Eligibility Jobs   │
+│                      │    Event-Driven Sync         │  bridge_events      │
+└──────────┬───────────┘                              └──────────┬──────────┘
+           │                                                      │
+           │         ┌────────────────────────────────┐           │
+           │         │   SQL-DATABRICKS BRIDGE        │           │
+           │         │        (FastAPI)                │           │
+           │         │                                 │           │
+           └─────────┤  REST API + WebSocket           ├───────────┘
+                     │  Event Poller                   │
+                     │  Calibration Launcher           │
+                     │  Databricks Job Monitor         │
+                     └───────────────┬─────────────────┘
+                                     │
+                     ┌───────────────┴─────────────────┐
+                     │   Desktop UI (Tauri + React)     │
+                     │                                  │
+                     │  Sync Dashboard                  │
+                     │  Calibration Manager             │
+                     │  Eligibility Manager             │
+                     └──────────────────────────────────┘
 ```
 
 ---
 
-## Data Flow
+## Supported Countries
 
-### Flow 1: SQL Server -> Databricks (Extraction)
+Argentina, Bolivia, Brasil, CAM, Chile, Colombia, Ecuador, Mexico, Peru
 
-```
-SQL Server  --(query)-->  Bridge  --(parquet)-->  Databricks Volume
-```
-
-1. Client requests extraction via CLI or API
-2. Bridge executes SQL queries with country-specific parameters
-3. Results converted to Parquet using Polars
-4. Files uploaded to Databricks Volumes via SDK
-
-### Flow 2: Databricks -> SQL Server (Event-Driven Sync)
-
-```
-Databricks Job  --(insert event)-->  Events Table  --(poll)-->  Bridge  --(sync)-->  SQL Server
-```
-
-1. Databricks job inserts event into `bridge_events` table
-2. Bridge poller detects new events
-3. Bridge reads source data from Databricks
-4. Bridge executes INSERT/UPDATE/DELETE on SQL Server
+Each country has its own SQL Server instance, query set, and configuration.
 
 ---
 
@@ -147,199 +63,153 @@ Databricks Job  --(insert event)-->  Events Table  --(poll)-->  Bridge  --(sync)
 
 ```
 sql-databricks-bridge/
-├── src/
-│   └── sql_databricks_bridge/          # Main application package
-│       ├── api/                         # REST API layer
-│       │   ├── routes/                  # API endpoints
-│       │   │   ├── extract.py           # POST /extract
-│       │   │   ├── jobs.py              # GET/DELETE /jobs
-│       │   │   ├── sync.py              # POST /sync
-│       │   │   └── health.py            # Health checks
-│       │   ├── schemas.py               # Pydantic request/response models
-│       │   └── dependencies.py          # FastAPI dependencies
-│       │
-│       ├── auth/                        # Authentication & Authorization
-│       │   ├── token.py                 # Token validation
-│       │   ├── permissions.py           # Permission checking
-│       │   ├── loader.py                # Load permissions from YAML
-│       │   └── audit.py                 # Security audit logging
-│       │
-│       ├── cli/                         # Command-Line Interface
-│       │   └── commands.py              # Typer CLI commands
-│       │
-│       ├── core/                        # Core business logic
-│       │   ├── config.py                # Configuration management
-│       │   ├── extractor.py             # Data extraction logic
-│       │   ├── country_query_loader.py  # Country-aware query loader
-│       │   ├── delta_writer.py          # Delta table writer
-│       │   └── uploader.py              # Databricks upload logic
-│       │
-│       ├── db/                          # Database clients
-│       │   ├── sql_server.py            # SQL Server connection
-│       │   └── databricks.py            # Databricks SDK wrapper
-│       │
-│       ├── sync/                        # Databricks -> SQL sync
-│       │   ├── poller.py                # Event table poller
-│       │   ├── operations.py            # INSERT/UPDATE/DELETE ops
-│       │   ├── validators.py            # Data validation
-│       │   └── retry.py                 # Retry with backoff
-│       │
-│       ├── models/                      # Data models
-│       │   └── events.py                # Event model definitions
-│       │
-│       ├── main.py                      # FastAPI application
-│       ├── server.py                    # Standalone server (Nuitka)
-│       └── __main__.py                  # CLI entry point
+├── src/sql_databricks_bridge/       # Backend (FastAPI)
+│   ├── api/routes/                  # REST endpoints
+│   │   ├── extract.py               #   POST /extract
+│   │   ├── sync.py                  #   POST /sync
+│   │   ├── jobs.py                  #   GET /jobs
+│   │   ├── trigger.py               #   POST /trigger (calibration)
+│   │   ├── eligibility.py           #   Eligibility endpoints
+│   │   ├── pipeline.py              #   Pipeline status
+│   │   ├── databricks_jobs.py       #   Databricks job management
+│   │   ├── health.py                #   Health checks
+│   │   ├── metadata.py              #   Country/query metadata
+│   │   └── tags.py                  #   Version tags
+│   ├── auth/                        # Azure AD + token auth
+│   ├── cli/commands.py              # Typer CLI
+│   ├── core/                        # Business logic
+│   │   ├── extractor.py             #   SQL extraction
+│   │   ├── delta_writer.py          #   Delta table creation
+│   │   ├── calibration_launcher.py  #   Launch Databricks jobs
+│   │   ├── calibration_tracker.py   #   Track job progress
+│   │   ├── databricks_monitor.py    #   Monitor running jobs
+│   │   ├── country_query_loader.py  #   Country-aware query resolution
+│   │   ├── diff_sync.py             #   Differential sync
+│   │   └── pipeline_tracker.py      #   Pipeline state tracking
+│   ├── db/                          # Database clients
+│   │   ├── sql_server.py            #   SQL Server (pyodbc)
+│   │   ├── databricks.py            #   Databricks SDK
+│   │   └── local_store.py           #   SQLite local persistence
+│   ├── sync/                        # Databricks -> SQL sync
+│   │   ├── poller.py                #   Event table poller
+│   │   ├── operations.py            #   INSERT/UPDATE/DELETE
+│   │   └── retry.py                 #   Exponential backoff
+│   ├── models/                      # Pydantic models
+│   └── main.py                      # FastAPI app + lifespan
 │
-├── sdk/                                 # Python SDK for Databricks
-│   └── sql_databricks_bridge_sdk/
-│       ├── api_client.py                # REST API client
-│       ├── events_client.py             # Events table client
-│       ├── models.py                    # SDK data models
-│       └── exceptions.py                # SDK exceptions
+├── frontend/                        # Desktop UI
+│   ├── src/
+│   │   ├── modules/
+│   │   │   ├── sync/                #   Dashboard, history, event detail
+│   │   │   ├── calibracion/         #   Calibration management per country
+│   │   │   └── elegibilidad/        #   Eligibility workflows
+│   │   ├── components/              #   Shared UI components
+│   │   ├── hooks/                   #   Shared React hooks
+│   │   └── lib/                     #   API client, auth config
+│   └── src-tauri/                   # Tauri desktop wrapper
 │
-├── config/                              # Configuration files
-│   └── permissions.yaml                 # Token permissions
+├── queries/                         # SQL query templates
+│   ├── countries/{country}/*.sql    #   Per-country queries (9 countries)
+│   └── servers/{server}/*.sql       #   Per-server queries (5 servers)
 │
-├── queries/                             # SQL query templates
-│   ├── common/                          # Shared queries (all countries)
-│   │   └── *.sql
-│   └── countries/                       # Country-specific queries
-│       ├── bolivia/                     # Bolivia-specific or overrides
-│       │   └── *.sql
-│       ├── chile/
-│       │   └── *.sql
-│       └── colombia/
-│           └── *.sql
+├── config/                          # YAML configuration
+│   ├── countries/{country}.yaml     #   Per-country settings
+│   ├── servers/{server}.yaml        #   SQL Server connection configs
+│   ├── stages.yaml                  #   Extraction stage definitions
+│   └── permissions.yaml             #   API token permissions
 │
-├── build/                               # Build scripts
-│   ├── build_nuitka.py                  # Nuitka compilation
-│   └── build.bat                        # Windows build script
-│
-├── scripts/                             # Utility scripts
-│   ├── test_databricks_connection.py
-│   ├── test_sql_connection.py
-│   └── setup_databricks_tables.py
-│
-├── tests/                               # Test suite
-│   ├── unit/                            # Unit tests (no external deps)
-│   └── integration/                     # Integration tests
-│
-├── docs/                                # Documentation
-│   ├── ARCHITECTURE.md
-│   ├── BUILD_EXECUTABLE.md
-│   ├── GUIA_USUARIO.md
-│   └── SDK_USER_GUIDE.md
-│
-├── pyproject.toml                       # Poetry dependencies
-├── .env.example                         # Environment template
-└── README.md                            # This file
-```
-
----
-
-## Features
-
-- **SQL -> Databricks Extraction**: CLI and REST API for extracting data from SQL Server and creating Delta tables
-- **Country-Aware Queries**: Automatic query resolution with country-specific overrides
-- **Databricks -> SQL Sync**: Event-driven synchronization with INSERT/UPDATE/DELETE support
-- **Time-based Filtering**: Single `lookback_months` parameter for fact queries
-- **Token-based Auth**: Per-table permissions with delete limits
-- **Retry Logic**: Exponential backoff for transient failures
-- **Audit Logging**: Security event tracking
-
-### Country-Aware Query System
-
-The bridge uses a **hierarchical query resolution** system:
-
-```
-queries/
-├── common/                  # Shared queries (all countries)
-│   ├── products.sql         # Used by all countries
-│   └── customers.sql
-└── countries/               # Country-specific queries
-    ├── bolivia/
-    │   ├── j_atoscompra_new.sql   # Bolivia-only query
-    │   └── customers.sql          # Overrides common/customers.sql
-    ├── chile/
-    │   └── ventas.sql       # Chile-only query
-    └── colombia/
-        └── tax_report.sql   # Colombia-only query
-```
-
-**Resolution priority:**
-1. Check `countries/{country}/{query}.sql` (country-specific)
-2. Fallback to `common/{query}.sql` (shared)
-3. Error if neither exists
-
-**Time-based filtering:**
-- Fact queries use `{lookback_months}` placeholder
-- Dimension queries extract all data (no time filter)
-
-**Example fact query** (`j_atoscompra_new.sql`):
-```sql
-SELECT * FROM j_atoscompra_new
-WHERE periodo >= FORMAT(DATEADD(MONTH, -{lookback_months}, GETDATE()), 'yyyyMMdd')
-```
-
-**Example dimension query** (`dolar.sql`):
-```sql
-SELECT * FROM dolar
--- Extract all historical exchange rates
+├── sdk/                             # Python SDK for Databricks jobs
+├── scripts/                         # Utility scripts
+├── tests/                           # Unit + integration tests
+├── deploy/                          # Deployment configs
+├── vendor/                          # Vendored wheels
+└── docs/                            # Documentation
 ```
 
 ---
 
 ## Quick Start
 
+### Backend
+
 ```bash
 # Install
 poetry install
-cp .env.example .env
-# Edit .env with your credentials
-
-# Extract data (last 24 months by default)
-sql-databricks-bridge extract \
-  --queries-path ./queries \
-  --country bolivia \
-  --lookback-months 24
-
-# Extract with custom catalog/schema
-sql-databricks-bridge extract \
-  --queries-path ./queries \
-  --country bolivia \
-  --destination kpi_prd_01.bolivia \
-  --lookback-months 12
+cp .env.example .env   # Edit with your credentials
 
 # Start API server
-sql-databricks-bridge serve
+bridge serve
+
+# Or use start script
+./start.sh
 ```
 
-## CLI Commands
-
-| Command | Description |
-|---------|-------------|
-| `extract` | Extract data from SQL Server to Databricks Delta tables |
-| `list-queries --country {name}` | List available SQL queries for a country |
-| `list-countries` | List available countries and their SQL Server configs |
-| `test-connection` | Test SQL Server and Databricks connectivity |
-| `serve` | Start the REST API server |
-| `version` | Show version information |
-
-### Extract Command
+### Frontend (Desktop App)
 
 ```bash
-sql-databricks-bridge extract \
-  --queries-path ./queries \          # Path to queries directory
-  --country bolivia \                  # Country name (used as schema if no --destination)
-  --lookback-months 24 \              # Time window for fact queries (default: 24)
-  --destination kpi_prd_01.bolivia \  # Optional: catalog.schema override
-  --limit 1000                        # Optional: row limit for testing
+cd frontend
+npm install
+
+# Dev mode (browser)
+npm run dev
+
+# Desktop app
+npm run tauri:dev
 ```
 
-**Output structure:**
-- Tables created as: `` `catalog`.`{country}`.`{query_name}` ``
-- Example: `` `kpi_prd_01`.`bolivia`.`j_atoscompra_new` ``
+### CLI
+
+```bash
+# Extract all tables for a country
+bridge extract --queries-path ./queries --country bolivia --lookback-months 24
+
+# With custom destination
+bridge extract --queries-path ./queries --country chile --destination kpi_dev_01.chile
+
+# List available queries
+bridge list-queries --country colombia
+
+# List countries and their servers
+bridge list-countries
+
+# Test connections
+bridge test-connection
+```
+
+---
+
+## Data Flows
+
+### Flow 1: SQL Server -> Databricks (Extraction)
+
+1. Client requests extraction via CLI, API, or UI
+2. Bridge resolves country-specific queries from `queries/countries/{country}/`
+3. Executes SQL with `{lookback_months}` parameter substitution
+4. Converts results to Parquet via Polars
+5. Uploads to Databricks Volume staging path
+6. Creates Delta table via `CREATE OR REPLACE TABLE ... AS SELECT * FROM read_files()`
+
+### Flow 2: Databricks -> SQL Server (Event-Driven Sync)
+
+1. Databricks job inserts event into `bridge_events` table
+2. Bridge poller detects new events (every 10s)
+3. Reads source data from Databricks
+4. Executes INSERT/UPDATE/DELETE on SQL Server
+
+### Flow 3: Calibration
+
+1. User selects country + parameters in UI
+2. Backend triggers Databricks job via Jobs API
+3. Monitor polls job status, streams progress via WebSocket
+4. Results and history tracked in local SQLite store
+
+### Flow 4: Eligibility
+
+1. User configures eligibility run per country
+2. Backend orchestrates eligibility workflow
+3. Status tracked and displayed in UI
+
+---
 
 ## API Endpoints
 
@@ -349,59 +219,50 @@ sql-databricks-bridge extract \
 | GET | `/jobs/{id}` | Get job status |
 | GET | `/jobs` | List all jobs |
 | DELETE | `/jobs/{id}` | Cancel job |
+| POST | `/sync` | Trigger sync operation |
+| POST | `/trigger/calibration` | Launch calibration job |
+| GET | `/trigger/calibration/status` | Calibration job status |
+| GET | `/eligibility/*` | Eligibility endpoints |
+| GET | `/pipeline/status` | Pipeline stage status |
+| GET | `/metadata/countries` | Available countries |
 | GET | `/health/live` | Liveness probe |
 | GET | `/health/ready` | Readiness probe |
 
+---
+
+## Country-Aware Query System
+
+Queries are organized per-country under `queries/countries/{country}/`:
+
+```
+queries/countries/
+├── argentina/     # ~35 queries
+├── bolivia/       # ~40 queries
+├── brasil/        # ~40 queries
+├── cam/           # ~30 queries
+├── chile/         # ~40 queries
+├── colombia/      # ~40 queries
+├── ecuador/       # ~35 queries
+├── mexico/        # ~40 queries
+└── peru/          # ~35 queries
+```
+
+**Time-based filtering** — fact queries use `{lookback_months}` placeholder:
+```sql
+SELECT * FROM j_atoscompra_new
+WHERE periodo >= FORMAT(DATEADD(MONTH, -{lookback_months}, GETDATE()), 'yyyyMMdd')
+```
+
+Dimension queries extract all data (no time filter).
+
+---
+
 ## Configuration
-
-### Multi-Country Support with kantar_db_handler
-
-This bridge supports **multi-country deployments** where different countries use different SQL Server instances. This is achieved through integration with `kantar_db_handler`, which manages country-specific database configurations.
-
-**How it works:**
-
-1. Each country has a configuration file in `kantar_db_handler` (e.g., `Chile.json`, `Argentina.json`)
-2. Each config specifies the SQL Server hostname and database for that country
-3. When you make a request with a `country` parameter, the bridge automatically connects to the correct server
-
-**Available countries:**
-```bash
-# List all configured countries and their servers
-sql-databricks-bridge list-countries
-```
-
-**Example usage:**
-
-```bash
-# Extract data from Chile (tables created in `catalog`.`chile`.*)
-sql-databricks-bridge extract \
-  --country chile \
-  --queries-path ./queries \
-  --lookback-months 24
-
-# Extract data from Argentina (connects to different server automatically)
-sql-databricks-bridge extract \
-  --country argentina \
-  --queries-path ./queries \
-  --destination kpi_prd_01.argentina \
-  --lookback-months 12
-```
-
-**Installation:**
-
-```bash
-# kantar_db_handler should be in the same parent directory
-pip install -e ../kantar_db_handler
-```
-
-**Fallback to manual configuration:**
-
-If `kantar_db_handler` is not installed, the bridge uses the SQL Server settings from `.env` (single server only).
 
 ### Environment Variables
 
 ```bash
-# SQL Server
+# SQL Server (fallback if kantar_db_handler not available)
 SQLSERVER_HOST=your-server.database.windows.net
 SQLSERVER_DATABASE=your_database
 SQLSERVER_USERNAME=your_user
@@ -413,7 +274,9 @@ DATABRICKS_TOKEN=your_token
 DATABRICKS_CATALOG=your_catalog
 ```
 
-### Permissions (config/permissions.yaml)
+See `.env.example` for all available settings.
+
+### Permissions (`config/permissions.yaml`)
 
 ```yaml
 users:
@@ -425,254 +288,11 @@ users:
         max_delete_rows: 10000
 ```
 
-### Important Technical Notes
+---
 
-#### Table Naming Convention
-
-**Schema = Country:** The country name becomes the schema name, eliminating the need for country prefixes in table names.
-
-```bash
-sql-databricks-bridge extract \
-  --country bolivia \
-  --queries-path ./queries
-
-# Creates tables: `kpi_prd_01`.`bolivia`.`j_atoscompra_new`
-#                 `kpi_prd_01`.`bolivia`.`dolar`
-```
-
-**With custom catalog:**
-```bash
-sql-databricks-bridge extract \
-  --country chile \
-  --destination kpi_dev_01.chile
-
-# Creates tables: `kpi_dev_01`.`chile`.`ventas`
-```
-
-**Special characters:** The bridge automatically adds backticks for names with hyphens:
-- `` `002-mwp`.`bolivia`.`sales` `` [OK] (handled automatically)
-- Unity Catalog allows hyphens: `dev-workspace`, `002-mwp`, etc.
-
-#### Windows Console Compatibility
-
-The CLI has been optimized for Windows environments:
-
-- **Unicode symbols removed**: Progress indicators use ASCII-compatible characters (OK, FAIL, ->)
-- **Time-based progress**: Replaced Unicode spinner with elapsed time display
-- **No encoding errors**: Works correctly in Windows Command Prompt and PowerShell
-
-If you encounter encoding issues on other platforms, ensure your terminal supports UTF-8:
-```bash
-# Linux/macOS
-export LANG=en_US.UTF-8
-
-# Windows PowerShell
-$OutputEncoding = [System.Text.Encoding]::UTF8
-```
-
-#### Stage-then-CTAS Pattern
-
-The bridge uses a two-phase approach for creating Delta tables:
-
-1. **Stage**: Upload Parquet file to `/Volumes/{catalog}/{schema}/{volume}/_staging/`
-2. **CTAS**: Execute `CREATE OR REPLACE TABLE ... AS SELECT * FROM read_files()`
-3. **Cleanup**: Delete temporary staging file
-
-**Benefits:**
-- Atomic table replacements (no intermediate states)
-- Automatic schema inference from Parquet
-- Unity Catalog integration
-- Clean storage (no leftover staging files)
-
-The staging path automatically uses the same catalog/schema as the target table, ensuring proper namespace alignment.
-
-## Databricks -> SQL Sync
-
-Insert events into `bridge.events.bridge_events`:
-
-```sql
-INSERT INTO bridge.events.bridge_events (
-  event_id, operation, source_table, target_table, primary_keys
-) VALUES (
-  uuid(), 'INSERT', 'catalog.schema.source', 'dbo.target', array('id')
-);
-```
-
-The poller processes events every 10 seconds.
-
-## SDKs
-
-The bridge provides two SDKs for different use cases:
-
-```mermaid
-flowchart TB
-    subgraph External["External Applications"]
-        App1["Python App"]
-        App2["Service"]
-        App3["Script"]
-    end
-
-    subgraph Bridge["SQL-Databricks Bridge Server"]
-        API["REST API\n(FastAPI)"]
-        Core["Core Layer"]
-    end
-
-    subgraph Databricks["Databricks Environment"]
-        NB["Notebook"]
-        Job["Job"]
-        WF["Workflow"]
-    end
-
-    subgraph SDK["SDKs"]
-        Client["BridgeClient\n(API Local)"]
-        Operator["BridgeOperator\n(Databricks Jobs)"]
-    end
-
-    App1 --> Client
-    App2 --> Client
-    App3 --> Client
-    Client -->|"HTTP/REST"| API
-    API --> Core
-
-    NB --> Operator
-    Job --> Operator
-    WF --> Operator
-    Operator -->|"Direct"| Core
-
-    Core --> SQL[(SQL Server)]
-    Core --> DBX[(Databricks\nUnity Catalog)]
-```
-
-### SDK: API Local (BridgeClient)
-
-For external applications consuming the REST API:
+## SDK (for Databricks Jobs)
 
 ```python
-from sql_databricks_bridge.sdk import BridgeClient
-
-# Initialize client
-client = BridgeClient(
-    base_url="http://localhost:8000",
-    token="your-api-token"
-)
-
-# Extract data from SQL Server to Databricks
-job = client.extract(
-    queries_path="./queries",
-    country="colombia",
-    lookback_months=24
-)
-
-# Submit sync event (Databricks -> SQL Server)
-event = client.submit_sync_event(
-    operation="INSERT",
-    source_table="catalog.schema.source_table",
-    target_table="dbo.target_table",
-    primary_keys=["id"]
-)
-```
-
-### SDK: Databricks Jobs (BridgeOperator)
-
-For scripts running directly in Databricks notebooks/jobs:
-
-```python
-from sql_databricks_bridge.sdk.databricks import BridgeOperator
-
-# Initialize operator (uses job context credentials)
-operator = BridgeOperator(
-    sql_server_host="server.database.windows.net",
-    sql_server_database="KWP_Colombia",
-    sql_server_user=dbutils.secrets.get("scope", "sql_user"),
-    sql_server_password=dbutils.secrets.get("scope", "sql_pass")
-)
-
-# Sync from Databricks table to SQL Server
-result = operator.sync_to_sql_server(
-    source_table="catalog.schema.calibrated_panel",
-    target_table="dbo.CalibrationResults",
-    operation="INSERT",
-    primary_keys=["id_hogar", "periodo"]
-)
-
-# Extract from SQL Server to Spark DataFrame
-df = operator.extract_to_spark(
-    query="SELECT * FROM dbo.Ventas WHERE fecha >= '2024-01-01'"
-)
-df.write.format("delta").saveAsTable("catalog.schema.ventas")
-```
-
-### SDK Comparison
-
-| Feature | BridgeClient (API Local) | BridgeOperator (Databricks) |
-|---------|--------------------------|----------------------------|
-| **Use Case** | External apps, services | Notebooks, Jobs, Workflows |
-| **Connection** | HTTP to REST API | Direct library usage |
-| **Requires Server** | Yes | No |
-| **Authentication** | API Token | SQL Server credentials |
-| **Best For** | Automation, integrations | Data pipelines in Databricks |
-
-### Installation
-
-```bash
-# From PyPI
-pip install sql-databricks-bridge
-
-# In Databricks job (requirements.txt)
-sql-databricks-bridge>=1.0.0
-```
-
-## Development
-
-```bash
-# Install dev dependencies
-poetry install
-
-# Run all tests (uses mocks for SQL Server)
-poetry run pytest
-
-# Run only unit tests (no external connections needed)
-poetry run pytest tests/unit/ -v
-
-# Run Databricks integration tests (requires DATABRICKS_* env vars)
-poetry run pytest tests/integration/test_databricks_only.py -v
-
-# Type checking
-poetry run mypy src/
-
-# Linting
-poetry run ruff check src/
-```
-
-### Testing with Databricks Only
-
-If you only have Databricks access (no SQL Server), you can still run most tests:
-
-```bash
-# 1. Set your Databricks credentials
-export DATABRICKS_HOST=https://your-workspace.azuredatabricks.net
-export DATABRICKS_TOKEN=your_token
-
-# Optional: for volume tests
-export DATABRICKS_CATALOG=your_catalog
-export DATABRICKS_SCHEMA=your_schema
-export DATABRICKS_VOLUME=your_volume
-
-# 2. Verify connection
-python scripts/test_databricks_connection.py
-
-# 3. Run tests (SQL Server is mocked)
-poetry run pytest tests/ -v
-```
-
-The test suite uses mocks for SQL Server, so you can validate the extraction logic, sync operations, and Databricks file operations without SQL Server access.
-
-## Python SDK
-
-The SDK provides easy-to-use clients for interacting with the bridge service:
-
-```python
-# In Databricks notebooks/jobs
 from sql_databricks_bridge_sdk import BridgeEventsClient
 
 client = BridgeEventsClient()
@@ -684,34 +304,30 @@ event_id = client.create_insert_event(
 result = client.wait_for_completion(event_id)
 ```
 
-See [SDK README](sdk/README.md) for installation and usage details.
+See [SDK README](sdk/README.md) for details.
 
-## Building Executable
+---
 
-To compile as a standalone executable for server deployment:
+## Development
 
 ```bash
-# Install build dependencies
-poetry install --with build
+# Run tests
+poetry run pytest
 
-# Build both CLI and server executables
-python build/build_nuitka.py
+# Unit tests only
+poetry run pytest tests/unit/ -v
 
-# Build single-file executable
-python build/build_nuitka.py --onefile
+# Linting
+poetry run ruff check src/
+
+# Type checking
+poetry run mypy src/
+
+# Frontend tests
+cd frontend && npm test
 ```
 
-See [Build Documentation](docs/BUILD_EXECUTABLE.md) for detailed instructions.
-
-## Documentation
-
-- [Quick Start Guide](docs/QUICK_START.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Epics and User Stories](docs/EPICS_AND_USER_STORIES.md)
-- [Guía de Usuario (Español)](docs/GUIA_USUARIO.md) - Guía completa en español con ejemplos de configuración
-- [Guía de Sincronización Databricks -> SQL](docs/GUIA_SINCRONIZACION_DATABRICKS_SQL.md) - Cómo usar la tabla de eventos desde jobs de Databricks
-- [SDK User Guide (Español)](docs/SDK_USER_GUIDE.md) - Guía completa del SDK de Python
-- [Build Executable](docs/BUILD_EXECUTABLE.md) - Compilar ejecutable con Nuitka
+---
 
 ## License
 

@@ -401,7 +401,7 @@ class TestEligibilityLifecycle:
         assert resp.status_code == 204
 
 
-# --- New endpoint tests ---
+# --- New workflow tests ---
 
 
 class TestCreateRunWithSteps:
@@ -416,11 +416,11 @@ class TestCreateRunWithSteps:
         assert all(s["status"] == "pending" for s in data["steps"])
         step_names = [s["name"] for s in data["steps"]]
         assert step_names == [
-            "stage1_job", "stage1_download", "stage1_upload",
-            "stage2_job", "stage2_download", "stage2_upload",
-            "finalize", "complete",
+            "run_pipeline", "download_results", "approve",
+            "apply_sql", "download_mordom", "upload_mordom",
+            "apply_mordom", "complete",
         ]
-        assert data["current_step"] == "stage1_job"
+        assert data["current_step"] == "run_pipeline"
 
     def test_get_run_returns_steps_and_files(self, admin_client):
         resp = admin_client.post(
@@ -436,7 +436,7 @@ class TestCreateRunWithSteps:
         assert len(data["files"]) == 0
 
 
-class TestExecuteStage1:
+class TestExecutePipeline:
     def test_execute_returns_running(self, admin_client):
         resp = admin_client.post(
             "/api/v1/eligibility/runs",
@@ -447,10 +447,10 @@ class TestExecuteStage1:
         resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/execute")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "stage1_running"
+        assert data["status"] == "running"
         assert data["started_at"] is not None
 
-    def test_execute_completes_in_background(self, admin_client):
+    def test_execute_completes_to_results_ready(self, admin_client):
         resp = admin_client.post(
             "/api/v1/eligibility/runs",
             json={"country": "CO", "period": 202401},
@@ -459,16 +459,15 @@ class TestExecuteStage1:
 
         admin_client.post(f"/api/v1/eligibility/runs/{run_id}/execute")
 
-        # Poll until stage1_ready (background task takes ~2s)
         for _ in range(10):
             time.sleep(0.5)
             resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}")
-            if resp.json()["status"] == "stage1_ready":
+            if resp.json()["status"] == "results_ready":
                 break
 
         data = resp.json()
-        assert data["status"] == "stage1_ready"
-        assert data["current_step"] == "stage1_upload"
+        assert data["status"] == "results_ready"
+        assert data["current_step"] == "approve"
 
     def test_execute_wrong_status(self, admin_client):
         resp = admin_client.post(
@@ -477,10 +476,9 @@ class TestExecuteStage1:
         )
         run_id = resp.json()["run_id"]
 
-        # Set to a non-pending status
         admin_client.patch(
             f"/api/v1/eligibility/runs/{run_id}",
-            json={"status": "stage1_ready"},
+            json={"status": "results_ready"},
         )
 
         resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/execute")
@@ -509,11 +507,10 @@ class TestListFiles:
 
         admin_client.post(f"/api/v1/eligibility/runs/{run_id}/execute")
 
-        # Wait for background task
         for _ in range(10):
             time.sleep(0.5)
             resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}")
-            if resp.json()["status"] == "stage1_ready":
+            if resp.json()["status"] == "results_ready":
                 break
 
         resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}/files")
@@ -522,7 +519,7 @@ class TestListFiles:
         assert len(files) == 1
         assert files[0]["stage"] == 1
         assert files[0]["direction"] == "download"
-        assert "elegibilidad_CO_202401_fase1.csv" in files[0]["filename"]
+        assert "resultados" in files[0]["filename"]
 
 
 class TestDownloadFile:
@@ -538,7 +535,7 @@ class TestDownloadFile:
         for _ in range(10):
             time.sleep(0.5)
             resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}")
-            if resp.json()["status"] == "stage1_ready":
+            if resp.json()["status"] == "results_ready":
                 break
 
         resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}/files")
@@ -552,35 +549,90 @@ class TestDownloadFile:
         assert "text/csv" in resp.headers["content-type"]
 
 
-class TestUploadFile:
-    def _create_and_execute_stage1(self, client):
-        """Helper: create run, execute stage1, wait for completion."""
+class TestApprove:
+    def _advance_to_results_ready(self, client):
         resp = client.post(
             "/api/v1/eligibility/runs",
             json={"country": "CO", "period": 202401},
         )
         run_id = resp.json()["run_id"]
-
         client.post(f"/api/v1/eligibility/runs/{run_id}/execute")
         for _ in range(10):
             time.sleep(0.5)
             resp = client.get(f"/api/v1/eligibility/runs/{run_id}")
-            if resp.json()["status"] == "stage1_ready":
+            if resp.json()["status"] == "results_ready":
                 break
         return run_id
 
-    def test_upload_csv(self, admin_client):
-        run_id = self._create_and_execute_stage1(admin_client)
+    def test_approve_triggers_sql_apply(self, admin_client):
+        run_id = self._advance_to_results_ready(admin_client)
 
-        csv_content = b"panelistID,period,status,score,eligible\nPAN001,202401,ok,0.8,1\n"
+        resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/approve")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "applying_sql"
+        assert resp.json()["approved_by"] == "admin@test.com"
+
+    def test_approve_reaches_mordom_ready(self, admin_client):
+        run_id = self._advance_to_results_ready(admin_client)
+
+        admin_client.post(f"/api/v1/eligibility/runs/{run_id}/approve")
+
+        for _ in range(20):
+            time.sleep(0.5)
+            resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}")
+            if resp.json()["status"] == "mordom_ready":
+                break
+
+        assert resp.json()["status"] == "mordom_ready"
+        # Mordom download file should exist
+        files = admin_client.get(f"/api/v1/eligibility/runs/{run_id}/files").json()
+        mordom_files = [f for f in files if f["stage"] == 2 and f["direction"] == "download"]
+        assert len(mordom_files) == 1
+        assert "mordom" in mordom_files[0]["filename"]
+
+    def test_approve_wrong_status(self, admin_client):
+        resp = admin_client.post(
+            "/api/v1/eligibility/runs",
+            json={"country": "CO", "period": 202401},
+        )
+        run_id = resp.json()["run_id"]
+
+        resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/approve")
+        assert resp.status_code == 409
+
+
+class TestMordomUpload:
+    def _advance_to_mordom_ready(self, client):
+        resp = client.post(
+            "/api/v1/eligibility/runs",
+            json={"country": "CO", "period": 202401},
+        )
+        run_id = resp.json()["run_id"]
+        client.post(f"/api/v1/eligibility/runs/{run_id}/execute")
+        for _ in range(10):
+            time.sleep(0.5)
+            resp = client.get(f"/api/v1/eligibility/runs/{run_id}")
+            if resp.json()["status"] == "results_ready":
+                break
+        client.post(f"/api/v1/eligibility/runs/{run_id}/approve")
+        for _ in range(20):
+            time.sleep(0.5)
+            resp = client.get(f"/api/v1/eligibility/runs/{run_id}")
+            if resp.json()["status"] == "mordom_ready":
+                break
+        return run_id
+
+    def test_upload_mordom_csv(self, admin_client):
+        run_id = self._advance_to_mordom_ready(admin_client)
+
+        csv_content = b"panelistID,action\nPAN001,keep\nPAN002,remove\n"
         resp = admin_client.post(
             f"/api/v1/eligibility/runs/{run_id}/upload",
-            files={"file": ("corrected.csv", csv_content, "text/csv")},
+            files={"file": ("mordom_corrected.csv", csv_content, "text/csv")},
         )
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "stage1_uploaded"
-        assert data["current_step"] == "stage2_job"
+        assert resp.json()["status"] == "mordom_uploaded"
+        assert resp.json()["current_step"] == "apply_mordom"
 
     def test_upload_wrong_status(self, admin_client):
         resp = admin_client.post(
@@ -595,108 +647,61 @@ class TestUploadFile:
             files={"file": ("test.csv", csv_content, "text/csv")},
         )
         assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "invalid_status"
 
 
-class TestExecuteStage2:
-    def _advance_to_stage1_uploaded(self, client):
-        """Helper: create → execute → wait → upload → stage1_uploaded."""
+class TestApplyMordom:
+    def _advance_to_mordom_uploaded(self, client):
         resp = client.post(
             "/api/v1/eligibility/runs",
             json={"country": "CO", "period": 202401},
         )
         run_id = resp.json()["run_id"]
-
         client.post(f"/api/v1/eligibility/runs/{run_id}/execute")
         for _ in range(10):
             time.sleep(0.5)
             resp = client.get(f"/api/v1/eligibility/runs/{run_id}")
-            if resp.json()["status"] == "stage1_ready":
+            if resp.json()["status"] == "results_ready":
                 break
-
-        csv_content = b"panelistID,period,status,score,eligible\nPAN001,202401,ok,0.8,1\n"
+        client.post(f"/api/v1/eligibility/runs/{run_id}/approve")
+        for _ in range(20):
+            time.sleep(0.5)
+            resp = client.get(f"/api/v1/eligibility/runs/{run_id}")
+            if resp.json()["status"] == "mordom_ready":
+                break
+        csv_content = b"panelistID,action\nPAN001,keep\nPAN002,remove\n"
         client.post(
             f"/api/v1/eligibility/runs/{run_id}/upload",
-            files={"file": ("corrected.csv", csv_content, "text/csv")},
+            files={"file": ("mordom_corrected.csv", csv_content, "text/csv")},
         )
         return run_id
 
-    def test_execute_stage2(self, admin_client):
-        run_id = self._advance_to_stage1_uploaded(admin_client)
+    def test_apply_mordom_marks_ready(self, admin_client):
+        run_id = self._advance_to_mordom_uploaded(admin_client)
 
-        resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/execute-stage2")
+        resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/apply-mordom")
         assert resp.status_code == 200
-        assert resp.json()["status"] == "stage2_running"
+        assert resp.json()["status"] == "applying_mordom"
 
-    def test_execute_stage2_wrong_status(self, admin_client):
-        resp = admin_client.post(
-            "/api/v1/eligibility/runs",
-            json={"country": "CO", "period": 202401},
-        )
-        run_id = resp.json()["run_id"]
-
-        resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/execute-stage2")
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "invalid_status"
-
-
-class TestFinalize:
-    def _advance_to_stage2_uploaded(self, client):
-        """Helper: full flow through stage2 upload."""
-        resp = client.post(
-            "/api/v1/eligibility/runs",
-            json={"country": "CO", "period": 202401},
-        )
-        run_id = resp.json()["run_id"]
-
-        # Stage 1
-        client.post(f"/api/v1/eligibility/runs/{run_id}/execute")
         for _ in range(10):
             time.sleep(0.5)
-            resp = client.get(f"/api/v1/eligibility/runs/{run_id}")
-            if resp.json()["status"] == "stage1_ready":
+            resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}")
+            if resp.json()["status"] == "ready":
                 break
 
-        csv_content = b"panelistID,period,status,score,eligible\nPAN001,202401,ok,0.8,1\n"
-        client.post(
-            f"/api/v1/eligibility/runs/{run_id}/upload",
-            files={"file": ("s1.csv", csv_content, "text/csv")},
-        )
-
-        # Stage 2
-        client.post(f"/api/v1/eligibility/runs/{run_id}/execute-stage2")
-        for _ in range(10):
-            time.sleep(0.5)
-            resp = client.get(f"/api/v1/eligibility/runs/{run_id}")
-            if resp.json()["status"] == "stage2_ready":
-                break
-
-        client.post(
-            f"/api/v1/eligibility/runs/{run_id}/upload",
-            files={"file": ("s2.csv", csv_content, "text/csv")},
-        )
-        return run_id
-
-    def test_finalize(self, admin_client):
-        run_id = self._advance_to_stage2_uploaded(admin_client)
-
-        resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/finalize")
-        assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "finalized"
+        assert data["status"] == "ready"
         assert data["completed_at"] is not None
         assert data["current_step"] == "complete"
 
-    def test_finalize_wrong_status(self, admin_client):
+    def test_apply_mordom_wrong_status(self, admin_client):
         resp = admin_client.post(
             "/api/v1/eligibility/runs",
             json={"country": "CO", "period": 202401},
         )
         run_id = resp.json()["run_id"]
 
-        resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/finalize")
+        resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/apply-mordom")
         assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "invalid_status"
 
 
 class TestCancel:
@@ -712,106 +717,96 @@ class TestCancel:
         assert resp.json()["status"] == "cancelled"
         assert resp.json()["completed_at"] is not None
 
-    def test_cancel_from_finalized_fails(self, admin_client):
+    def test_cancel_from_ready_fails(self, admin_client):
         resp = admin_client.post(
             "/api/v1/eligibility/runs",
             json={"country": "CO", "period": 202401},
         )
         run_id = resp.json()["run_id"]
 
-        # Force status to finalized
         admin_client.patch(
             f"/api/v1/eligibility/runs/{run_id}",
-            json={"status": "finalized"},
+            json={"status": "ready"},
         )
 
         resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/cancel")
         assert resp.status_code == 409
 
 
-class TestFullStageLifecycle:
-    def test_full_two_stage_lifecycle(self, admin_client):
-        """Full lifecycle: create → execute → download → upload →
-        execute-stage2 → download → upload → finalize."""
+class TestFullLifecycle:
+    def test_full_workflow(self, admin_client):
+        """Full lifecycle: create → execute → approve → upload mordom → apply → ready."""
         # 1. Create
         resp = admin_client.post(
             "/api/v1/eligibility/runs",
-            json={"country": "CL", "period": 202406},
+            json={"country": "CL", "period": 202406, "parameters": {"min_periods": 6}},
         )
         assert resp.status_code == 201
         run_id = resp.json()["run_id"]
         assert resp.json()["status"] == "pending"
         assert len(resp.json()["steps"]) == 8
 
-        # 2. Execute stage 1
+        # 2. Execute pipeline
         resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/execute")
-        assert resp.json()["status"] == "stage1_running"
+        assert resp.json()["status"] == "running"
 
-        # 3. Wait for stage1_ready
+        # 3. Wait for results_ready
         for _ in range(10):
             time.sleep(0.5)
             resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}")
-            if resp.json()["status"] == "stage1_ready":
+            if resp.json()["status"] == "results_ready":
                 break
-        assert resp.json()["status"] == "stage1_ready"
+        assert resp.json()["status"] == "results_ready"
 
-        # 4. Download generated file
+        # 4. Download results file
         resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}/files")
         assert len(resp.json()) == 1
-        file_id_s1 = resp.json()[0]["file_id"]
-
-        resp = admin_client.get(
-            f"/api/v1/eligibility/runs/{run_id}/files/{file_id_s1}/download"
-        )
+        file_id = resp.json()[0]["file_id"]
+        resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}/files/{file_id}/download")
         assert resp.status_code == 200
         assert "panelistID" in resp.text
 
-        # 5. Upload corrected stage 1 CSV
-        csv_data = b"panelistID,period,status,score,eligible\nPAN001,202406,ok,0.9,1\n"
+        # 5. Approve → triggers SQL apply + MorDom download
+        resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/approve")
+        assert resp.json()["status"] == "applying_sql"
+
+        # 6. Wait for mordom_ready
+        for _ in range(20):
+            time.sleep(0.5)
+            resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}")
+            if resp.json()["status"] == "mordom_ready":
+                break
+        assert resp.json()["status"] == "mordom_ready"
+
+        # 7. Download MorDom file
+        resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}/files")
+        files = resp.json()
+        mordom_files = [f for f in files if f["stage"] == 2 and f["direction"] == "download"]
+        assert len(mordom_files) == 1
+
+        # 8. Upload corrected MorDom
+        csv_data = b"panelistID,action\nPAN001,keep\nPAN002,remove\n"
         resp = admin_client.post(
             f"/api/v1/eligibility/runs/{run_id}/upload",
-            files={"file": ("corrected_s1.csv", csv_data, "text/csv")},
+            files={"file": ("mordom_corrected.csv", csv_data, "text/csv")},
         )
-        assert resp.json()["status"] == "stage1_uploaded"
+        assert resp.json()["status"] == "mordom_uploaded"
 
-        # 6. Execute stage 2
-        resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/execute-stage2")
-        assert resp.json()["status"] == "stage2_running"
+        # 9. Apply MorDom corrections
+        resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/apply-mordom")
+        assert resp.json()["status"] == "applying_mordom"
 
-        # 7. Wait for stage2_ready
+        # 10. Wait for ready
         for _ in range(10):
             time.sleep(0.5)
             resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}")
-            if resp.json()["status"] == "stage2_ready":
+            if resp.json()["status"] == "ready":
                 break
-        assert resp.json()["status"] == "stage2_ready"
 
-        # 8. Download stage 2 file
-        resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}/files")
-        files = resp.json()
-        s2_downloads = [f for f in files if f["stage"] == 2 and f["direction"] == "download"]
-        assert len(s2_downloads) == 1
-
-        # 9. Upload corrected stage 2 CSV
-        resp = admin_client.post(
-            f"/api/v1/eligibility/runs/{run_id}/upload",
-            files={"file": ("corrected_s2.csv", csv_data, "text/csv")},
-        )
-        assert resp.json()["status"] == "stage2_uploaded"
-
-        # 10. Finalize
-        resp = admin_client.post(f"/api/v1/eligibility/runs/{run_id}/finalize")
-        assert resp.json()["status"] == "finalized"
-        assert resp.json()["completed_at"] is not None
-
-        # 11. Verify final state has all files
-        resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}/files")
-        files = resp.json()
-        assert len(files) == 4  # 2 downloads + 2 uploads
-
-        # Verify run details
-        resp = admin_client.get(f"/api/v1/eligibility/runs/{run_id}")
         data = resp.json()
-        assert data["status"] == "finalized"
+        assert data["status"] == "ready"
+        assert data["completed_at"] is not None
+        assert data["current_step"] == "complete"
         assert len(data["steps"]) == 8
-        assert len(data["files"]) == 4
+        assert len(data["files"]) == 3  # 1 results + 1 mordom download + 1 mordom upload
+        assert data["parameters_json"] == {"min_periods": 6}

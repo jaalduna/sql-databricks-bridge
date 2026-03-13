@@ -22,7 +22,7 @@ vi.mock("@/lib/api", () => ({
   api: { interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } } },
 }))
 
-import EventDetailPage from "@/pages/EventDetailPage"
+import EventDetailPage from "@/modules/sync/pages/EventDetailPage"
 
 function createQueryClient() {
   return new QueryClient({

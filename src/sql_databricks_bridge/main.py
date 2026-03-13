@@ -150,6 +150,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
+        expose_headers=["Content-Disposition"],
     )
 
     # Include routers under /api/v1 prefix
