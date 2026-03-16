@@ -26,7 +26,7 @@ export function CalibrationPage() {
   const [calibrationConfig, setCalibrationConfig] = useState<CalibrationConfig>(DEFAULT_CALIBRATION_CONFIG)
   const { data, isLoading, error } = useCountries()
   const { data: availability, isLoading: availabilityLoading } = useDataAvailability(period)
-  const { data: lastSync } = useLastSync()
+  const { data: lastSync } = useLastSync("pesaje")
   const { data: lastCalibration } = useLastCalibration()
 
   return (

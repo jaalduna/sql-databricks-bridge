@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class JobStatus(str, Enum):
@@ -80,6 +80,13 @@ class QueryResult(BaseModel):
     error: str | None = None
     duration_seconds: float = 0.0
     started_at: datetime | None = None
+
+    @field_validator("table_name", mode="before")
+    @classmethod
+    def coerce_table_name(cls, v: Any) -> str | None:
+        if isinstance(v, list):
+            return v[0] if v else None
+        return v
 
 
 class JobStatusResponse(BaseModel):

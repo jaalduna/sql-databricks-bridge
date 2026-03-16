@@ -151,6 +151,10 @@ class BridgeSettings(BaseSettings):
     # Format: "table1:l1_col:l2_col,table2:l1_col:l2_col" e.g. "j_atoscompra_new:periodo:idproduto"
     diff_sync_tables: str = Field(default="", description="Tables that use differential sync by default (format: table:l1_col:l2_col,...)")
 
+    # Checksum column subsets for wide tables (avoid CHECKSUM(*) which is slow on 100+ columns)
+    # Format: "table1:col1+col2+col3,table2:col1+col2" e.g. "j_atoscompra_new:periodo+preco+quantidade+idproduto"
+    diff_sync_checksum_columns: str = Field(default="", description="Column subsets for CHECKSUM in diff sync (format: table:col1+col2+...,...)")
+
     # Incremental sync for append-only tables (only download new rows above max key)
     # Format: "table1:key_col,table2:key_col" e.g. "nac_ato:idAto,hato_cabecalho:idhato_cabecalho"
     incremental_sync_tables: str = Field(default="", description="Append-only tables that use incremental sync (format: table:key_col,...)")

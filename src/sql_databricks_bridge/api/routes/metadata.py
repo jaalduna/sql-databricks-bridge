@@ -211,14 +211,18 @@ def _get_db_path(request: Request) -> str | None:
     summary="Last completed sync per country",
     description="Returns the most recent completed extraction job for each country.",
 )
-async def last_sync(request: Request) -> LastSyncResponse:
+async def last_sync(
+    request: Request,
+    stage: str | None = Query(default=None, description="Filter by stage (e.g. 'calibracion')"),
+    min_queries: int = Query(default=0, ge=0, description="Minimum number of queries in the job"),
+) -> LastSyncResponse:
     """Return the last completed job for each country from the local SQLite store."""
     db_path = _get_db_path(request)
     if db_path is None:
         logger.warning("last-sync called but SQLite store is not initialised")
         raise HTTPException(status_code=503, detail="Local job store not available")
 
-    rows = local_store.get_last_completed_per_country(db_path)
+    rows = local_store.get_last_completed_per_country(db_path, stage=stage, min_queries=min_queries)
     countries: dict[str, LastSyncEntry] = {
         row["country"]: LastSyncEntry(
             country=row["country"],

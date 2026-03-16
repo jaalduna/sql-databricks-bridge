@@ -61,6 +61,7 @@ class DiffSyncQueryConfig(BaseModel):
     level1_column: str = Field(default="periodo", description="GROUP BY column for Level 1 (e.g., 'periodo')")
     level2_column: str = Field(default="idproduto", description="GROUP BY column for Level 2 (e.g., 'idproduto')")
     where_clause: str = Field(default="", description="Optional WHERE filter for fingerprint scope")
+    checksum_columns: list[str] | None = Field(default=None, description="Columns for CHECKSUM (instead of *). Faster for wide tables.")
 
 
 class TriggerRequest(BaseModel):
@@ -105,6 +106,10 @@ class TriggerRequest(BaseModel):
     force_full_sync: bool = Field(
         default=False,
         description="Force full OVERWRITE for all queries, bypassing differential and incremental sync.",
+    )
+    fingerprint_only: bool = Field(
+        default=False,
+        description="Compute and store fingerprints only, without downloading any data.",
     )
 
 
@@ -293,7 +298,10 @@ def _results_from_row(row: dict) -> list[QueryResult]:
     results = []
     for r in raw:
         if isinstance(r, dict):
-            results.append(QueryResult(**r))
+            try:
+                results.append(QueryResult(**r))
+            except Exception:
+                continue
     return results
 
 
@@ -400,6 +408,7 @@ def _run_trigger_extraction(
     override_lookback_months: int | None = None,
     differential_sync_config: dict | None = None,
     incremental_sync_config: dict | None = None,
+    fingerprint_only: bool = False,
 ) -> None:
     """Background task to run the extraction triggered by a user."""
     try:
@@ -512,6 +521,8 @@ def _run_trigger_extraction(
                         on_rows_progress=_diff_rows_progress,
                         base_query=diff_base_query,
                         mutable_months=diff_config.get("mutable_months", 0),
+                        fingerprint_only=fingerprint_only,
+                        checksum_columns=diff_config.get("checksum_columns"),
                     )
 
                     result.rows_extracted = diff_stats.rows_downloaded
@@ -574,7 +585,9 @@ def _run_trigger_extraction(
                             raise InterruptedError("Cancelled")
                         if parts and total > 0:
                             import polars as _pl
-                            combined = _pl.read_parquet(chunk_dir)
+                            import glob as _glob
+                            _files = sorted(_glob.glob(str(chunk_dir / "*.parquet")))
+                            combined = _pl.concat([_pl.read_parquet(f) for f in _files], how="diagonal_relaxed")
                             if append:
                                 writer.append_dataframe(combined, query_name, job.country, tag=tag)
                             else:
@@ -724,6 +737,42 @@ def _run_trigger_extraction(
                     else:
                         logger.info(f"Incremental {query_name}: nothing to sync")
 
+                elif fingerprint_only:
+                    # --- FINGERPRINT-ONLY PATH (no diff_config, no incr_config) ---
+                    logger.info(f"Fingerprint-only mode for {query_name} ({job.country})")
+                    lookback = override_lookback_months if override_lookback_months is not None else settings.lookback_months
+                    from dateutil.relativedelta import relativedelta as _fp_rd
+                    _fp_now = datetime.utcnow()
+                    _fp_start = _fp_now - _fp_rd(months=lookback or 24)
+                    fp_base_query = extractor.query_loader.get_query(query_name, job.country)
+                    fp_base_query = fp_base_query.replace("{lookback_months}", str(lookback or 24))
+                    fp_base_query = fp_base_query.replace("{start_period}", _fp_start.strftime("%Y%m"))
+                    fp_base_query = fp_base_query.replace("{end_period}", _fp_now.strftime("%Y%m"))
+                    fp_base_query = fp_base_query.replace("{start_year}", str(_fp_start.year))
+                    fp_base_query = fp_base_query.replace("{end_year}", str(_fp_now.year))
+                    fp_base_query = fp_base_query.replace("{start_date}", f"'{_fp_start.strftime('%Y-%m-01')}'")
+                    fp_base_query = fp_base_query.replace("{end_date}", f"'{_fp_now.strftime('%Y-%m-%d')}'")
+
+                    from sql_databricks_bridge.core.fingerprint import (
+                        compute_level1_fingerprints as _compute_l1,
+                        save_fingerprints as _save_fps,
+                        ensure_fingerprint_table as _ensure_fp_table,
+                    )
+                    _ensure_fp_table(client, settings.fingerprint_table)
+                    fp_l1 = _compute_l1(
+                        extractor.sql_client, query_name, "periodo",
+                        base_query=fp_base_query,
+                    )
+                    _save_fps(
+                        client, settings.fingerprint_table,
+                        job.country, query_name, level="period",
+                        fingerprints=fp_l1, job_id=job.job_id,
+                    )
+                    result.rows_extracted = 0
+                    logger.info(
+                        f"Fingerprint-only {query_name}: saved {len(fp_l1)} L1 fingerprints"
+                    )
+
                 else:
                     # --- FULL EXTRACTION PATH (disk streaming + retry) ---
                     row_limit = override_row_limit if override_row_limit is not None else (settings.query_row_limit or None)
@@ -811,7 +860,9 @@ def _run_trigger_extraction(
 
                     if parts and total_rows > 0:
                         import polars as _pl
-                        combined = _pl.read_parquet(chunk_dir)
+                        import glob as _glob
+                        _files = sorted(_glob.glob(str(chunk_dir / "*.parquet")))
+                        combined = _pl.concat([_pl.read_parquet(f) for f in _files], how="diagonal_relaxed")
                         writer.write_dataframe(combined, query_name, job.country, tag=tag)
                         result.rows_extracted = total_rows
                         result.table_name = writer.resolve_table_name(
@@ -1274,6 +1325,17 @@ async def trigger_extraction(
             if len(parts) > 3:
                 cfg["mutable_months"] = int(parts[3].strip())
             diff_sync_cfg[tbl] = cfg
+    # 1b. Checksum column subsets from DIFF_SYNC_CHECKSUM_COLUMNS env var
+    for entry in (settings.diff_sync_checksum_columns or "").split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        parts = entry.split(":")
+        tbl = parts[0].strip()
+        if tbl and len(parts) > 1 and tbl in diff_sync_cfg:
+            cols = [c.strip() for c in parts[1].split("+") if c.strip()]
+            if cols:
+                diff_sync_cfg[tbl]["checksum_columns"] = cols
     # 2. Client overrides (take precedence)
     if request.differential_sync:
         for k, v in request.differential_sync.items():
@@ -1311,7 +1373,8 @@ async def trigger_extraction(
             logger.info("Incremental sync enabled for queries: %s", matching)
 
     # force_full_sync overrides both differential and incremental sync
-    if request.force_full_sync:
+    # (but not when fingerprint_only — we still need diff_config for L1 column info)
+    if request.force_full_sync and not request.fingerprint_only:
         logger.info("force_full_sync=true: bypassing differential and incremental sync")
         diff_sync_cfg = None
         incr_sync_cfg = None
@@ -1320,6 +1383,7 @@ async def trigger_extraction(
         _run_trigger_extraction, extractor, job, writer, db_client, jobs_tbl,
         tag, user.email, db_path, settings.max_parallel_queries,
         request.row_limit, request.lookback_months, diff_sync_cfg, incr_sync_cfg,
+        request.fingerprint_only,
     )
 
     return TriggerResponse(

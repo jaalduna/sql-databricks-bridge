@@ -68,6 +68,7 @@ def compute_level1_fingerprints(
     level1_column: str,
     where_clause: str = "",
     base_query: str | None = None,
+    checksum_columns: list[str] | None = None,
 ) -> list[Fingerprint]:
     """Compute Level 1 fingerprints: GROUP BY level1_column.
 
@@ -77,24 +78,27 @@ def compute_level1_fingerprints(
         level1_column: Column to group by (e.g., 'periodo').
         where_clause: Optional WHERE filter (e.g., 'periodo >= 202401').
         base_query: Optional full SQL query to use as subquery (for computed columns).
+        checksum_columns: Optional list of columns for CHECKSUM (instead of *).
+            Use for wide tables where CHECKSUM(*) is too slow.
 
     Returns:
         List of Fingerprint(value, row_count, checksum_xor).
     """
     source = f"({base_query}) AS _src" if base_query else table
     where = f"WHERE {where_clause}" if where_clause else ""
+    checksum_expr = f"CHECKSUM({', '.join(checksum_columns)})" if checksum_columns else "CHECKSUM(*)"
     query = f"""
         SELECT
             CAST({level1_column} AS VARCHAR(100)) AS grp_value,
             COUNT(*) AS cnt,
-            CHECKSUM_AGG(CHECKSUM(*)) AS chk
+            CHECKSUM_AGG({checksum_expr}) AS chk
         FROM {source}
         {where}
         GROUP BY {level1_column}
         ORDER BY {level1_column}
     """
-    logger.info(f"Computing Level 1 fingerprints: {table} GROUP BY {level1_column}")
-    logger.info(f"Level 1 fingerprint SQL (base_query={base_query is not None}): {query}")
+    cols_desc = ', '.join(checksum_columns) if checksum_columns else '*'
+    logger.info(f"Computing Level 1 fingerprints: {table} GROUP BY {level1_column} CHECKSUM({cols_desc})")
     df = sql_client.execute_query(query)
     return [
         Fingerprint(
@@ -113,6 +117,7 @@ def compute_level2_fingerprints(
     level1_value: str,
     level2_column: str,
     base_query: str | None = None,
+    checksum_columns: list[str] | None = None,
 ) -> list[Fingerprint]:
     """Compute Level 2 fingerprints for a specific level1 value.
 
@@ -123,16 +128,18 @@ def compute_level2_fingerprints(
         level1_value: Specific level 1 value (e.g., '202401').
         level2_column: Column to group by at level 2 (e.g., 'idproduto').
         base_query: Optional full SQL query to use as subquery (for computed columns).
+        checksum_columns: Optional list of columns for CHECKSUM (instead of *).
 
     Returns:
         List of Fingerprint(value, row_count, checksum_xor).
     """
     source = f"({base_query}) AS _src" if base_query else table
+    checksum_expr = f"CHECKSUM({', '.join(checksum_columns)})" if checksum_columns else "CHECKSUM(*)"
     query = f"""
         SELECT
             CAST({level2_column} AS VARCHAR(100)) AS grp_value,
             COUNT(*) AS cnt,
-            CHECKSUM_AGG(CHECKSUM(*)) AS chk
+            CHECKSUM_AGG({checksum_expr}) AS chk
         FROM {source}
         WHERE CAST({level1_column} AS VARCHAR(100)) = '{level1_value}'
         GROUP BY {level2_column}

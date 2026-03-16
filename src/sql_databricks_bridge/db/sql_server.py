@@ -16,6 +16,18 @@ from sql_databricks_bridge.core.config import SQLServerSettings, get_settings
 
 logger = logging.getLogger(__name__)
 
+
+def _rows_to_dataframe(columns: list[str], rows: list) -> pl.DataFrame:
+    """Convert fetched rows to a Polars DataFrame using columnar construction.
+
+    This is significantly faster than the dict-per-row approach because it avoids
+    creating N Python dicts and lets Polars ingest columnar data directly.
+    """
+    if not rows:
+        return pl.DataFrame(schema={col: pl.Utf8 for col in columns})
+    col_data = {col: [row[i] for row in rows] for i, col in enumerate(columns)}
+    return pl.DataFrame(col_data, infer_schema_length=None)
+
 try:
     from kantar_db_handler.configs import get_country_params
 
@@ -149,10 +161,7 @@ class SQLServerClient:
             columns = list(result.keys())
             rows = result.fetchall()
 
-        if not rows:
-            return pl.DataFrame(schema={col: pl.Utf8 for col in columns})
-
-        return pl.DataFrame([dict(zip(columns, row)) for row in rows])
+        return _rows_to_dataframe(columns, rows)
 
     def execute_query_chunked(
         self,
@@ -180,10 +189,7 @@ class SQLServerClient:
                 return
 
             # Create first DataFrame and capture its schema
-            first_df = pl.DataFrame(
-                [dict(zip(columns, row)) for row in first_chunk_rows],
-                infer_schema_length=None,  # Scan all rows in chunk for schema
-            )
+            first_df = _rows_to_dataframe(columns, first_chunk_rows)
             schema = first_df.schema
             yield first_df
 
@@ -193,11 +199,7 @@ class SQLServerClient:
                 if not rows:
                     break
 
-                # Create DataFrame with inferred schema, then cast to match first chunk
-                chunk_df = pl.DataFrame(
-                    [dict(zip(columns, row)) for row in rows],
-                    infer_schema_length=None,
-                )
+                chunk_df = _rows_to_dataframe(columns, rows)
 
                 # Reconcile column types with the reference schema.
                 # If the reference has Null (first chunk was all-null) but this
@@ -264,10 +266,7 @@ class SQLServerClient:
                 if not rows:
                     break
 
-                chunk_df = pl.DataFrame(
-                    [dict(zip(columns, row)) for row in rows],
-                    infer_schema_length=None,
-                )
+                chunk_df = _rows_to_dataframe(columns, rows)
 
                 # Reconcile schema with first chunk
                 if schema is None:

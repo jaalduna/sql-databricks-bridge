@@ -9,7 +9,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from sql_databricks_bridge import __version__
-from sql_databricks_bridge.api.routes import auth, databricks_jobs, eligibility, extract, health, jobs, metadata, pipeline, sync, tags, trigger
+from sql_databricks_bridge.api.routes import auth, databricks_jobs, diff_sync_schedule, eligibility, extract, health, jobs, metadata, pipeline, sync, tags, trigger
 from sql_databricks_bridge.core.config import get_settings
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db.jobs_table import ensure_jobs_table
@@ -166,6 +166,7 @@ def create_app() -> FastAPI:
     api_v1.include_router(pipeline.router)
     api_v1.include_router(databricks_jobs.router)
     api_v1.include_router(eligibility.router)
+    api_v1.include_router(diff_sync_schedule.router)
     app.include_router(api_v1)
 
     # Root endpoint

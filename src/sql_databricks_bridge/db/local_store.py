@@ -230,19 +230,39 @@ def list_jobs(
         conn.close()
 
 
-def get_last_completed_per_country(db_path: str) -> list[dict[str, Any]]:
-    """Return the most recent completed job for each country."""
+def get_last_completed_per_country(
+    db_path: str,
+    stage: str | None = None,
+    min_queries: int = 0,
+) -> list[dict[str, Any]]:
+    """Return the most recent completed job for each country.
+
+    Args:
+        stage: If set, only consider jobs with this stage.
+        min_queries: If > 0, only consider jobs with at least this many queries
+                     (excludes partial single-table syncs).
+    """
     conn = _connect(db_path)
     try:
+        where_parts = ["status = 'completed'", "completed_at IS NOT NULL"]
+        params: list = []
+        if stage:
+            where_parts.append("stage = ?")
+            params.append(stage)
+        if min_queries > 0:
+            where_parts.append("json_array_length(queries) >= ?")
+            params.append(min_queries)
+        where_sql = " AND ".join(where_parts)
         rows = conn.execute(
-            """
+            f"""
             SELECT country, job_id, stage, completed_at
             FROM trigger_jobs
-            WHERE status = 'completed' AND completed_at IS NOT NULL
+            WHERE {where_sql}
             GROUP BY country
             HAVING completed_at = MAX(completed_at)
             ORDER BY country
-            """
+            """,
+            params,
         ).fetchall()
         return [dict(row) for row in rows]
     finally:

@@ -115,8 +115,11 @@ export function getDataAvailability(period: string) {
     .then((r) => r.data)
 }
 
-export function getLastSync() {
-  return api.get<LastSyncResponse>("/metadata/last-sync").then((r) => r.data)
+export function getLastSync(stage?: string, minQueries?: number) {
+  const params: Record<string, string> = {}
+  if (stage) params.stage = stage
+  if (minQueries && minQueries > 0) params.min_queries = String(minQueries)
+  return api.get<LastSyncResponse>("/metadata/last-sync", { params }).then((r) => r.data)
 }
 
 export function getLastCalibration() {

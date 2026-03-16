@@ -7,8 +7,10 @@ import shutil
 import stat
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -649,6 +651,253 @@ def self_update(
         raise typer.Exit(code=1)
 
     console.print(f"[bold green]Updated to {tag} — please restart.[/bold green]")
+
+
+@app.command(name="diff-sync")
+def diff_sync(
+    country: Annotated[
+        str,
+        typer.Option("--country", "-c", help="Specific country (default: all)"),
+    ] = "",
+    interval: Annotated[
+        int,
+        typer.Option("--interval", "-i", help="Minutes between rounds (default: 15)"),
+    ] = 15,
+    once: Annotated[
+        bool,
+        typer.Option("--once", help="Run once then exit (no repeat loop)"),
+    ] = False,
+    api_url: Annotated[
+        str,
+        typer.Option("--api-url", help="API base URL"),
+    ] = "http://127.0.0.1:8000/api/v1",
+    lookback_months: Annotated[
+        int,
+        typer.Option("--lookback-months", help="Rolling lookback months"),
+    ] = 24,
+    stage: Annotated[
+        str,
+        typer.Option("--stage", help="Stage code"),
+    ] = "sincronizacion",
+    log_file: Annotated[
+        str,
+        typer.Option("--log-file", help="CSV output path"),
+    ] = "diff_sync_validation.csv",
+) -> None:
+    """Run periodic differential sync for all (or one) country.
+
+    Triggers diff sync via the API, polls until done, logs results to CSV.
+    Requires the bridge API server to be running.
+
+    Examples:
+
+        bridge diff-sync                              # all countries, 15-min loop
+
+        bridge diff-sync --country bolivia --once     # Bolivia, one-shot
+
+        bridge diff-sync --api-url http://myworkspace.kantar.com:8000/api/v1
+    """
+    from sql_databricks_bridge.core.diff_sync_runner import (
+        DIFF_TABLES,
+        append_results_csv,
+        discover_countries,
+        init_csv,
+        run_diff_sync_round,
+    )
+
+    # Resolve countries
+    if country:
+        countries = [country]
+    else:
+        console.print("[bold]Discovering countries from API...[/bold]")
+        try:
+            countries = discover_countries(api_url)
+        except Exception as e:
+            console.print(f"[bold red]Failed to discover countries:[/bold red] {e}")
+            console.print(f"Is the API running at {api_url}?")
+            raise typer.Exit(code=1)
+
+    console.print(f"[bold]Diff-sync validation[/bold]")
+    console.print(f"  Countries: {', '.join(countries)}")
+    console.print(f"  Tables:    {', '.join(DIFF_TABLES)}")
+    console.print(f"  Stage:     {stage}")
+    console.print(f"  Lookback:  {lookback_months} months")
+    console.print(f"  Interval:  {interval} min {'(once)' if once else '(loop)'}")
+    console.print(f"  Log file:  {log_file}")
+    console.print()
+
+    # Check API reachable
+    try:
+        from sql_databricks_bridge.core.diff_sync_runner import api_get
+
+        api_get(api_url, "/events?limit=1")
+        console.print("[green]API is reachable.[/green]\n")
+    except Exception as e:
+        console.print(f"[bold red]API not reachable at {api_url}:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+    init_csv(log_file)
+
+    # Stability tracking per (country, table)
+    stability: dict[str, int] = {}
+    all_runs: list[list] = []  # list of per-round country results (flattened)
+    run_num = 0
+
+    def _on_progress(cty: str, msg: str) -> None:
+        console.print(f"  [{cty}] {msg}")
+
+    try:
+        while True:
+            run_num += 1
+            ts = datetime.now().isoformat(timespec="seconds")
+            console.print(f"\n[bold]{'='*65}[/bold]")
+            console.print(f"  [bold]Run #{run_num}[/bold]  --  {ts}")
+            console.print(f"[bold]{'='*65}[/bold]")
+
+            results = run_diff_sync_round(
+                api_base=api_url,
+                countries=countries,
+                stage=stage,
+                lookback_months=lookback_months,
+                poll_interval=10,
+                on_progress=_on_progress,
+            )
+
+            # Print per-country summary table
+            summary = Table(title=f"Run #{run_num} Summary")
+            summary.add_column("Country", style="cyan")
+            summary.add_column("Table", style="white")
+            summary.add_column("Status", style="green")
+            summary.add_column("Rows", justify="right")
+            summary.add_column("Time", justify="right")
+            summary.add_column("Stable", justify="right")
+
+            round_tables: list[dict] = []
+            for cr in results:
+                if cr.error and not cr.tables:
+                    summary.add_row(cr.country, "", f"[red]{cr.status}[/red]", "", "", "")
+                    continue
+                for t in cr.tables:
+                    key = f"{cr.country}:{t.table}"
+                    if t.rows_extracted == 0 and t.status == "completed":
+                        stability[key] = stability.get(key, 0) + 1
+                    else:
+                        stability[key] = 0
+                    streak = stability.get(key, 0)
+                    status_style = "green" if t.status == "completed" else "red"
+                    summary.add_row(
+                        cr.country,
+                        t.table,
+                        f"[{status_style}]{t.status}[/{status_style}]",
+                        f"{t.rows_extracted:,}",
+                        f"{t.duration_s:.1f}s",
+                        f"{streak}x",
+                    )
+                    round_tables.append({
+                        "country": cr.country,
+                        "table": t.table,
+                        "rows": t.rows_extracted,
+                    })
+
+            console.print(summary)
+
+            # Highlight changes
+            changed = [
+                f"{r['country']}/{r['table']}"
+                for r in round_tables
+                if r["rows"] > 0
+            ]
+            if changed:
+                console.print(f"  [yellow]Changes detected:[/yellow] {', '.join(changed)}")
+            else:
+                console.print(f"  [green]No changes detected (all tables stable)[/green]")
+
+            # CSV
+            append_results_csv(log_file, run_num, results)
+            all_runs.append(results)
+
+            if once:
+                break
+
+            console.print(
+                f"\n  Next run in {interval} minutes (Ctrl+C to stop)..."
+            )
+            time.sleep(interval * 60)
+
+    except KeyboardInterrupt:
+        _print_final_summary(console, all_runs, stability, DIFF_TABLES, countries)
+        console.print(f"\n  Results saved to: {log_file}")
+
+
+def _print_final_summary(
+    console: Console,
+    all_runs: list,
+    stability: dict[str, int],
+    diff_tables: list[str],
+    countries: list[str],
+) -> None:
+    """Print aggregate summary across all runs on Ctrl+C."""
+    console.print(f"\n\n[bold]{'='*65}[/bold]")
+    console.print(f"  [bold]FINAL SUMMARY[/bold]  ({len(all_runs)} rounds)")
+    console.print(f"[bold]{'='*65}[/bold]")
+
+    if not all_runs:
+        console.print("  No completed rounds.")
+        return
+
+    # Aggregate per (country, table)
+    stats: dict[str, dict] = {}
+    for round_results in all_runs:
+        for cr in round_results:
+            for t in cr.tables:
+                key = f"{cr.country}:{t.table}"
+                if key not in stats:
+                    stats[key] = {
+                        "country": cr.country,
+                        "table": t.table,
+                        "total_rows": 0,
+                        "changed_runs": 0,
+                        "total_runs": 0,
+                        "total_time": 0.0,
+                        "errors": 0,
+                    }
+                stats[key]["total_runs"] += 1
+                stats[key]["total_rows"] += t.rows_extracted
+                stats[key]["total_time"] += t.duration_s
+                if t.rows_extracted > 0:
+                    stats[key]["changed_runs"] += 1
+                if t.error:
+                    stats[key]["errors"] += 1
+
+    tbl = Table(title="Aggregate Stats")
+    tbl.add_column("Country", style="cyan")
+    tbl.add_column("Table", style="white")
+    tbl.add_column("Runs", justify="right")
+    tbl.add_column("Changed", justify="right")
+    tbl.add_column("Tot Rows", justify="right")
+    tbl.add_column("Avg Time", justify="right")
+    tbl.add_column("Errs", justify="right")
+    tbl.add_column("Streak", justify="right")
+
+    for cty in countries:
+        for table in diff_tables:
+            key = f"{cty}:{table}"
+            s = stats.get(key)
+            if not s:
+                continue
+            avg_time = s["total_time"] / s["total_runs"] if s["total_runs"] else 0
+            streak = stability.get(key, 0)
+            tbl.add_row(
+                cty, table,
+                str(s["total_runs"]),
+                str(s["changed_runs"]),
+                f"{s['total_rows']:,}",
+                f"{avg_time:.1f}s",
+                str(s["errors"]),
+                f"{streak}x",
+            )
+
+    console.print(tbl)
 
 
 if __name__ == "__main__":

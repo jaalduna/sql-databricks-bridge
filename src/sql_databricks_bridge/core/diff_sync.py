@@ -137,6 +137,8 @@ def run_differential_sync(
     on_rows_progress: Callable[[int, int, int | None], None] | None = None,
     base_query: str | None = None,
     mutable_months: int = 0,
+    fingerprint_only: bool = False,
+    checksum_columns: list[str] | None = None,
 ) -> DiffSyncStats:
     """Run a full 2-level differential sync for a single table.
 
@@ -179,7 +181,7 @@ def run_differential_sync(
     # --- LEVEL 1: Period-level comparison ---
     log_progress(f"Computing Level 1 fingerprints (GROUP BY {level1_column})")
     t0 = datetime.utcnow()
-    current_l1 = compute_level1_fingerprints(sql_client, sql_table, level1_column, where_clause, base_query=base_query)
+    current_l1 = compute_level1_fingerprints(sql_client, sql_table, level1_column, where_clause, base_query=base_query, checksum_columns=checksum_columns)
     stats.level1_fingerprint_time = (datetime.utcnow() - t0).total_seconds()
     stats.total_level1_values = len(current_l1)
 
@@ -312,6 +314,17 @@ def run_differential_sync(
             if on_rows_progress:
                 on_rows_progress(0, 0, estimated_download)
 
+    # --- FINGERPRINT-ONLY MODE: save L1 and return without downloading data ---
+    if fingerprint_only:
+        log_progress("Fingerprint-only mode: saving Level 1 fingerprints and returning")
+        save_fingerprints(
+            dbx_client, fingerprint_table, country, sql_table,
+            level="period", fingerprints=current_l1,
+            job_id=job_id,
+        )
+        stats.total_time = (datetime.utcnow() - total_start).total_seconds()
+        return stats
+
     if not l1_diff.changed and not l1_diff.new:
         log_progress(
             f"No changes detected (unchanged={stats.unchanged_level1}, "
@@ -346,7 +359,7 @@ def run_differential_sync(
         for l1_val in l1_diff.changed:
             current_l2 = compute_level2_fingerprints(
                 sql_client, sql_table, level1_column, l1_val, level2_column,
-                base_query=base_query,
+                base_query=base_query, checksum_columns=checksum_columns,
             )
 
             stored_l2 = load_stored_fingerprints(
@@ -513,7 +526,7 @@ def run_differential_sync(
         for l1_val in l1_diff.new:
             new_l2 = compute_level2_fingerprints(
                 sql_client, sql_table, level1_column, l1_val, level2_column,
-                base_query=base_query,
+                base_query=base_query, checksum_columns=checksum_columns,
             )
             save_fingerprints(
                 dbx_client, fingerprint_table, country, sql_table,
