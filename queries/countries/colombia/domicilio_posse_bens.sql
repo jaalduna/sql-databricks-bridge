@@ -4,6 +4,7 @@
 select
     iddomicilio,
     idposse_bem,
-    quantidade
+    quantidade,
+    YEAR(data)*100+MONTH(data) as periodo
 from domicilio_posse_bens
 where YEAR(data) >= YEAR(DATEADD(MONTH, -{lookback_months}, GETDATE()))
