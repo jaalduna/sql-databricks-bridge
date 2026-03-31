@@ -43,17 +43,22 @@ class DeltaTableWriter:
         country: str,
         catalog: str | None = None,
         schema: str | None = None,
+        table_suffix: str | None = None,
     ) -> str:
         """Build fully-qualified Delta table name.
 
         If schema is not provided, uses country as schema name.
+        If table_suffix is provided, it is appended to the query name
+        (e.g. query_name="j_atoscompra_new", table_suffix="_full"
+         -> "j_atoscompra_new_full").
 
         Returns:
-            "`{catalog}`.`{schema}`.`{query_name}`"
+            "`{catalog}`.`{schema}`.`{name}`"
         """
         cat = catalog or self._settings.catalog
         sch = schema or country  # Use country as schema if not provided
-        return f"`{cat}`.`{sch}`.`{query_name}`"
+        name = f"{query_name}{table_suffix}" if table_suffix else query_name
+        return f"`{cat}`.`{sch}`.`{name}`"
 
     def write_dataframe(
         self,
@@ -64,6 +69,7 @@ class DeltaTableWriter:
         schema: str | None = None,
         save_local: bool = False,
         tag: str | None = None,
+        table_suffix: str | None = None,
     ) -> WriteResult:
         """Write DataFrame to a Delta table using stage-then-CTAS.
 
@@ -83,14 +89,15 @@ class DeltaTableWriter:
         # Convert all column names to lowercase for Databricks consistency
         df = df.rename({col: col.lower() for col in df.columns})
 
-        table_name = self.resolve_table_name(query_name, country, catalog, schema)
+        table_name = self.resolve_table_name(query_name, country, catalog, schema, table_suffix)
 
         # Build staging path using target catalog/schema (not defaults from env)
         # NOTE: read_files() requires a DIRECTORY path, not a single file.
         target_catalog = catalog or self._settings.catalog
         target_schema = schema or country  # Use country as schema if not provided
         staging_volume_path = f"/Volumes/{target_catalog}/{target_schema}/{self._settings.volume}"
-        staging_dir = f"{staging_volume_path}/_staging/{query_name}"
+        effective_name = f"{query_name}{table_suffix}" if table_suffix else query_name
+        staging_dir = f"{staging_volume_path}/_staging/{effective_name}"
         staging_file = f"{staging_dir}/data.parquet"
 
         # Ensure target schema exists (Unity Catalog)
@@ -153,6 +160,7 @@ class DeltaTableWriter:
         catalog: str | None = None,
         schema: str | None = None,
         tag: str | None = None,
+        table_suffix: str | None = None,
     ) -> WriteResult:
         """Append DataFrame rows to an existing Delta table (INSERT INTO).
 
@@ -174,11 +182,12 @@ class DeltaTableWriter:
         # Lowercase column names for consistency
         df = df.rename({col: col.lower() for col in df.columns})
 
-        table_name = self.resolve_table_name(query_name, country, catalog, schema)
+        table_name = self.resolve_table_name(query_name, country, catalog, schema, table_suffix)
         target_catalog = catalog or self._settings.catalog
         target_schema = schema or country
         staging_volume_path = f"/Volumes/{target_catalog}/{target_schema}/{self._settings.volume}"
-        staging_dir = f"{staging_volume_path}/_staging_incr/{query_name}"
+        effective_name = f"{query_name}{table_suffix}" if table_suffix else query_name
+        staging_dir = f"{staging_volume_path}/_staging_incr/{effective_name}"
         staging_file = f"{staging_dir}/data.parquet"
 
         self._ensure_schema(target_catalog, target_schema)
@@ -192,7 +201,9 @@ class DeltaTableWriter:
         # If table doesn't exist, do full write (CTAS)
         if not self.table_exists(table_name):
             logger.info(f"Table {table_name} doesn't exist, creating with {rows} rows")
-            return self.write_dataframe(df, query_name, country, catalog, schema, tag=tag)
+            return self.write_dataframe(
+                df, query_name, country, catalog, schema, tag=tag, table_suffix=table_suffix,
+            )
 
         # Stage parquet
         self._clean_staging_dir(staging_dir)
@@ -225,7 +236,9 @@ class DeltaTableWriter:
                 "UNRESOLVED_COLUMN",
             ]):
                 logger.warning(f"Schema issue on append to {table_name}, falling back to OVERWRITE: {e}")
-                return self.write_dataframe(df, query_name, country, catalog, schema, tag=tag)
+                return self.write_dataframe(
+                    df, query_name, country, catalog, schema, tag=tag, table_suffix=table_suffix,
+                )
             raise
 
         # Tags + cleanup
@@ -266,6 +279,7 @@ class DeltaTableWriter:
         catalog: str | None = None,
         schema: str | None = None,
         tag: str | None = None,
+        table_suffix: str | None = None,
     ) -> WriteResult:
         """Write only changed slices using DELETE + INSERT pattern.
 
@@ -290,11 +304,12 @@ class DeltaTableWriter:
             WriteResult with table name, row count, duration.
         """
         start_time = datetime.utcnow()
-        table_name = self.resolve_table_name(query_name, country, catalog, schema)
+        table_name = self.resolve_table_name(query_name, country, catalog, schema, table_suffix)
         target_catalog = catalog or self._settings.catalog
         target_schema = schema or country
         staging_volume_path = f"/Volumes/{target_catalog}/{target_schema}/{self._settings.volume}"
-        staging_dir = f"{staging_volume_path}/_staging_diff/{query_name}"
+        effective_name = f"{query_name}{table_suffix}" if table_suffix else query_name
+        staging_dir = f"{staging_volume_path}/_staging_diff/{effective_name}"
 
         self._ensure_schema(target_catalog, target_schema)
 
@@ -305,7 +320,10 @@ class DeltaTableWriter:
             logger.info(f"Table {table_name} doesn't exist, doing full write")
             if chunks:
                 combined = pl.concat(chunks) if len(chunks) > 1 else chunks[0]
-                return self.write_dataframe(combined, query_name, country, catalog, schema, tag=tag)
+                return self.write_dataframe(
+                    combined, query_name, country, catalog, schema,
+                    tag=tag, table_suffix=table_suffix,
+                )
             return WriteResult(table_name=table_name, rows=0, duration_seconds=0)
 
         if not chunks and not deleted_level1_values:
@@ -341,12 +359,18 @@ class DeltaTableWriter:
 
                 logger.info(f"Deleted {len(changed_pairs)} changed slices from {table_name}")
 
-            # Delete entire level1 values that were removed from source
+            # Delete entire level1 values (batched into single IN clause)
             if deleted_level1_values:
-                for val in deleted_level1_values:
-                    delete_sql = f"DELETE FROM {table_name} WHERE CAST({level1_column} AS STRING) = '{val}'"
+                batch_size = 500
+                for i in range(0, len(deleted_level1_values), batch_size):
+                    batch = deleted_level1_values[i:i + batch_size]
+                    values_list = ", ".join(f"'{v}'" for v in batch)
+                    delete_sql = (
+                        f"DELETE FROM {table_name} "
+                        f"WHERE CAST({level1_column} AS STRING) IN ({values_list})"
+                    )
                     self.client.execute_sql(delete_sql)
-                logger.info(f"Deleted {len(deleted_level1_values)} removed {level1_column} values from {table_name}")
+                logger.info(f"Deleted {len(deleted_level1_values)} {level1_column} values from {table_name}")
         except RuntimeError as e:
             if "UNRESOLVED_COLUMN" in str(e):
                 logger.warning(
@@ -356,7 +380,8 @@ class DeltaTableWriter:
                 if chunks:
                     combined = pl.concat(chunks) if len(chunks) > 1 else chunks[0]
                     return self.write_dataframe(
-                        combined, query_name, country, catalog, schema, tag=tag
+                        combined, query_name, country, catalog, schema,
+                        tag=tag, table_suffix=table_suffix,
                     )
             raise
 
@@ -386,7 +411,8 @@ class DeltaTableWriter:
                     )
                     combined = pl.concat(chunks) if len(chunks) > 1 else chunks[0]
                     return self.write_dataframe(
-                        combined, query_name, country, catalog, schema, tag=tag
+                        combined, query_name, country, catalog, schema,
+                        tag=tag, table_suffix=table_suffix,
                     )
                 col_list = ", ".join(f"`{c}`" for c in common_cols)
                 insert_sql = (
@@ -416,7 +442,8 @@ class DeltaTableWriter:
                     # Re-create table with correct schema from current data
                     combined = pl.concat(chunks) if len(chunks) > 1 else chunks[0]
                     return self.write_dataframe(
-                        combined, query_name, country, catalog, schema, tag=tag
+                        combined, query_name, country, catalog, schema,
+                        tag=tag, table_suffix=table_suffix,
                     )
                 raise
 

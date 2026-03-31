@@ -1,5 +1,5 @@
 -- brasil: rg_panelis
--- columns: 37
+-- columns: 36 (seqdom removed - no longer exists)
 -- Source: br_spri database (cross-database query)
 -- NOTE: Column nsereg verified to exist in SQL Server (2024-01-XX)
 
@@ -39,7 +39,6 @@ select
     nime18,
     nse_loc,
     nsereg,
-    origen_dom,
-    seqdom
+    origen_dom
 from br_spri.dbo.rg_panelis
 where ano >= YEAR(DATEADD(MONTH, -{lookback_months}, GETDATE()))

@@ -4,7 +4,18 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from io import BytesIO
+from io import BytesIO as _BytesIO
+
+
+class BytesIO(_BytesIO):
+    """BytesIO subclass with __len__ for Databricks SDK upload compatibility."""
+
+    def __len__(self) -> int:
+        pos = self.tell()
+        self.seek(0, 2)
+        size = self.tell()
+        self.seek(pos)
+        return size
 from typing import Any, AsyncIterator
 
 import polars as pl

@@ -1,36 +1,42 @@
 """Differential sync orchestrator.
 
-Coordinates the 2-level fingerprint comparison and selective extraction:
-  1. Compute Level 1 fingerprints, compare with stored -> find changed level1 values
-  2. For changed level1 values, compute Level 2 fingerprints -> find changed pairs
-  3. Extract only changed (level1, level2) rows from SQL Server
-  4. DELETE + INSERT changed slices in Databricks
-  5. Update stored fingerprints
+Coordinates Level 1 fingerprint comparison and selective extraction:
+  1. Compute Level 1 fingerprints (GROUP BY periodo), compare with stored
+  2. Extract all rows for changed periods in a single query
+  3. DELETE changed periods + INSERT new data in Databricks
+  4. Update stored fingerprints
+
+When ``two_phase=True`` the warehouse-touching steps (2-read, 3-write, 4-save)
+are replaced with local SQLite operations + enqueueing, so the warehouse stays
+OFF during the long extraction phase.
 """
+
+from __future__ import annotations
 
 import logging
 import shutil
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import TYPE_CHECKING, Callable
 
 import polars as pl
 
 from sql_databricks_bridge.core.delta_writer import DeltaTableWriter
 from sql_databricks_bridge.core.fingerprint import (
-    DiffResult,
-    Fingerprint,
     compare_fingerprints,
     compute_level1_fingerprints,
-    compute_level2_fingerprints,
     ensure_fingerprint_table,
     load_stored_fingerprints,
     save_fingerprints,
 )
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db.sql_server import SQLServerClient
+
+if TYPE_CHECKING:
+    from sql_databricks_bridge.core.fingerprint_cache import FingerprintCache
+    from sql_databricks_bridge.core.sync_queue import SyncQueue
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +124,7 @@ class DiffSyncStats:
     extraction_time: float = 0
     write_time: float = 0
     total_time: float = 0
+    queued: bool = False  # True when two-phase: write was enqueued, not committed
 
 
 def run_differential_sync(
@@ -139,6 +146,10 @@ def run_differential_sync(
     mutable_months: int = 0,
     fingerprint_only: bool = False,
     checksum_columns: list[str] | None = None,
+    table_suffix: str | None = None,
+    two_phase: bool = False,
+    fingerprint_cache: FingerprintCache | None = None,
+    sync_queue: SyncQueue | None = None,
 ) -> DiffSyncStats:
     """Run a full 2-level differential sync for a single table.
 
@@ -158,6 +169,9 @@ def run_differential_sync(
         on_progress: Optional callback(message: str) for progress updates.
         on_rows_progress: Optional callback(chunk_rows, total_so_far, estimated_total) for row-level progress.
         mutable_months: If > 0, only check the last N months for changes (older periods are assumed unchanged).
+        two_phase: If True, skip Databricks SQL and enqueue writes for Phase 2.
+        fingerprint_cache: Local SQLite fingerprint cache (required when two_phase=True).
+        sync_queue: Persistent queue for Databricks writes (required when two_phase=True).
 
     Returns:
         DiffSyncStats with detailed sync statistics.
@@ -175,8 +189,9 @@ def run_differential_sync(
         if on_progress:
             on_progress(msg)
 
-    # Ensure fingerprint metadata table exists
-    ensure_fingerprint_table(dbx_client, fingerprint_table)
+    # Ensure fingerprint metadata table exists (skip in two-phase: no warehouse needed)
+    if not two_phase:
+        ensure_fingerprint_table(dbx_client, fingerprint_table)
 
     # --- LEVEL 1: Period-level comparison ---
     log_progress(f"Computing Level 1 fingerprints (GROUP BY {level1_column})")
@@ -188,17 +203,23 @@ def run_differential_sync(
     log_progress(f"Level 1: {len(current_l1)} values in {stats.level1_fingerprint_time:.1f}s")
 
     # Load stored Level 1 fingerprints
-    stored_l1 = load_stored_fingerprints(
-        dbx_client, fingerprint_table, country, sql_table, level="period"
-    )
+    if two_phase and fingerprint_cache is not None:
+        # Two-phase: read from local SQLite cache (no warehouse)
+        stored_l1 = fingerprint_cache.load(country, sql_table, level="period")
+        log_progress(f"Loaded {len(stored_l1)} stored fingerprints from local cache")
+    else:
+        stored_l1 = load_stored_fingerprints(
+            dbx_client, fingerprint_table, country, sql_table, level="period"
+        )
     stats.is_first_sync = len(stored_l1) == 0
 
     # --- Schema compatibility check ---
     # If the Delta table exists but its schema doesn't match the source query,
     # force a full resync (OVERWRITE) to recreate the table with correct columns.
+    # In two-phase mode we skip this (requires warehouse); Phase 2 handles it.
     _force_overwrite = False
-    if not stats.is_first_sync:
-        _target_table = writer.resolve_table_name(sql_table, country)
+    if not stats.is_first_sync and not two_phase:
+        _target_table = writer.resolve_table_name(sql_table, country, table_suffix=table_suffix)
         if writer.table_exists(_target_table):
             _target_cols_list = writer._get_table_columns(_target_table)
             _target_cols = {c.lower() for c in _target_cols_list}
@@ -317,11 +338,28 @@ def run_differential_sync(
     # --- FINGERPRINT-ONLY MODE: save L1 and return without downloading data ---
     if fingerprint_only:
         log_progress("Fingerprint-only mode: saving Level 1 fingerprints and returning")
-        save_fingerprints(
-            dbx_client, fingerprint_table, country, sql_table,
-            level="period", fingerprints=current_l1,
-            job_id=job_id,
-        )
+        if two_phase and fingerprint_cache is not None and sync_queue is not None:
+            # Enqueue fingerprint save for Phase 2 + update local cache
+            sync_queue.enqueue(
+                job_id=job_id, country=country, table_name=sql_table,
+                operation="save_fingerprints",
+                metadata={
+                    "level": "period",
+                    "fingerprints": [
+                        {"value": fp.value, "row_count": fp.row_count, "checksum_xor": fp.checksum_xor}
+                        for fp in current_l1
+                    ],
+                },
+                tag=tag, table_suffix=table_suffix or "",
+            )
+            fingerprint_cache.save(country, sql_table, "period", current_l1, job_id)
+            stats.queued = True
+        else:
+            save_fingerprints(
+                dbx_client, fingerprint_table, country, sql_table,
+                level="period", fingerprints=current_l1,
+                job_id=job_id,
+            )
         stats.total_time = (datetime.utcnow() - total_start).total_seconds()
         return stats
 
@@ -333,73 +371,35 @@ def run_differential_sync(
         # Still save fingerprints (narrowed to current scope) so next run
         # doesn't see stale entries for out-of-scope periods
         if stored_l1:
-            save_fingerprints(
-                dbx_client, fingerprint_table, country, sql_table,
-                level="period", fingerprints=current_l1,
-                job_id=job_id,
-            )
+            if two_phase and fingerprint_cache is not None and sync_queue is not None:
+                sync_queue.enqueue(
+                    job_id=job_id, country=country, table_name=sql_table,
+                    operation="save_fingerprints",
+                    metadata={
+                        "level": "period",
+                        "fingerprints": [
+                            {"value": fp.value, "row_count": fp.row_count, "checksum_xor": fp.checksum_xor}
+                            for fp in current_l1
+                        ],
+                    },
+                    tag=tag, table_suffix=table_suffix or "",
+                )
+                fingerprint_cache.save(country, sql_table, "period", current_l1, job_id)
+                stats.queued = True
+            else:
+                save_fingerprints(
+                    dbx_client, fingerprint_table, country, sql_table,
+                    level="period", fingerprints=current_l1,
+                    job_id=job_id,
+                )
         stats.total_time = (datetime.utcnow() - total_start).total_seconds()
         return stats
 
-    # --- LEVEL 2: Product-level drill-down for changed level1 values ---
-    all_changed_pairs: list[tuple[str, str]] = []
-    all_new_pairs: list[tuple[str, str]] = []  # From new level1 values (all products new)
+    # --- Collect all periods that need syncing ---
+    periods_to_sync = l1_diff.changed + l1_diff.new
+    stats.total_changed_pairs = len(periods_to_sync)
+    log_progress(f"Periods to sync: {len(periods_to_sync)} ({stats.changed_level1} changed, {stats.new_level1} new)")
 
-    # For NEW level1 values, we download everything (no Level 2 needed)
-    for l1_val in l1_diff.new:
-        log_progress(f"New {level1_column}={l1_val}: will download all products")
-        # We'll extract all rows for this level1 value without Level 2 drill-down
-        all_new_pairs.append((l1_val, "__ALL__"))
-
-    # For CHANGED level1 values, drill down to Level 2
-    if l1_diff.changed:
-        log_progress(f"Drilling down Level 2 for {len(l1_diff.changed)} changed {level1_column} values")
-        t0 = datetime.utcnow()
-
-        for l1_val in l1_diff.changed:
-            current_l2 = compute_level2_fingerprints(
-                sql_client, sql_table, level1_column, l1_val, level2_column,
-                base_query=base_query, checksum_columns=checksum_columns,
-            )
-
-            stored_l2 = load_stored_fingerprints(
-                dbx_client, fingerprint_table, country, sql_table,
-                level="product", level1_value=l1_val,
-            )
-
-            l2_diff = compare_fingerprints(current_l2, stored_l2)
-
-            for l2_val in l2_diff.all_changed_values:
-                all_changed_pairs.append((l1_val, l2_val))
-
-            # For deleted products in this period, we need to handle deletion
-            for l2_val in l2_diff.deleted:
-                all_changed_pairs.append((l1_val, l2_val))
-
-            log_progress(
-                f"  {level1_column}={l1_val}: {len(l2_diff.changed)} changed, "
-                f"{len(l2_diff.new)} new, {len(l2_diff.deleted)} deleted, "
-                f"{len(l2_diff.unchanged)} unchanged products"
-            )
-
-            # Save Level 2 fingerprints for this period
-            save_fingerprints(
-                dbx_client, fingerprint_table, country, sql_table,
-                level="product", fingerprints=current_l2,
-                job_id=job_id, level1_value=l1_val,
-            )
-
-        stats.level2_fingerprint_time = (datetime.utcnow() - t0).total_seconds()
-
-    stats.total_changed_pairs = len(all_changed_pairs) + len(all_new_pairs)
-    log_progress(f"Total slices to sync: {stats.total_changed_pairs}")
-
-    # --- FIRST SYNC OPTIMIZATION ---
-    # If all L1 values are new and there are many, use a single full query.
-    # Also force bulk when schema mismatch requires OVERWRITE (even with few periods).
-    use_bulk_extraction = (
-        (stats.is_first_sync and len(all_new_pairs) > 10) or _force_overwrite
-    )
     all_chunks: list[pl.DataFrame] = []
     _rows_so_far = 0  # Running total for progress tracking
 
@@ -416,125 +416,132 @@ def run_differential_sync(
     # Determine SQL source: use base_query as subquery if provided, else raw table
     _sql_source = f"({base_query}) AS _src" if base_query else sql_table
 
-    if use_bulk_extraction:
-        log_progress(f"First sync with {len(all_new_pairs)} periods: using bulk extraction")
-        # Build a single query for all periods at once
+    # --- EXTRACTION: Single query for all changed periods ---
+    t0 = datetime.utcnow()
+    if stats.is_first_sync or _force_overwrite:
+        log_progress(f"Full extraction ({len(periods_to_sync)} periods)")
         if base_query:
-            bulk_query = base_query
+            extract_query = base_query
         else:
-            bulk_query = f"SELECT * FROM {sql_table}"
+            extract_query = f"SELECT * FROM {sql_table}"
             if where_clause:
-                bulk_query += f" WHERE {where_clause}"
-
-        t0 = datetime.utcnow()
-        bulk_dir = diff_chunk_dir / "bulk"
-        all_chunks, bulk_total = _extract_with_retry(
-            sql_client, bulk_query, chunk_size, output_dir=bulk_dir,
-            on_progress=_report_rows,
+                extract_query += f" WHERE {where_clause}"
+    else:
+        periods_csv = ", ".join(f"'{p}'" for p in periods_to_sync)
+        extract_query = (
+            f"SELECT * FROM {_sql_source} "
+            f"WHERE CAST({level1_column} AS VARCHAR(100)) IN ({periods_csv})"
         )
-        stats.extraction_time = (datetime.utcnow() - t0).total_seconds()
-        stats.rows_downloaded = bulk_total
+
+    bulk_dir = diff_chunk_dir / "bulk"
+    all_chunks, total_rows = _extract_with_retry(
+        sql_client, extract_query, chunk_size, output_dir=bulk_dir,
+        on_progress=_report_rows,
+    )
+    stats.extraction_time = (datetime.utcnow() - t0).total_seconds()
+    stats.rows_downloaded = total_rows
+    log_progress(
+        f"Extracted {stats.rows_downloaded:,} rows in {stats.extraction_time:.1f}s "
+        f"(skipped {stats.rows_skipped:,} unchanged rows)"
+    )
+
+    # --- WRITE / ENQUEUE ---
+    if two_phase and sync_queue is not None and fingerprint_cache is not None and all_chunks:
+        # Two-phase: upload parquet to Volume (REST API, no warehouse) and enqueue
+        log_progress("Two-phase: uploading parquet to Volume and enqueueing write")
+        t0 = datetime.utcnow()
+
+        from sql_databricks_bridge.core.config import get_settings
+        _tp_settings = get_settings().databricks
+        _tp_catalog = _tp_settings.catalog
+        _tp_schema = country
+        _tp_volume = _tp_settings.volume
+        effective_name = f"{sql_table}{table_suffix}" if table_suffix else sql_table
+        staging_dir = f"/Volumes/{_tp_catalog}/{_tp_schema}/{_tp_volume}/_staging_2p/{effective_name}_{job_id}"
+
+        # Upload all chunks as numbered parquet parts
+        chunks_lower = [c.rename({col: col.lower() for col in c.columns}) for c in all_chunks]
+        writer.client.upload_dataframe_chunked(chunks_lower, staging_dir)
+        log_progress(f"Uploaded {stats.rows_downloaded:,} rows to {staging_dir}")
+
+        # Determine operation type
+        if stats.is_first_sync or _force_overwrite:
+            operation = "ctas"
+            metadata = {}
+        else:
+            operation = "diff_write"
+            metadata = {
+                "periods_to_delete": periods_to_sync,
+                "level1_column": level1_column,
+                "level2_column": level2_column,
+            }
+
+        sync_queue.enqueue(
+            job_id=job_id, country=country, table_name=sql_table,
+            operation=operation, staging_path=staging_dir,
+            metadata=metadata, tag=tag, table_suffix=table_suffix or "",
+        )
+
+        # Enqueue fingerprint save
+        fp_metadata = {
+            "level": "period",
+            "fingerprints": [
+                {"value": fp.value, "row_count": fp.row_count, "checksum_xor": fp.checksum_xor}
+                for fp in current_l1
+            ],
+        }
+        sync_queue.enqueue(
+            job_id=job_id, country=country, table_name=sql_table,
+            operation="save_fingerprints", metadata=fp_metadata,
+            tag=tag, table_suffix=table_suffix or "",
+        )
+
+        # Update local fingerprint cache immediately
+        fingerprint_cache.save(country, sql_table, "period", current_l1, job_id)
+
+        stats.write_time = (datetime.utcnow() - t0).total_seconds()
+        stats.queued = True
+
         log_progress(
-            f"Extracted {stats.rows_downloaded:,} rows in {stats.extraction_time:.1f}s (bulk)"
+            f"Two-phase: enqueued {operation} + fingerprints for {sql_table} "
+            f"({stats.rows_downloaded:,} rows staged)"
         )
     else:
-        # --- EXTRACTION: Download only changed rows ---
-        log_progress("Extracting changed rows from SQL Server")
+        # Standard single-phase: write directly to Databricks
+        log_progress("Writing changed slices to Databricks")
         t0 = datetime.utcnow()
 
-        # Extract changed (level1, level2) pairs
-        for idx, (l1_val, l2_val) in enumerate(all_changed_pairs):
-            query = (
-                f"SELECT * FROM {_sql_source} "
-                f"WHERE CAST({level1_column} AS VARCHAR(100)) = '{l1_val}' "
-                f"AND CAST({level2_column} AS VARCHAR(100)) = '{l2_val}'"
+        if (stats.is_first_sync or _force_overwrite) and all_chunks:
+            # First sync / schema fix: full OVERWRITE
+            combined = pl.concat(all_chunks)
+            result = writer.write_dataframe(combined, sql_table, country, tag=tag, table_suffix=table_suffix)
+            log_progress(f"Wrote {result.rows} rows via OVERWRITE in {result.duration_seconds:.1f}s")
+        elif all_chunks:
+            # Incremental: DELETE changed periods + INSERT new data
+            result = writer.write_diff_slices(
+                chunks=all_chunks,
+                query_name=sql_table,
+                country=country,
+                changed_pairs=[],
+                level1_column=level1_column,
+                level2_column=level2_column,
+                deleted_level1_values=periods_to_sync,
+                tag=tag,
+                table_suffix=table_suffix,
             )
-            pair_dir = diff_chunk_dir / f"changed_{idx}"
-            chunks, _ = _extract_with_retry(
-                sql_client, query, chunk_size, output_dir=pair_dir,
-                on_progress=_report_rows,
-            )
-            all_chunks.extend(chunks)
+            log_progress(f"Wrote {result.rows} rows to {result.table_name} in {result.duration_seconds:.1f}s")
 
-        # Extract new level1 values (full download for that value)
-        for i, (l1_val, _) in enumerate(all_new_pairs):
-            query = (
-                f"SELECT * FROM {_sql_source} "
-                f"WHERE CAST({level1_column} AS VARCHAR(100)) = '{l1_val}'"
-            )
-            new_dir = diff_chunk_dir / f"new_{i}"
-            chunks, _ = _extract_with_retry(
-                sql_client, query, chunk_size, output_dir=new_dir,
-                on_progress=_report_rows,
-            )
-            all_chunks.extend(chunks)
-            slice_rows = sum(len(c) for c in chunks)
-            log_progress(f"  [{i+1}/{len(all_new_pairs)}] periodo={l1_val}: {slice_rows:,} rows")
+        stats.write_time = (datetime.utcnow() - t0).total_seconds()
 
-        stats.extraction_time = (datetime.utcnow() - t0).total_seconds()
-        stats.rows_downloaded = sum(len(c) for c in all_chunks)
-
-        log_progress(
-            f"Extracted {stats.rows_downloaded:,} rows in {stats.extraction_time:.1f}s "
-            f"(skipped {stats.rows_skipped:,} unchanged rows)"
-        )
-
-    # --- WRITE: DELETE + INSERT in Databricks ---
-    log_progress("Writing changed slices to Databricks")
-    t0 = datetime.utcnow()
-
-    # Build the list of pairs for DELETE (exclude __ALL__ markers)
-    delete_pairs = [(l1, l2) for l1, l2 in all_changed_pairs if l2 != "__ALL__"]
-    # For new level1 values, add them as deleted_level1 for the writer
-    # (though they shouldn't exist in Databricks yet, this is safe)
-    new_l1_values = [l1 for l1, _ in all_new_pairs]
-
-    if use_bulk_extraction and all_chunks:
-        # First sync: full OVERWRITE is simpler and more reliable
-        combined = pl.concat(all_chunks)
-        result = writer.write_dataframe(combined, sql_table, country, tag=tag)
-        log_progress(f"Wrote {result.rows} rows via OVERWRITE in {result.duration_seconds:.1f}s")
-    elif all_chunks or delete_pairs:
-        # Incremental: DELETE + INSERT changed slices
-        # Note: l1_diff.deleted (periods outside current scope) are NOT deleted from
-        # Databricks — they just fell outside the lookback window, not truly deleted.
-        # Only new_l1_values are pre-cleared (safe: they shouldn't exist in target yet).
-        result = writer.write_diff_slices(
-            chunks=all_chunks,
-            query_name=sql_table,
-            country=country,
-            changed_pairs=delete_pairs,
-            level1_column=level1_column,
-            level2_column=level2_column,
-            deleted_level1_values=new_l1_values,
-            tag=tag,
-        )
-        log_progress(f"Wrote {result.rows} rows to {result.table_name} in {result.duration_seconds:.1f}s")
-
-    stats.write_time = (datetime.utcnow() - t0).total_seconds()
-
-    # --- UPDATE FINGERPRINTS: Save Level 1 fingerprints ---
-    # Only save fingerprints if we actually downloaded data (or this is an incremental sync)
-    if stats.rows_downloaded > 0 or not stats.is_first_sync:
-        save_fingerprints(
-            dbx_client, fingerprint_table, country, sql_table,
-            level="period", fingerprints=current_l1,
-            job_id=job_id,
-        )
-
-        # Save Level 2 fingerprints for new level1 values
-        for l1_val in l1_diff.new:
-            new_l2 = compute_level2_fingerprints(
-                sql_client, sql_table, level1_column, l1_val, level2_column,
-                base_query=base_query, checksum_columns=checksum_columns,
-            )
+        # --- UPDATE FINGERPRINTS: Save Level 1 only ---
+        if stats.rows_downloaded > 0 or not stats.is_first_sync:
             save_fingerprints(
                 dbx_client, fingerprint_table, country, sql_table,
-                level="product", fingerprints=new_l2,
-                job_id=job_id, level1_value=l1_val,
+                level="period", fingerprints=current_l1,
+                job_id=job_id,
             )
-    else:
-        log_progress("WARNING: First sync produced 0 rows, NOT saving fingerprints")
+        else:
+            log_progress("WARNING: First sync produced 0 rows, NOT saving fingerprints")
 
     # Clean up temp disk chunks
     try:
@@ -547,6 +554,7 @@ def run_differential_sync(
     log_progress(
         f"Differential sync complete in {stats.total_time:.1f}s: "
         f"{stats.rows_downloaded:,} downloaded, {stats.rows_skipped:,} skipped"
+        + (" (queued for Phase 2)" if stats.queued else "")
     )
 
     return stats

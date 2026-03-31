@@ -169,6 +169,9 @@ class BridgeSettings(BaseSettings):
     azure_ad_client_id: str = Field(default="", description="Azure AD app client ID (audience)")
     authorized_users_file: str = Field(default="", description="Override path to authorized users YAML (empty = bundled default)")
 
+    # Two-phase sync (warehouse optimization)
+    two_phase_sync: bool = Field(default=False, description="Enable two-phase sync: Phase 1 downloads without warehouse, Phase 2 commits in tight batch")
+
     # E2E testing
     skip_sync_data: bool = Field(default=False, description="Skip SQL Server sync, jump to Databricks steps (e2e testing)")
     mock_data_availability: bool = Field(default=False, description="Mock data availability (all countries show elegibilidad+pesaje=true). For testing without SQL Server.")

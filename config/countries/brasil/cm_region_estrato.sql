@@ -1,4 +1,5 @@
 -- brasil: cm_region_estrato
+-- Source: geoestructura table (Brasil equivalent)
 
 select *
-from cm_region_estrato
+from geoestructura

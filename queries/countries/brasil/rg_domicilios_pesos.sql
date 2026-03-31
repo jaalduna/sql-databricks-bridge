@@ -1,5 +1,5 @@
 -- brasil: rg_domicilios_pesos
--- columns: 6
+-- columns: 5 (seqdom removed - no longer exists)
 -- NOTE: Column idpeso verified to exist in SQL Server (2024-01-XX)
 
 select
@@ -7,7 +7,6 @@ select
     iddomicilio,
     idpeso,
     messem,
-    seqdom,
     valor,
     ano*100+messem as periodo
 from rg_domicilios_pesos

@@ -37,6 +37,9 @@ from sql_databricks_bridge.db.sql_server import SQLServerClient
 from sql_databricks_bridge.db.version_tags_table import insert_version_tag
 from sql_databricks_bridge.core.calibration_tracker import calibration_tracker
 from sql_databricks_bridge.core.diff_sync import run_differential_sync
+from sql_databricks_bridge.core.fingerprint_cache import FingerprintCache
+from sql_databricks_bridge.core.sync_queue import SyncQueue
+from sql_databricks_bridge.core.phase2_executor import Phase2Executor
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +113,17 @@ class TriggerRequest(BaseModel):
     fingerprint_only: bool = Field(
         default=False,
         description="Compute and store fingerprints only, without downloading any data.",
+    )
+    table_suffix: str | None = Field(
+        default=None,
+        description=(
+            "Suffix appended to Delta table names (e.g. '_full' -> j_atoscompra_new_full). "
+            "Allows writing to separate tables without overwriting the default ones."
+        ),
+    )
+    queries_path: str | None = Field(
+        default=None,
+        description="Override the server QUERIES_PATH for this request. Use a different queries directory.",
     )
 
 
@@ -409,6 +423,7 @@ def _run_trigger_extraction(
     differential_sync_config: dict | None = None,
     incremental_sync_config: dict | None = None,
     fingerprint_only: bool = False,
+    table_suffix: str | None = None,
 ) -> None:
     """Background task to run the extraction triggered by a user."""
     try:
@@ -416,6 +431,36 @@ def _run_trigger_extraction(
 
         settings = get_settings()
         version_tags_tbl = settings.version_tags_table
+
+        # --- Two-phase sync setup ---
+        _two_phase = settings.two_phase_sync
+        _fp_cache: FingerprintCache | None = None
+        _sync_queue: SyncQueue | None = None
+        if _two_phase:
+            _fp_cache = FingerprintCache()
+            _sync_queue = SyncQueue()
+            # Cold-start: if the local cache has no data for this country,
+            # download fingerprints from Databricks once (requires warehouse).
+            if _fp_cache.is_empty(job.country, "", "period"):
+                logger.info(
+                    f"Two-phase: cold-start fingerprint cache for {job.country}"
+                )
+                try:
+                    _fp_cache.sync_from_databricks(
+                        client, settings.fingerprint_table, country=job.country,
+                    )
+                except Exception as e:
+                    # Cold-start failed — fall back to single-phase for this
+                    # job to avoid treating every table as first-sync.
+                    logger.warning(
+                        f"Two-phase: cache cold-start failed, falling back "
+                        f"to single-phase for this job: {e}"
+                    )
+                    _two_phase = False
+                    _fp_cache = None
+                    _sync_queue = None
+            if _two_phase:
+                logger.info(f"Two-phase sync enabled for job {job.job_id}")
 
         job.status = JobStatus.RUNNING
         job.started_at = datetime.utcnow()
@@ -496,7 +541,9 @@ def _run_trigger_extraction(
                     # so no additional where_clause is needed for fingerprints
                     where = ""
 
-                    result.table_name = writer.resolve_table_name(query_name, job.country)
+                    result.table_name = writer.resolve_table_name(
+                        query_name, job.country, table_suffix=table_suffix,
+                    )
 
                     def _diff_rows_progress(chunk_rows, total_so_far, estimated_total):
                         result.rows_downloaded = total_so_far
@@ -523,10 +570,16 @@ def _run_trigger_extraction(
                         mutable_months=diff_config.get("mutable_months", 0),
                         fingerprint_only=fingerprint_only,
                         checksum_columns=diff_config.get("checksum_columns"),
+                        table_suffix=table_suffix,
+                        two_phase=_two_phase,
+                        fingerprint_cache=_fp_cache,
+                        sync_queue=_sync_queue,
                     )
 
                     result.rows_extracted = diff_stats.rows_downloaded
-                    result.table_name = writer.resolve_table_name(query_name, job.country)
+                    result.table_name = writer.resolve_table_name(
+                        query_name, job.country, table_suffix=table_suffix,
+                    )
 
                     # Tag the new version
                     if tag and result.table_name and diff_stats.rows_downloaded > 0:
@@ -545,7 +598,9 @@ def _run_trigger_extraction(
                     key_col = incr_config["key_column"]
                     date_col = incr_config.get("date_column")
                     mutable_months = incr_config.get("mutable_window_months", 0)
-                    table_name = writer.resolve_table_name(query_name, job.country)
+                    table_name = writer.resolve_table_name(
+                        query_name, job.country, table_suffix=table_suffix,
+                    )
                     max_key = writer.get_max_key(table_name, key_col)
 
                     lookback = override_lookback_months if override_lookback_months is not None else settings.lookback_months
@@ -589,9 +644,15 @@ def _run_trigger_extraction(
                             _files = sorted(_glob.glob(str(chunk_dir / "*.parquet")))
                             combined = _pl.concat([_pl.read_parquet(f) for f in _files], how="diagonal_relaxed")
                             if append:
-                                writer.append_dataframe(combined, query_name, job.country, tag=tag)
+                                writer.append_dataframe(
+                                    combined, query_name, job.country,
+                                    tag=tag, table_suffix=table_suffix,
+                                )
                             else:
-                                writer.write_dataframe(combined, query_name, job.country, tag=tag)
+                                writer.write_dataframe(
+                                    combined, query_name, job.country,
+                                    tag=tag, table_suffix=table_suffix,
+                                )
                         try:
                             if chunk_dir.exists():
                                 shutil.rmtree(chunk_dir)
@@ -863,32 +924,59 @@ def _run_trigger_extraction(
                         import glob as _glob
                         _files = sorted(_glob.glob(str(chunk_dir / "*.parquet")))
                         combined = _pl.concat([_pl.read_parquet(f) for f in _files], how="diagonal_relaxed")
-                        writer.write_dataframe(combined, query_name, job.country, tag=tag)
+
+                        if _two_phase and _sync_queue is not None:
+                            # Two-phase: upload to Volume and enqueue CTAS
+                            combined_lower = combined.rename({c: c.lower() for c in combined.columns})
+                            _tp_s = settings.databricks
+                            _tp_staging = (
+                                f"/Volumes/{_tp_s.catalog}/{job.country}/{_tp_s.volume}"
+                                f"/_staging_2p/{query_name}_{job.job_id}"
+                            )
+                            writer.client.upload_dataframe_chunked(
+                                [combined_lower], _tp_staging,
+                            )
+                            _sync_queue.enqueue(
+                                job_id=job.job_id, country=job.country,
+                                table_name=query_name, operation="ctas",
+                                staging_path=_tp_staging,
+                                tag=tag, table_suffix=table_suffix or "",
+                            )
+                            logger.info(
+                                f"Two-phase: enqueued CTAS for {query_name} "
+                                f"({total_rows:,} rows staged)"
+                            )
+                        else:
+                            writer.write_dataframe(
+                                combined, query_name, job.country,
+                                tag=tag, table_suffix=table_suffix,
+                            )
+
+                            # Tag the new version with the job tag
+                            if tag and result.table_name:
+                                try:
+                                    version = writer.get_current_version(result.table_name)
+                                    insert_version_tag(
+                                        client,
+                                        version_tags_tbl,
+                                        table_name=result.table_name,
+                                        version=version,
+                                        tag=tag,
+                                        created_by=triggered_by or "system",
+                                        job_id=job.job_id,
+                                    )
+                                    logger.info(
+                                        f"Tagged {result.table_name} v{version} as '{tag}'"
+                                    )
+                                except Exception as tag_err:
+                                    logger.warning(
+                                        f"Failed to tag {result.table_name}: {tag_err}"
+                                    )
+
                         result.rows_extracted = total_rows
                         result.table_name = writer.resolve_table_name(
-                            query_name, job.country
+                            query_name, job.country, table_suffix=table_suffix,
                         )
-
-                        # Tag the new version with the job tag
-                        if tag and result.table_name:
-                            try:
-                                version = writer.get_current_version(result.table_name)
-                                insert_version_tag(
-                                    client,
-                                    version_tags_tbl,
-                                    table_name=result.table_name,
-                                    version=version,
-                                    tag=tag,
-                                    created_by=triggered_by or "system",
-                                    job_id=job.job_id,
-                                )
-                                logger.info(
-                                    f"Tagged {result.table_name} v{version} as '{tag}'"
-                                )
-                            except Exception as tag_err:
-                                logger.warning(
-                                    f"Failed to tag {result.table_name}: {tag_err}"
-                                )
                     else:
                         result.rows_extracted = 0
 
@@ -935,6 +1023,45 @@ def _run_trigger_extraction(
                     logger.error(f"Unexpected error processing query {qn}: {exc}")
 
         job.current_query = None
+
+        # --- Phase 2: Commit all queued Databricks operations in a tight batch ---
+        if _two_phase and _sync_queue is not None and _fp_cache is not None:
+            pending_count = _sync_queue.count_pending(job_id=job.job_id)
+            if pending_count > 0:
+                logger.info(
+                    f"Phase 2: committing {pending_count} queued operation(s) "
+                    f"for job {job.job_id}"
+                )
+                try:
+                    p2_executor = Phase2Executor(
+                        dbx_client=client,
+                        writer=writer,
+                        queue=_sync_queue,
+                        fingerprint_cache=_fp_cache,
+                        fingerprint_table=settings.fingerprint_table,
+                    )
+                    p2_result = p2_executor.execute_batch(
+                        job_id=job.job_id,
+                        max_parallel=settings.max_parallel_queries,
+                    )
+                    logger.info(
+                        f"Phase 2 complete: {p2_result.tables_committed} tables, "
+                        f"{p2_result.fingerprints_saved} fp saves, "
+                        f"{p2_result.tables_failed} failures in "
+                        f"{p2_result.duration_seconds:.1f}s"
+                    )
+                    if p2_result.errors:
+                        for err in p2_result.errors:
+                            logger.error(f"Phase 2 error: {err}")
+                except Exception as p2_err:
+                    logger.error(f"Phase 2 execution failed: {p2_err}")
+            else:
+                logger.info("Phase 2: no pending operations to commit")
+            # Cleanup old queue entries
+            try:
+                _sync_queue.cleanup_old(days=7)
+            except Exception:
+                pass
 
         # Determine if this is a calibration job (should advance to further steps)
         is_calibration = record and record.stage == "calibracion"
@@ -1212,7 +1339,7 @@ async def trigger_extraction(
 
     # Create extractor and job
     try:
-        queries_path = get_settings().queries_path
+        queries_path = request.queries_path or get_settings().queries_path
         loader = CountryAwareQueryLoader(queries_path)
         if loader.is_server(request.country):
             sql_client = SQLServerClient(server=request.country, database="master")
@@ -1383,7 +1510,7 @@ async def trigger_extraction(
         _run_trigger_extraction, extractor, job, writer, db_client, jobs_tbl,
         tag, user.email, db_path, settings.max_parallel_queries,
         request.row_limit, request.lookback_months, diff_sync_cfg, incr_sync_cfg,
-        request.fingerprint_only,
+        request.fingerprint_only, request.table_suffix,
     )
 
     return TriggerResponse(
