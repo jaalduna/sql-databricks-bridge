@@ -1342,7 +1342,10 @@ async def trigger_extraction(
         queries_path = request.queries_path or get_settings().queries_path
         loader = CountryAwareQueryLoader(queries_path)
         if loader.is_server(request.country):
-            sql_client = SQLServerClient(server=request.country, database="master")
+            server_host = request.country
+            if "." not in server_host:
+                server_host = f"{server_host}.KT.group.local"
+            sql_client = SQLServerClient(server=server_host, database="master")
         else:
             sql_client = SQLServerClient(country=request.country)
         extractor = Extractor(

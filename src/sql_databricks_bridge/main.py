@@ -64,6 +64,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             _event_poller = EventPoller(
                 databricks_client=databricks_client,
                 sql_client=sql_client,
+                events_table=settings.events_table,
                 poll_interval=settings.polling_interval_seconds,
                 max_events_per_poll=settings.max_events_per_poll,
             )

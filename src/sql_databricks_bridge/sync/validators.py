@@ -141,6 +141,8 @@ def validate_table_name(table_name: str) -> tuple[str, str]:
 def validate_source_table(source_table: str) -> tuple[str, str, str]:
     """Validate and parse Databricks source table name.
 
+    Supports backtick-quoted identifiers, e.g. `000-sql-databricks-bridge`.schema.table
+
     Args:
         source_table: Table name in format "catalog.schema.table".
 
@@ -150,7 +152,21 @@ def validate_source_table(source_table: str) -> tuple[str, str, str]:
     Raises:
         ValidationError: If format is invalid.
     """
-    parts = source_table.split(".")
+    # Split respecting backtick-quoted identifiers
+    parts = []
+    current = ""
+    in_backtick = False
+    for ch in source_table:
+        if ch == "`":
+            in_backtick = not in_backtick
+            current += ch
+        elif ch == "." and not in_backtick:
+            parts.append(current)
+            current = ""
+        else:
+            current += ch
+    if current:
+        parts.append(current)
 
     if len(parts) != 3:
         raise ValidationError(
@@ -158,7 +174,7 @@ def validate_source_table(source_table: str) -> tuple[str, str, str]:
             "Expected: catalog.schema.table"
         )
 
-    return parts[0], parts[1], parts[2]
+    return parts[0].strip("`"), parts[1].strip("`"), parts[2].strip("`")
 
 
 def build_where_clause(

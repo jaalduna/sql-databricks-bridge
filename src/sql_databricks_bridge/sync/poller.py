@@ -1,6 +1,7 @@
 """Event polling loop for Databricks → SQL sync."""
 
 import asyncio
+import json
 import logging
 from datetime import datetime
 from typing import Callable
@@ -84,18 +85,40 @@ class EventPoller:
 
             events = []
             for row in results:
+                # Parse JSON string fields from Databricks
+                raw_pks = row.get("primary_keys") or []
+                if isinstance(raw_pks, str):
+                    try:
+                        raw_pks = json.loads(raw_pks)
+                    except (json.JSONDecodeError, TypeError):
+                        raw_pks = []
+
+                raw_filters = row.get("filter_conditions") or {}
+                if isinstance(raw_filters, str):
+                    try:
+                        raw_filters = json.loads(raw_filters)
+                    except (json.JSONDecodeError, TypeError):
+                        raw_filters = {}
+
+                raw_meta = row.get("metadata") or {}
+                if isinstance(raw_meta, str):
+                    try:
+                        raw_meta = json.loads(raw_meta)
+                    except (json.JSONDecodeError, TypeError):
+                        raw_meta = {}
+
                 event = SyncEvent(
                     event_id=row["event_id"],
                     operation=SyncOperation(row["operation"]),
                     source_table=row["source_table"],
                     target_table=row["target_table"],
-                    primary_keys=row.get("primary_keys", []) or [],
-                    priority=row.get("priority", 0),
+                    primary_keys=raw_pks,
+                    priority=row.get("priority") or 0,
                     status=SyncStatus(row.get("status", "pending")),
                     rows_expected=row.get("rows_expected"),
                     created_at=row.get("created_at"),
-                    filter_conditions=row.get("filter_conditions", {}) or {},
-                    metadata=row.get("metadata", {}) or {},
+                    filter_conditions=raw_filters,
+                    metadata=raw_meta,
                 )
                 events.append(event)
 

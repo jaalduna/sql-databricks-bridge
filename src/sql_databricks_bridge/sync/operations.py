@@ -56,6 +56,36 @@ class SyncOperator:
         self.databricks = databricks_client
         self.max_delete_rows = max_delete_rows
 
+    def _get_sql_client(self, event: SyncEvent) -> SQLServerClient:
+        """Get SQL Server client, optionally overridden by event metadata.
+
+        If event.metadata contains 'target_server' or 'target_database',
+        creates a new SQLServerClient targeting that server/database.
+        """
+        target_server = event.metadata.get("target_server")
+        target_database = event.metadata.get("target_database")
+        if not target_server and not target_database:
+            return self.sql
+        server = target_server or self.sql._server
+        if "." not in server:
+            server = f"{server}.KT.group.local"
+        database = target_database or self.sql._database
+        logger.info(f"Event {event.event_id}: using SQL Server {server}/{database}")
+        return SQLServerClient(server=server, database=database)
+
+    @staticmethod
+    def _quote_source_table(source_table: str) -> str:
+        """Ensure Databricks catalog.schema.table is properly backtick-quoted."""
+        parts = source_table.split(".")
+        quoted = []
+        for part in parts:
+            clean = part.strip("`")
+            if clean[0:1].isdigit() or "-" in clean:
+                quoted.append(f"`{clean}`")
+            else:
+                quoted.append(clean)
+        return ".".join(quoted)
+
     async def process_event(self, event: SyncEvent) -> OperationResult:
         """Process a sync event.
 
@@ -112,10 +142,11 @@ class SyncOperator:
             Operation result.
         """
         # Parse source table
+        quoted_source = self._quote_source_table(event.source_table)
         catalog, schema, table = validate_source_table(event.source_table)
 
         # Read data from Databricks
-        source_query = f"SELECT * FROM {event.source_table}"
+        source_query = f"SELECT * FROM {quoted_source}"
         df = await self._read_from_databricks(source_query)
 
         if df.is_empty():
@@ -136,8 +167,9 @@ class SyncOperator:
         # Parse target table
         target_schema, target_table = validate_table_name(event.target_table)
 
-        # Bulk insert
-        rows_affected = self.sql.bulk_insert(target_table, df, schema=target_schema)
+        # Bulk insert (use event-specific SQL client if target_server/target_database in metadata)
+        sql_client = self._get_sql_client(event)
+        rows_affected = sql_client.bulk_insert(target_table, df, schema=target_schema)
 
         # Check discrepancy
         expected = event.rows_expected or len(df)
@@ -160,10 +192,11 @@ class SyncOperator:
             Operation result.
         """
         # Parse source table
+        quoted_source = self._quote_source_table(event.source_table)
         catalog, schema, table = validate_source_table(event.source_table)
 
         # Read data from Databricks
-        source_query = f"SELECT * FROM {event.source_table}"
+        source_query = f"SELECT * FROM {quoted_source}"
         df = await self._read_from_databricks(source_query)
 
         if df.is_empty():
@@ -180,6 +213,7 @@ class SyncOperator:
         target_schema, target_table = validate_table_name(event.target_table)
 
         # Build and execute UPDATE statements
+        sql_client = self._get_sql_client(event)
         total_affected = 0
         non_pk_columns = [c for c in df.columns if c not in event.primary_keys]
 
@@ -200,7 +234,7 @@ class SyncOperator:
 
             query = f"UPDATE [{target_schema}].[{target_table}] SET {set_clause} WHERE {where_clause}"
 
-            rows = self.sql.execute_write(query, params)
+            rows = sql_client.execute_write(query, params)
             total_affected += rows
 
         # Check discrepancy
@@ -231,13 +265,15 @@ class SyncOperator:
             event.filter_conditions,
         )
 
+        sql_client = self._get_sql_client(event)
+
         # Count rows to delete first
         count_query = (
             f"SELECT COUNT(*) as cnt FROM [{target_schema}].[{target_table}] "
             f"WHERE {where_clause}"
         )
 
-        count_df = self.sql.execute_query(count_query, params)
+        count_df = sql_client.execute_query(count_query, params)
         rows_to_delete = count_df.item(0, "cnt") if not count_df.is_empty() else 0
 
         # Validate delete limit
@@ -252,7 +288,7 @@ class SyncOperator:
             f"DELETE FROM [{target_schema}].[{target_table}] WHERE {where_clause}"
         )
 
-        rows_affected = self.sql.execute_write(delete_query, params)
+        rows_affected = sql_client.execute_write(delete_query, params)
 
         # Check discrepancy
         expected = event.rows_expected or rows_to_delete
