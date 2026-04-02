@@ -683,17 +683,48 @@ def diff_sync(
         str,
         typer.Option("--log-file", help="CSV output path"),
     ] = "diff_sync_validation.csv",
+    table_suffix: Annotated[
+        str,
+        typer.Option("--suffix", help="Table suffix (e.g. '_full')"),
+    ] = "",
+    all_tables: Annotated[
+        bool,
+        typer.Option("--all-tables", help="Sync ALL tables, not just the 6 diff-sync tables"),
+    ] = False,
+    no_suffix_tables: Annotated[
+        str,
+        typer.Option(
+            "--no-suffix-tables",
+            help="Comma-separated tables to sync WITHOUT suffix (e.g. 'prediccion_compras')",
+        ),
+    ] = "",
+    with_simulador: Annotated[
+        bool,
+        typer.Option(
+            "--with-simulador",
+            help="Also check SIMULADOR network share for changes each round",
+        ),
+    ] = False,
 ) -> None:
-    """Run periodic differential sync for all (or one) country.
+    """Run periodic sync for all (or one) country.
 
-    Triggers diff sync via the API, polls until done, logs results to CSV.
+    By default syncs only the 6 diff-sync tables (incremental).
+    With --all-tables, syncs every available query for each country
+    (diff-sync tables use incremental mode, others use full extraction).
+
     Requires the bridge API server to be running.
 
     Examples:
 
-        bridge diff-sync                              # all countries, 15-min loop
+        bridge diff-sync                              # 6 diff tables, 15-min loop
 
         bridge diff-sync --country bolivia --once     # Bolivia, one-shot
+
+        bridge diff-sync --all-tables --suffix _full  # ALL tables, _full suffix
+
+        bridge diff-sync --all-tables --suffix _full --no-suffix-tables prediccion_compras
+
+        bridge diff-sync --all-tables --suffix _full --interval 120 --with-simulador
 
         bridge diff-sync --api-url http://myworkspace.kantar.com:8000/api/v1
     """
@@ -717,11 +748,21 @@ def diff_sync(
             console.print(f"Is the API running at {api_url}?")
             raise typer.Exit(code=1)
 
-    console.print(f"[bold]Diff-sync validation[/bold]")
+    suffix = table_suffix or None
+    suffix_exclude = [t.strip() for t in no_suffix_tables.split(",") if t.strip()] or None
+
+    tables_label = "ALL (discovered per country)" if all_tables else ', '.join(DIFF_TABLES)
+    console.print(f"[bold]Periodic sync validation[/bold]")
     console.print(f"  Countries: {', '.join(countries)}")
-    console.print(f"  Tables:    {', '.join(DIFF_TABLES)}")
+    console.print(f"  Tables:    {tables_label}")
     console.print(f"  Stage:     {stage}")
     console.print(f"  Lookback:  {lookback_months} months")
+    if suffix:
+        console.print(f"  Suffix:    {suffix}")
+    if suffix_exclude:
+        console.print(f"  No suffix: {', '.join(suffix_exclude)}")
+    if with_simulador:
+        console.print(f"  Simulador: [green]enabled[/green] (check network share each round)")
     console.print(f"  Interval:  {interval} min {'(once)' if once else '(loop)'}")
     console.print(f"  Log file:  {log_file}")
     console.print()
@@ -761,6 +802,9 @@ def diff_sync(
                 lookback_months=lookback_months,
                 poll_interval=10,
                 on_progress=_on_progress,
+                table_suffix=suffix,
+                all_tables=all_tables,
+                suffix_exclude=suffix_exclude,
             )
 
             # Print per-country summary table
@@ -816,6 +860,10 @@ def diff_sync(
             append_results_csv(log_file, run_num, results)
             all_runs.append(results)
 
+            # --- Simulador check ---
+            if with_simulador:
+                _run_simulador_check(console)
+
             if once:
                 break
 
@@ -827,6 +875,378 @@ def diff_sync(
     except KeyboardInterrupt:
         _print_final_summary(console, all_runs, stability, DIFF_TABLES, countries)
         console.print(f"\n  Results saved to: {log_file}")
+
+
+@app.command(name="simulador-sync")
+def simulador_sync(
+    country: Annotated[
+        str,
+        typer.Option("--country", "-c", help="Country code (e.g. BO, CO). Default: all"),
+    ] = "",
+    period: Annotated[
+        str,
+        typer.Option("--period", "-p", help="Period folder (e.g. 2026_02). Default: latest"),
+    ] = "",
+    data_type: Annotated[
+        str,
+        typer.Option("--type", "-t", help="Data type: attributes, voleq, or both (default)"),
+    ] = "",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Parse files only, no upload to Databricks"),
+    ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Enable verbose output"),
+    ] = False,
+) -> None:
+    """Sync SIMULADOR data (attributes + volume equivalence) from network share to Databricks.
+
+    Examples:
+
+        bridge simulador-sync                          # all countries, latest period, both types
+
+        bridge simulador-sync -c CO                    # Colombia only
+
+        bridge simulador-sync -c MX -p 2026_02        # Mexico, specific period
+
+        bridge simulador-sync --type attributes        # attributes only
+
+        bridge simulador-sync --dry-run                # parse only, no upload
+    """
+    setup_logging(verbose)
+    settings = get_settings()
+
+    from sql_databricks_bridge.core.simulador_sync import (
+        SimuladorSyncer,
+        _parse_period_folder,
+        get_latest_period,
+        parse_country_map,
+    )
+
+    base_path = Path(settings.simulador_base_path)
+    country_map = parse_country_map(settings.simulador_countries)
+
+    console.print(f"[bold]Simulador Sync[/bold]")
+    console.print(f"  Base path: {base_path}")
+    console.print(f"  Countries: {', '.join(country_map.keys()) if not country else country.upper()}")
+    if dry_run:
+        console.print(f"  [yellow]DRY RUN — no upload[/yellow]")
+
+    # Verify base path accessible
+    if not base_path.exists():
+        console.print(f"[bold red]Error:[/bold red] Base path not accessible: {base_path}")
+        console.print("Check network connectivity to the share.")
+        raise typer.Exit(code=1)
+
+    # Resolve period
+    resolved_period = None
+    if period:
+        resolved_period = _parse_period_folder(period)
+        if resolved_period is None:
+            console.print(f"[bold red]Error:[/bold red] Invalid period format: {period} (expected YYYY_MM)")
+            raise typer.Exit(code=1)
+    else:
+        resolved_period = get_latest_period(base_path)
+        if resolved_period is None:
+            console.print("[bold red]Error:[/bold red] No common period found in ATTRIBUTES and VOLEQ folders")
+            raise typer.Exit(code=1)
+
+    console.print(f"  Period:    {resolved_period.folder_name}")
+
+    # Resolve data types
+    data_types = None
+    if data_type:
+        if data_type.lower() not in ("attributes", "voleq"):
+            console.print(f"[bold red]Error:[/bold red] Unknown type '{data_type}'. Use 'attributes' or 'voleq'.")
+            raise typer.Exit(code=1)
+        data_types = [data_type.lower()]
+        console.print(f"  Types:     {data_type.lower()}")
+    else:
+        console.print(f"  Types:     attributes + voleq")
+
+    # Resolve countries
+    countries = None
+    if country:
+        cc = country.upper()
+        if cc not in country_map:
+            console.print(f"[bold red]Error:[/bold red] Unknown country code '{cc}'. Valid: {', '.join(country_map.keys())}")
+            raise typer.Exit(code=1)
+        countries = [cc]
+
+    console.print()
+
+    # Create syncer
+    if dry_run:
+        writer = None  # type: ignore[assignment]
+        syncer = SimuladorSyncer(writer=writer, base_path=base_path, country_map=country_map)
+    else:
+        databricks_client = DatabricksClient()
+        writer = DeltaTableWriter(databricks_client)
+        syncer = SimuladorSyncer(writer=writer, base_path=base_path, country_map=country_map)
+
+    # Run sync
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Syncing...", total=None)
+
+        round_result = syncer.sync_all(
+            period=resolved_period,
+            countries=countries,
+            data_types=data_types,
+            dry_run=dry_run,
+        )
+
+        progress.update(task, description="[green]Done[/green]")
+
+    # Save state for change detection (so periodic --with-simulador knows what was synced)
+    if not dry_run:
+        syncer.save_sync_state(round_result.results)
+
+    # Print results table
+    results_table = Table(title=f"Simulador Sync Results — {round_result.period}")
+    results_table.add_column("Country", style="cyan")
+    results_table.add_column("Type", style="white")
+    results_table.add_column("Status", style="green")
+    results_table.add_column("Rows", justify="right")
+    results_table.add_column("Table", style="dim")
+    results_table.add_column("Time", justify="right")
+
+    for r in round_result.results:
+        status_style = {
+            "completed": "green",
+            "dry_run": "yellow",
+            "skipped": "dim",
+            "error": "red",
+        }.get(r.status, "white")
+        error_note = f" ({r.error})" if r.error and r.status != "completed" else ""
+        results_table.add_row(
+            r.country_code,
+            r.data_type,
+            f"[{status_style}]{r.status}{error_note}[/{status_style}]",
+            f"{r.rows:,}" if r.rows > 0 else "-",
+            r.table_name or "-",
+            f"{r.duration_s:.1f}s",
+        )
+
+    console.print(results_table)
+
+    # Summary
+    completed = sum(1 for r in round_result.results if r.status in ("completed", "dry_run"))
+    errors = sum(1 for r in round_result.results if r.status == "error")
+    skipped = sum(1 for r in round_result.results if r.status == "skipped")
+    total_rows = sum(r.rows for r in round_result.results)
+
+    console.print(f"\n[bold]Summary:[/bold] {completed} OK, {skipped} skipped, {errors} errors, {total_rows:,} total rows")
+
+    if errors > 0:
+        raise typer.Exit(code=1)
+
+
+@app.command(name="repair-full-tables")
+def repair_full_tables(
+    country: Annotated[
+        str,
+        typer.Option("--country", "-c", help="Specific country (default: all)"),
+    ] = "",
+    table: Annotated[
+        str,
+        typer.Option("--table", "-t", help="Specific table to repair (default: all diff-sync tables)"),
+    ] = "",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Show gaps without writing"),
+    ] = False,
+    lookback_months: Annotated[
+        int,
+        typer.Option("--lookback-months", help="Lookback months for query placeholders"),
+    ] = 24,
+    table_suffix: Annotated[
+        str,
+        typer.Option("--suffix", help="Table suffix to repair"),
+    ] = "_full",
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Enable verbose output"),
+    ] = False,
+) -> None:
+    """Repair _full tables that have missing data due to fingerprint collision.
+
+    Detects Level 1 values (e.g. sectors/periods) present in the base table
+    but missing from the suffixed table, and backfills them from SQL Server.
+
+    Examples:
+
+        bridge repair-full-tables                          # all countries, all tables
+
+        bridge repair-full-tables -c colombia              # Colombia only
+
+        bridge repair-full-tables -c colombia --dry-run    # show gaps without writing
+
+        bridge repair-full-tables -c colombia -t vw_artigoz  # single table
+    """
+    setup_logging(verbose)
+    settings = get_settings()
+
+    from sql_databricks_bridge.core.repair_full import (
+        parse_diff_sync_config,
+        repair_country,
+    )
+
+    diff_cfg = parse_diff_sync_config(
+        settings.diff_sync_tables, settings.diff_sync_checksum_columns,
+    )
+    if not diff_cfg:
+        console.print("[bold red]Error:[/bold red] No DIFF_SYNC_TABLES configured in .env")
+        raise typer.Exit(code=1)
+
+    # Resolve countries
+    if country:
+        countries = [country]
+    else:
+        try:
+            from kantar_db_handler.configs import get_country_params
+            import importlib.resources as pkg_resources
+
+            config_files = pkg_resources.files("kantar_db_handler.config_files")
+            countries = sorted(
+                f.name.replace(".json", "")
+                for f in config_files.iterdir()
+                if f.suffix == ".json"
+            )
+        except Exception:
+            countries = [
+                "argentina", "bolivia", "brasil", "cam",
+                "chile", "colombia", "ecuador", "peru",
+            ]
+
+    console.print(f"[bold]Repair {table_suffix} tables[/bold]")
+    console.print(f"  Countries: {', '.join(countries)}")
+    console.print(f"  Tables:    {', '.join(diff_cfg.keys())}")
+    console.print(f"  Suffix:    {table_suffix}")
+    if dry_run:
+        console.print(f"  [yellow]DRY RUN — no writes[/yellow]")
+    console.print()
+
+    all_results = []
+    for cty in countries:
+        console.print(f"[bold cyan]{cty}[/bold cyan]")
+        try:
+            sql_client = SQLServerClient(country=cty)
+            dbx_client = DatabricksClient()
+            writer = DeltaTableWriter(dbx_client)
+
+            results = repair_country(
+                sql_client=sql_client,
+                dbx_client=dbx_client,
+                writer=writer,
+                country=cty,
+                diff_tables_config=diff_cfg,
+                queries_path=settings.queries_path,
+                fingerprint_table=settings.fingerprint_table,
+                table_suffix=table_suffix,
+                dry_run=dry_run,
+                lookback_months=lookback_months,
+                only_table=table or None,
+            )
+
+            for r in results:
+                style = {
+                    "ok": "green",
+                    "repaired": "yellow",
+                    "dry_run": "cyan",
+                    "error": "red",
+                }.get(r.status, "white")
+                missing_str = f" (missing: {len(r.missing_values)})" if r.missing_values else ""
+                rows_str = f" ({r.rows_inserted:,} rows)" if r.rows_inserted else ""
+                error_str = f" — {r.error}" if r.error else ""
+                console.print(
+                    f"  [{style}]{r.table_name}: {r.status}{missing_str}{rows_str}{error_str}[/{style}]"
+                )
+            all_results.extend(results)
+
+            sql_client.close()
+        except Exception as e:
+            console.print(f"  [red]Error: {e}[/red]")
+
+    # Summary
+    console.print()
+    ok = sum(1 for r in all_results if r.status == "ok")
+    repaired = sum(1 for r in all_results if r.status == "repaired")
+    dry = sum(1 for r in all_results if r.status == "dry_run")
+    errors = sum(1 for r in all_results if r.status == "error")
+    total_rows = sum(r.rows_inserted for r in all_results)
+    total_missing = sum(len(r.missing_values) for r in all_results)
+
+    console.print(
+        f"[bold]Summary:[/bold] {ok} ok, {repaired} repaired, {dry} dry-run, "
+        f"{errors} errors — {total_missing} missing values, {total_rows:,} rows inserted"
+    )
+
+    if errors > 0:
+        raise typer.Exit(code=1)
+
+
+def _run_simulador_check(console: Console) -> None:
+    """Check SIMULADOR network share for changes and sync if needed."""
+    try:
+        from sql_databricks_bridge.core.simulador_sync import (
+            SimuladorSyncer,
+            parse_country_map,
+        )
+
+        settings = get_settings()
+        base_path = Path(settings.simulador_base_path)
+
+        if not base_path.exists():
+            console.print(
+                f"  [dim]Simulador: network share not accessible ({base_path})[/dim]"
+            )
+            return
+
+        country_map = parse_country_map(settings.simulador_countries)
+        databricks_client = DatabricksClient()
+        writer = DeltaTableWriter(databricks_client)
+        syncer = SimuladorSyncer(
+            writer=writer, base_path=base_path, country_map=country_map,
+        )
+
+        console.print(f"\n  [bold]Simulador check...[/bold]")
+        changes = syncer.detect_changes()
+        if not changes:
+            console.print(f"  [dim]Simulador: no changes on network share[/dim]")
+            return
+
+        desc = ", ".join(
+            f"{cc}({'/'.join(dt)})" for cc, dt in changes.items()
+        )
+        console.print(f"  [yellow]Simulador: changes detected — {desc}[/yellow]")
+
+        round_result = syncer.sync_changes_only()
+        if round_result is None:
+            return
+
+        for r in round_result.results:
+            status_style = "green" if r.status == "completed" else "red"
+            rows_str = f" ({r.rows:,} rows)" if r.rows else ""
+            err_str = f" — {r.error}" if r.error else ""
+            console.print(
+                f"  [{status_style}]Simulador {r.country_code}/{r.data_type}: "
+                f"{r.status}{rows_str}{err_str}[/{status_style}]"
+            )
+
+        ok = sum(1 for r in round_result.results if r.status == "completed")
+        errs = sum(1 for r in round_result.results if r.status == "error")
+        total_rows = sum(r.rows for r in round_result.results if r.status == "completed")
+        console.print(
+            f"  Simulador sync: {ok} OK, {errs} errors, {total_rows:,} rows"
+        )
+
+    except Exception as e:
+        console.print(f"  [red]Simulador check failed: {e}[/red]")
 
 
 def _print_final_summary(

@@ -110,6 +110,9 @@ def trigger_and_poll(
     lookback_months: int = 24,
     poll_interval: int = 10,
     on_progress: Callable[[str, str], None] | None = None,
+    table_suffix: str | None = None,
+    all_tables: bool = False,
+    suffix_exclude: list[str] | None = None,
 ) -> CountryRoundResult:
     """Trigger diff sync for *country*, poll until terminal, return result.
 
@@ -118,17 +121,29 @@ def trigger_and_poll(
     on_progress:
         Optional callback ``(country, message)`` called during polling for
         live output (CLI uses Rich, API ignores).
+    all_tables:
+        When True, pass ``queries=None`` to the trigger API so it discovers
+        and syncs **all** available queries for the country (diff-sync tables
+        use incremental mode, others use full extraction).
+    suffix_exclude:
+        Tables that should be synced WITHOUT the suffix (e.g. prediccion_compras).
     """
     t0 = time.time()
 
     # Trigger
-    payload = {
+    payload: dict = {
         "country": country,
         "stage": stage,
-        "queries": DIFF_TABLES,
         "lookback_months": lookback_months,
         "force_full_sync": False,
     }
+    if not all_tables:
+        payload["queries"] = DIFF_TABLES
+    # When all_tables=True, omit "queries" so the API discovers all of them
+    if table_suffix:
+        payload["table_suffix"] = table_suffix
+    if suffix_exclude:
+        payload["suffix_exclude"] = suffix_exclude
     try:
         resp = api_post(api_base, "/trigger", payload)
     except Exception as exc:
@@ -183,15 +198,17 @@ def trigger_and_poll(
             )
 
         # Heartbeat
+        all_results = detail.get("results", [])
         completed_count = sum(
-            1 for r in detail.get("results", [])
+            1 for r in all_results
             if r.get("status") in ("completed", "failed")
         )
+        total_count = len(all_results) or "?"
         elapsed = time.time() - t0
         if on_progress:
             on_progress(
                 country,
-                f"[{elapsed:.0f}s] {completed_count}/{len(DIFF_TABLES)} tables done...",
+                f"[{elapsed:.0f}s] {completed_count}/{total_count} tables done...",
             )
 
 
@@ -223,15 +240,19 @@ def run_diff_sync_round(
     lookback_months: int = 24,
     poll_interval: int = 10,
     on_progress: Callable[[str, str], None] | None = None,
+    table_suffix: str | None = None,
+    all_tables: bool = False,
+    suffix_exclude: list[str] | None = None,
 ) -> list[CountryRoundResult]:
     """Trigger diff sync for each country sequentially, poll until done.
 
-    Returns per-country results.
+    When *all_tables* is True, all available queries are synced (not just
+    the 6 diff-sync tables).  Returns per-country results.
     """
     results: list[CountryRoundResult] = []
     for country in countries:
         if on_progress:
-            on_progress(country, "Starting diff sync...")
+            on_progress(country, "Starting sync...")
         result = trigger_and_poll(
             api_base=api_base,
             country=country,
@@ -239,6 +260,9 @@ def run_diff_sync_round(
             lookback_months=lookback_months,
             poll_interval=poll_interval,
             on_progress=on_progress,
+            table_suffix=table_suffix,
+            all_tables=all_tables,
+            suffix_exclude=suffix_exclude,
         )
         results.append(result)
     return results

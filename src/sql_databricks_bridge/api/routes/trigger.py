@@ -62,7 +62,7 @@ class AggregationOptions(BaseModel):
 class DiffSyncQueryConfig(BaseModel):
     """Configuration for differential sync on a specific query/table."""
     level1_column: str = Field(default="periodo", description="GROUP BY column for Level 1 (e.g., 'periodo')")
-    level2_column: str = Field(default="idproduto", description="GROUP BY column for Level 2 (e.g., 'idproduto')")
+    level2_column: str = Field(default="", description="GROUP BY column for Level 2 (e.g., 'idproduto'). Empty = level1-only mode.")
     where_clause: str = Field(default="", description="Optional WHERE filter for fingerprint scope")
     checksum_columns: list[str] | None = Field(default=None, description="Columns for CHECKSUM (instead of *). Faster for wide tables.")
 
@@ -119,6 +119,13 @@ class TriggerRequest(BaseModel):
         description=(
             "Suffix appended to Delta table names (e.g. '_full' -> j_atoscompra_new_full). "
             "Allows writing to separate tables without overwriting the default ones."
+        ),
+    )
+    suffix_exclude: list[str] | None = Field(
+        default=None,
+        description=(
+            "Tables to exclude from table_suffix (synced without suffix). "
+            "E.g. ['prediccion_compras'] syncs that table as-is while others get the suffix."
         ),
     )
     queries_path: str | None = Field(
@@ -424,8 +431,12 @@ def _run_trigger_extraction(
     incremental_sync_config: dict | None = None,
     fingerprint_only: bool = False,
     table_suffix: str | None = None,
+    suffix_exclude: list[str] | None = None,
+    force_full_sync: bool = False,
 ) -> None:
     """Background task to run the extraction triggered by a user."""
+    # Rename so process_query() can shadow table_suffix per query
+    _job_table_suffix = table_suffix
     try:
         import polars as pl
 
@@ -495,8 +506,16 @@ def _run_trigger_extraction(
             except Exception as persist_err:
                 logger.warning(f"Failed to persist progress for {job.job_id}: {persist_err}")
 
+        # Pre-compute the set of tables excluded from suffix
+        _suffix_exclude_set = set(suffix_exclude or [])
+
         def process_query(query_name: str) -> QueryResult:
             """Process a single query — runs inside ThreadPoolExecutor."""
+            # Per-query effective suffix: excluded tables get no suffix
+            table_suffix = (
+                None if query_name in _suffix_exclude_set else _job_table_suffix
+            )
+
             # Skip if job was cancelled
             if job.status == JobStatus.CANCELLED:
                 return QueryResult(query_name=query_name, status=JobStatus.CANCELLED)
@@ -856,6 +875,72 @@ def _run_trigger_extraction(
                     if row_limit is not None and row_limit > 0:
                         query_sql = f"SELECT TOP {row_limit} * FROM ({query_sql}) AS _limited_subquery"
 
+                    # --- Skip-if-unchanged check for dimension tables ---
+                    # Compute COUNT + CHECKSUM_AGG on SQL Server and compare to stored
+                    # fingerprint.  If identical, skip the extraction entirely.
+                    _skip_unchanged = False
+                    if not force_full_sync:
+                        try:
+                            _dim_cksum_sql = (
+                                f"SELECT COUNT(*) AS cnt, CHECKSUM_AGG(CHECKSUM(*)) AS cksum "
+                                f"FROM ({query_sql}) AS _dim_ck"
+                            )
+                            _dim_ck_df = extractor.sql_client.execute_query(_dim_cksum_sql)
+                            _dim_count = int(_dim_ck_df.item(0, 0))
+                            _dim_cksum = int(_dim_ck_df.item(0, 1)) if _dim_ck_df.item(0, 1) is not None else 0
+
+                            # Effective fingerprint name (suffix-aware)
+                            _dim_fp_name = f"{query_name}{table_suffix}" if table_suffix else query_name
+
+                            from sql_databricks_bridge.core.fingerprint import (
+                                load_stored_fingerprints as _dim_load_fp,
+                                save_fingerprints as _dim_save_fp,
+                                Fingerprint as _DimFP,
+                            )
+
+                            # Try SQLite cache first, then Databricks
+                            _dim_stored = []
+                            if _fp_cache is not None:
+                                _dim_stored = _fp_cache.load(job.country, _dim_fp_name, "dimension")
+                            if not _dim_stored:
+                                _dim_stored = _dim_load_fp(
+                                    client, settings.fingerprint_table,
+                                    job.country, _dim_fp_name, level="dimension",
+                                )
+
+                            if _dim_stored:
+                                _stored_cnt = int(_dim_stored[0].row_count)
+                                _stored_ck = int(_dim_stored[0].checksum_xor)
+                                if _dim_count == _stored_cnt and _dim_cksum == _stored_ck:
+                                    _skip_unchanged = True
+                                    logger.info(
+                                        f"Dimension skip {query_name} ({job.country}): "
+                                        f"unchanged (count={_dim_count}, cksum={_dim_cksum})"
+                                    )
+                                else:
+                                    logger.info(
+                                        f"Dimension changed {query_name} ({job.country}): "
+                                        f"count {_stored_cnt}->{_dim_count}, "
+                                        f"cksum {_stored_ck}->{_dim_cksum}"
+                                    )
+                        except Exception as _dim_err:
+                            logger.debug(f"Dimension checksum failed for {query_name}: {_dim_err}")
+
+                    if _skip_unchanged:
+                        result.rows_extracted = 0
+                        result.status = JobStatus.COMPLETED
+                        result.table_name = writer.resolve_table_name(
+                            query_name, job.country, table_suffix=table_suffix,
+                        )
+                        result.duration_seconds = (
+                            datetime.utcnow() - start_time
+                        ).total_seconds()
+                        with results_lock:
+                            if record:
+                                record.running_queries.discard(query_name)
+                            _persist_progress()
+                        return result
+
                     # Pre-flight COUNT for progress tracking
                     try:
                         count_sql = f"SELECT COUNT(*) AS cnt FROM ({query_sql}) AS _cnt_sub"
@@ -979,6 +1064,60 @@ def _run_trigger_extraction(
                         )
                     else:
                         result.rows_extracted = 0
+
+                    # Save dimension fingerprint for skip-if-unchanged on next run
+                    if result.rows_extracted and result.rows_extracted > 0:
+                        try:
+                            _dim_fp_name = f"{query_name}{table_suffix}" if table_suffix else query_name
+                            _dim_cksum_sql = (
+                                f"SELECT COUNT(*) AS cnt, CHECKSUM_AGG(CHECKSUM(*)) AS cksum "
+                                f"FROM ({query_sql}) AS _dim_ck"
+                            )
+                            _dim_ck_df = extractor.sql_client.execute_query(_dim_cksum_sql)
+                            _dim_count = int(_dim_ck_df.item(0, 0))
+                            _dim_cksum = int(_dim_ck_df.item(0, 1)) if _dim_ck_df.item(0, 1) is not None else 0
+
+                            from sql_databricks_bridge.core.fingerprint import (
+                                save_fingerprints as _dim_save_fp,
+                                Fingerprint as _DimFP,
+                                ensure_fingerprint_table as _dim_ensure_fp,
+                            )
+                            _dim_fp = [_DimFP(value="__all__", row_count=_dim_count, checksum_xor=_dim_cksum)]
+
+                            if _two_phase and _sync_queue is not None:
+                                # Enqueue fingerprint save for Phase 2
+                                _sync_queue.enqueue(
+                                    job_id=job.job_id,
+                                    country=job.country,
+                                    table_name=_dim_fp_name,
+                                    operation="save_fingerprints",
+                                    metadata={
+                                        "level": "dimension",
+                                        "fingerprints": [
+                                            {"value": fp.value, "row_count": fp.row_count, "checksum_xor": fp.checksum_xor}
+                                            for fp in _dim_fp
+                                        ],
+                                    },
+                                    tag=tag, table_suffix=table_suffix or "",
+                                )
+                            else:
+                                _dim_ensure_fp(client, settings.fingerprint_table)
+                                _dim_save_fp(
+                                    client, settings.fingerprint_table,
+                                    job.country, _dim_fp_name, level="dimension",
+                                    fingerprints=_dim_fp, job_id=job.job_id,
+                                )
+
+                            # Also save to local cache
+                            if _fp_cache is not None:
+                                _fp_cache.save(job.country, _dim_fp_name, "dimension", _dim_fp)
+
+                            logger.info(
+                                f"Saved dimension fingerprint for {query_name} ({job.country}): "
+                                f"count={_dim_count}, cksum={_dim_cksum}"
+                            )
+                        except Exception as _dim_save_err:
+                            logger.warning(f"Failed to save dimension fingerprint for {query_name}: {_dim_save_err}")
 
                     # Clean up temp chunks
                     try:
@@ -1450,7 +1589,7 @@ async def trigger_extraction(
         if tbl:
             cfg = {
                 "level1_column": parts[1].strip() if len(parts) > 1 else "periodo",
-                "level2_column": parts[2].strip() if len(parts) > 2 else "idproduto",
+                "level2_column": parts[2].strip() if len(parts) > 2 else "",
             }
             if len(parts) > 3:
                 cfg["mutable_months"] = int(parts[3].strip())
@@ -1514,6 +1653,7 @@ async def trigger_extraction(
         tag, user.email, db_path, settings.max_parallel_queries,
         request.row_limit, request.lookback_months, diff_sync_cfg, incr_sync_cfg,
         request.fingerprint_only, request.table_suffix,
+        request.suffix_exclude, request.force_full_sync,
     )
 
     return TriggerResponse(

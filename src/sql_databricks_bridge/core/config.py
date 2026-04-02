@@ -180,6 +180,16 @@ class BridgeSettings(BaseSettings):
     # Calibration job prefix (matches DAB target prefix, e.g. '[dev] ' for development)
     calibration_job_prefix: str = Field(default="[dev] ", description="Prefix prepended to calibration job names when searching Databricks. Set to '' for production.")
 
+    # Simulador sync (network share → Databricks)
+    simulador_base_path: str = Field(
+        default=r"\\ktclfs001\Procesos\PRISM\SIMULADOR",
+        description="UNC path to SIMULADOR network share",
+    )
+    simulador_countries: str = Field(
+        default="AR:argentina,BO:bolivia,CE:cam,CL:chile,CO:colombia,EC:ecuador,MX:mexico,PE:peru",
+        description="Country code:name mapping for simulador sync (CC:name,...)",
+    )
+
     # CORS settings
     cors_allowed_origins: str = Field(
         default="",

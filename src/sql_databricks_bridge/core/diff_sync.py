@@ -184,6 +184,10 @@ def run_differential_sync(
     )
     total_start = datetime.utcnow()
 
+    # Fingerprint key: suffix-aware so base table and suffixed table have
+    # independent fingerprints (e.g. "vw_artigoz" vs "vw_artigoz_full").
+    effective_fp_name = f"{sql_table}{table_suffix}" if table_suffix else sql_table
+
     def log_progress(msg: str) -> None:
         logger.info(f"[diff_sync:{country}/{sql_table}] {msg}")
         if on_progress:
@@ -205,11 +209,11 @@ def run_differential_sync(
     # Load stored Level 1 fingerprints
     if two_phase and fingerprint_cache is not None:
         # Two-phase: read from local SQLite cache (no warehouse)
-        stored_l1 = fingerprint_cache.load(country, sql_table, level="period")
+        stored_l1 = fingerprint_cache.load(country, effective_fp_name, level="period")
         log_progress(f"Loaded {len(stored_l1)} stored fingerprints from local cache")
     else:
         stored_l1 = load_stored_fingerprints(
-            dbx_client, fingerprint_table, country, sql_table, level="period"
+            dbx_client, fingerprint_table, country, effective_fp_name, level="period"
         )
     stats.is_first_sync = len(stored_l1) == 0
 
@@ -228,7 +232,7 @@ def run_differential_sync(
 
                 # Check 1: diff columns must exist in target for DELETE
                 _l1_ok = level1_column.lower() in _target_cols
-                _l2_ok = level2_column.lower() in _target_cols
+                _l2_ok = (not level2_column) or level2_column.lower() in _target_cols
                 if not _l1_ok or not _l2_ok:
                     _missing = []
                     if not _l1_ok:
@@ -269,6 +273,18 @@ def run_differential_sync(
                     stored_l1 = []
                     stats.is_first_sync = True
                     _force_overwrite = True
+        else:
+            # Target table doesn't exist but fingerprints do (e.g. table was
+            # deleted, or using table_suffix for the first time).  Partial
+            # diff-sync would create the table with only changed slices,
+            # losing all "unchanged" rows.  Force a full extraction instead.
+            log_progress(
+                f"Target table {_target_table} does not exist but "
+                f"fingerprints found — forcing full sync"
+            )
+            stored_l1 = []
+            stats.is_first_sync = True
+            _force_overwrite = True
 
     if stats.is_first_sync:
         log_progress("First sync: no stored fingerprints, will do full download")
@@ -341,7 +357,7 @@ def run_differential_sync(
         if two_phase and fingerprint_cache is not None and sync_queue is not None:
             # Enqueue fingerprint save for Phase 2 + update local cache
             sync_queue.enqueue(
-                job_id=job_id, country=country, table_name=sql_table,
+                job_id=job_id, country=country, table_name=effective_fp_name,
                 operation="save_fingerprints",
                 metadata={
                     "level": "period",
@@ -352,11 +368,11 @@ def run_differential_sync(
                 },
                 tag=tag, table_suffix=table_suffix or "",
             )
-            fingerprint_cache.save(country, sql_table, "period", current_l1, job_id)
+            fingerprint_cache.save(country, effective_fp_name, "period", current_l1, job_id)
             stats.queued = True
         else:
             save_fingerprints(
-                dbx_client, fingerprint_table, country, sql_table,
+                dbx_client, fingerprint_table, country, effective_fp_name,
                 level="period", fingerprints=current_l1,
                 job_id=job_id,
             )
@@ -373,7 +389,7 @@ def run_differential_sync(
         if stored_l1:
             if two_phase and fingerprint_cache is not None and sync_queue is not None:
                 sync_queue.enqueue(
-                    job_id=job_id, country=country, table_name=sql_table,
+                    job_id=job_id, country=country, table_name=effective_fp_name,
                     operation="save_fingerprints",
                     metadata={
                         "level": "period",
@@ -384,11 +400,11 @@ def run_differential_sync(
                     },
                     tag=tag, table_suffix=table_suffix or "",
                 )
-                fingerprint_cache.save(country, sql_table, "period", current_l1, job_id)
+                fingerprint_cache.save(country, effective_fp_name, "period", current_l1, job_id)
                 stats.queued = True
             else:
                 save_fingerprints(
-                    dbx_client, fingerprint_table, country, sql_table,
+                    dbx_client, fingerprint_table, country, effective_fp_name,
                     level="period", fingerprints=current_l1,
                     job_id=job_id,
                 )
@@ -491,13 +507,13 @@ def run_differential_sync(
             ],
         }
         sync_queue.enqueue(
-            job_id=job_id, country=country, table_name=sql_table,
+            job_id=job_id, country=country, table_name=effective_fp_name,
             operation="save_fingerprints", metadata=fp_metadata,
             tag=tag, table_suffix=table_suffix or "",
         )
 
         # Update local fingerprint cache immediately
-        fingerprint_cache.save(country, sql_table, "period", current_l1, job_id)
+        fingerprint_cache.save(country, effective_fp_name, "period", current_l1, job_id)
 
         stats.write_time = (datetime.utcnow() - t0).total_seconds()
         stats.queued = True
@@ -536,7 +552,7 @@ def run_differential_sync(
         # --- UPDATE FINGERPRINTS: Save Level 1 only ---
         if stats.rows_downloaded > 0 or not stats.is_first_sync:
             save_fingerprints(
-                dbx_client, fingerprint_table, country, sql_table,
+                dbx_client, fingerprint_table, country, effective_fp_name,
                 level="period", fingerprints=current_l1,
                 job_id=job_id,
             )
