@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Databricks → SQL Server Sync Process</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #0f1117;
+      color: #e1e4e8;
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 1.8rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #f0f3f6;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #8b949e;
+      font-size: 0.95rem;
+      margin-bottom: 48px;
+    }
+
+    .diagram {
+      max-width: 1100px;
+      margin: 0 auto;
+      position: relative;
+    }
+
+    /* ── Swim lanes ── */
+    .lanes {
+      display: grid;
+      grid-template-columns: 220px 1fr 220px;
+      gap: 24px;
+      min-height: 900px;
+    }
+
+    .lane {
+      border: 1px solid #21262d;
+      border-radius: 12px;
+      padding: 20px 16px;
+      position: relative;
+      background: #161b22;
+    }
+
+    .lane-header {
+      text-align: center;
+      font-weight: 700;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin-bottom: 24px;
+    }
+
+    .lane-databricks .lane-header {
+      background: linear-gradient(135deg, #ff3621 0%, #ff6a4d 100%);
+      color: #fff;
+    }
+
+    .lane-bridge .lane-header {
+      background: linear-gradient(135deg, #238636 0%, #2ea043 100%);
+      color: #fff;
+    }
+
+    .lane-sql .lane-header {
+      background: linear-gradient(135deg, #1f6feb 0%, #58a6ff 100%);
+      color: #fff;
+    }
+
+    /* ── Nodes ── */
+    .node {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+      position: relative;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .node:hover {
+      border-color: #58a6ff;
+      box-shadow: 0 0 16px rgba(88, 166, 255, 0.15);
+    }
+
+    .node-title {
+      font-weight: 600;
+      font-size: 0.9rem;
+      margin-bottom: 6px;
+      color: #f0f3f6;
+    }
+
+    .node-detail {
+      font-size: 0.78rem;
+      color: #8b949e;
+      line-height: 1.5;
+    }
+
+    .node-code {
+      font-family: 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.72rem;
+      background: #161b22;
+      border: 1px solid #21262d;
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-top: 8px;
+      color: #79c0ff;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .node-file {
+      font-family: monospace;
+      font-size: 0.7rem;
+      color: #58a6ff;
+      margin-top: 6px;
+      opacity: 0.8;
+    }
+
+    /* ── Step badges ── */
+    .step-badge {
+      position: absolute;
+      top: -10px;
+      left: 14px;
+      background: #238636;
+      color: #fff;
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 10px;
+      letter-spacing: 0.5px;
+    }
+
+    .step-badge.origin { background: #da3633; }
+    .step-badge.poll { background: #d29922; }
+    .step-badge.validate { background: #8957e5; }
+    .step-badge.read { background: #f78166; }
+    .step-badge.write { background: #1f6feb; }
+    .step-badge.status { background: #238636; }
+
+    /* ── Arrows (SVG overlay) ── */
+    .arrows-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    /* ── Flow section (vertical) ── */
+    .flow-section {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .flow-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px 0;
+      color: #30363d;
+      font-size: 1.2rem;
+    }
+
+    .flow-arrow svg {
+      width: 20px;
+      height: 24px;
+    }
+
+    /* ── Horizontal connector rows ── */
+    .connector-row {
+      display: grid;
+      grid-template-columns: 220px 1fr 220px;
+      gap: 24px;
+      margin-bottom: 8px;
+      align-items: center;
+    }
+
+    .connector-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #484f58;
+      font-size: 0.75rem;
+      gap: 4px;
+    }
+
+    .connector-arrow .arrow-line {
+      flex: 1;
+      height: 1px;
+      background: repeating-linear-gradient(
+        to right,
+        #484f58 0px,
+        #484f58 6px,
+        transparent 6px,
+        transparent 12px
+      );
+    }
+
+    .connector-arrow .arrow-label {
+      background: #0f1117;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.7rem;
+      color: #8b949e;
+      white-space: nowrap;
+    }
+
+    .connector-arrow .arrow-head {
+      color: #484f58;
+      font-size: 0.9rem;
+    }
+
+    /* ── Status flow at bottom ── */
+    .status-flow {
+      margin-top: 40px;
+      background: #161b22;
+      border: 1px solid #21262d;
+      border-radius: 12px;
+      padding: 24px;
+    }
+
+    .status-flow h3 {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #8b949e;
+      margin-bottom: 16px;
+    }
+
+    .status-chain {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .status-pill {
+      padding: 8px 18px;
+      border-radius: 20px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      border: 1px solid;
+    }
+
+    .status-pending { background: #0d1117; border-color: #d29922; color: #d29922; }
+    .status-processing { background: #0d1117; border-color: #58a6ff; color: #58a6ff; }
+    .status-completed { background: #0d1117; border-color: #3fb950; color: #3fb950; }
+    .status-failed { background: #0d1117; border-color: #f85149; color: #f85149; }
+    .status-retry { background: #0d1117; border-color: #d2a8ff; color: #d2a8ff; }
+
+    .status-arrow {
+      color: #484f58;
+      font-size: 1.1rem;
+    }
+
+    .status-branch {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-branch-label {
+      font-size: 0.65rem;
+      color: #484f58;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    /* ── Operation cards ── */
+    .ops-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .op-card {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      padding: 16px;
+      transition: border-color 0.2s;
+    }
+
+    .op-card:hover {
+      border-color: #58a6ff;
+    }
+
+    .op-card h4 {
+      font-size: 0.85rem;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .op-card .op-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .op-insert .op-icon { background: #238636; }
+    .op-update .op-icon { background: #d29922; }
+    .op-delete .op-icon { background: #da3633; }
+
+    .op-card ol {
+      padding-left: 18px;
+      font-size: 0.75rem;
+      color: #8b949e;
+      line-height: 1.8;
+    }
+
+    /* ── Sequence diagram ── */
+    .sequence {
+      margin-top: 40px;
+    }
+
+    .sequence h2 {
+      text-align: center;
+      font-size: 1.2rem;
+      margin-bottom: 24px;
+      color: #f0f3f6;
+    }
+
+    .seq-row {
+      display: grid;
+      grid-template-columns: 180px 1fr 180px;
+      gap: 0;
+      min-height: 56px;
+      position: relative;
+    }
+
+    .seq-col {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    /* Lifelines */
+    .seq-col::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 2px;
+      background: #21262d;
+      z-index: 0;
+    }
+
+    .seq-header .seq-col::before {
+      top: 50%;
+    }
+
+    .seq-header .seq-col {
+      z-index: 2;
+    }
+
+    .seq-entity {
+      background: #161b22;
+      border: 2px solid;
+      border-radius: 8px;
+      padding: 10px 20px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      z-index: 2;
+      text-align: center;
+    }
+
+    .seq-entity.databricks { border-color: #ff3621; color: #ff6a4d; }
+    .seq-entity.bridge { border-color: #238636; color: #3fb950; }
+    .seq-entity.sql { border-color: #1f6feb; color: #58a6ff; }
+
+    /* Message arrows */
+    .seq-msg {
+      position: relative;
+      display: flex;
+      align-items: center;
+      z-index: 1;
+      padding: 0 8px;
+    }
+
+    .seq-msg-line {
+      flex: 1;
+      height: 2px;
+      position: relative;
+    }
+
+    .seq-msg-line.solid { background: #58a6ff; }
+    .seq-msg-line.dashed {
+      background: repeating-linear-gradient(
+        to right,
+        #3fb950 0px,
+        #3fb950 6px,
+        transparent 6px,
+        transparent 12px
+      );
+    }
+
+    .seq-msg-label {
+      position: absolute;
+      top: -18px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.72rem;
+      color: #e1e4e8;
+      white-space: nowrap;
+      background: #0f1117;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+
+    .seq-msg-head {
+      font-size: 0.9rem;
+    }
+
+    .seq-msg-head.right { color: #58a6ff; }
+    .seq-msg-head.left { color: #3fb950; }
+
+    /* Activation bar */
+    .seq-active {
+      width: 12px;
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 3px;
+      position: absolute;
+      z-index: 1;
+    }
+
+    /* Self-message note */
+    .seq-note {
+      font-size: 0.7rem;
+      color: #8b949e;
+      background: #161b22;
+      border: 1px solid #21262d;
+      border-radius: 6px;
+      padding: 6px 10px;
+      z-index: 2;
+      text-align: center;
+      max-width: 160px;
+    }
+
+    /* ── Legend ── */
+    .legend {
+      margin-top: 32px;
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.75rem;
+      color: #8b949e;
+    }
+
+    .legend-swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 800px) {
+      .lanes, .connector-row, .seq-row {
+        grid-template-columns: 1fr;
+      }
+      .ops-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Databricks &rarr; SQL Server Sync Process</h1>
+  <p class="subtitle">Event-driven bidirectional sync &mdash; write path</p>
+
+  <div class="diagram">
+
+    <!-- ════════════════════ SEQUENCE DIAGRAM ════════════════════ -->
+    <div class="sequence">
+      <h2>Event Lifecycle</h2>
+
+      <svg viewBox="0 0 1060 680" style="width:100%;max-width:1060px;margin:0 auto;display:block;" xmlns="http://www.w3.org/2000/svg">
+        <!-- Definitions -->
+        <defs>
+          <marker id="arrowR" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#58a6ff"/>
+          </marker>
+          <marker id="arrowL" markerWidth="8" markerHeight="6" refX="0" refY="3" orient="auto">
+            <polygon points="8 0, 0 3, 8 6" fill="#3fb950"/>
+          </marker>
+          <marker id="arrowRed" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#f85149"/>
+          </marker>
+        </defs>
+
+        <!-- Entities -->
+        <rect x="30" y="20" width="180" height="44" rx="8" fill="#161b22" stroke="#ff3621" stroke-width="2"/>
+        <text x="120" y="47" text-anchor="middle" fill="#ff6a4d" font-weight="700" font-size="14" font-family="Segoe UI, system-ui, sans-serif">Databricks Job / SDK</text>
+
+        <rect x="440" y="20" width="180" height="44" rx="8" fill="#161b22" stroke="#238636" stroke-width="2"/>
+        <text x="530" y="47" text-anchor="middle" fill="#3fb950" font-weight="700" font-size="14" font-family="Segoe UI, system-ui, sans-serif">Bridge (FastAPI)</text>
+
+        <rect x="850" y="20" width="180" height="44" rx="8" fill="#161b22" stroke="#1f6feb" stroke-width="2"/>
+        <text x="940" y="47" text-anchor="middle" fill="#58a6ff" font-weight="700" font-size="14" font-family="Segoe UI, system-ui, sans-serif">SQL Server</text>
+
+        <!-- Lifelines -->
+        <line x1="120" y1="64" x2="120" y2="650" stroke="#21262d" stroke-width="2" stroke-dasharray="6 4"/>
+        <line x1="530" y1="64" x2="530" y2="650" stroke="#21262d" stroke-width="2" stroke-dasharray="6 4"/>
+        <line x1="940" y1="64" x2="940" y2="650" stroke="#21262d" stroke-width="2" stroke-dasharray="6 4"/>
+
+        <!-- Activation bars -->
+        <rect x="114" y="90" width="12" height="100" rx="3" fill="#3a1d16" stroke="#ff3621" stroke-width="1" opacity="0.6"/>
+        <rect x="524" y="210" width="12" height="400" rx="3" fill="#0d2818" stroke="#238636" stroke-width="1" opacity="0.6"/>
+        <rect x="934" y="420" width="12" height="120" rx="3" fill="#0d1d30" stroke="#1f6feb" stroke-width="1" opacity="0.6"/>
+
+        <!-- ── Step 1: SDK writes event ── -->
+        <rect x="14" y="92" width="14" height="14" rx="7" fill="#da3633"/>
+        <text x="21" y="103" text-anchor="middle" fill="#fff" font-size="9" font-weight="700">1</text>
+
+        <text x="125" y="112" text-anchor="start" fill="#8b949e" font-size="11" font-family="Segoe UI, system-ui, sans-serif">BridgeEventsClient writes row</text>
+        <text x="125" y="128" text-anchor="start" fill="#79c0ff" font-size="10" font-family="Fira Code, monospace">INSERT INTO bridge.events.bridge_events</text>
+
+        <!-- Note box for event row -->
+        <rect x="20" y="145" width="220" height="48" rx="6" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+        <text x="130" y="162" text-anchor="middle" fill="#e1e4e8" font-size="10" font-family="Fira Code, monospace">{ operation: "INSERT",</text>
+        <text x="130" y="178" text-anchor="middle" fill="#e1e4e8" font-size="10" font-family="Fira Code, monospace">  status: "pending", ... }</text>
+
+        <!-- ── Step 2: EventPoller queries ── -->
+        <rect x="440" y="212" width="14" height="14" rx="7" fill="#d29922"/>
+        <text x="447" y="223" text-anchor="middle" fill="#fff" font-size="9" font-weight="700">2</text>
+
+        <!-- Arrow: Bridge -> Databricks (query) -->
+        <line x1="524" y1="228" x2="132" y2="228" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrowL)"/>
+        <rect x="250" y="215" width="200" height="20" rx="3" fill="#0f1117"/>
+        <text x="350" y="229" text-anchor="middle" fill="#e1e4e8" font-size="11" font-family="Segoe UI, system-ui, sans-serif">SELECT * WHERE status='pending'</text>
+
+        <text x="535" y="245" text-anchor="start" fill="#8b949e" font-size="10" font-family="Segoe UI, system-ui, sans-serif">EventPoller.poll_cycle() every 10s</text>
+
+        <!-- Arrow: Databricks -> Bridge (return events) -->
+        <line x1="132" y1="268" x2="524" y2="268" stroke="#3fb950" stroke-width="2" stroke-dasharray="6 3" marker-end="url(#arrowR)"/>
+        <rect x="260" y="255" width="160" height="20" rx="3" fill="#0f1117"/>
+        <text x="340" y="269" text-anchor="middle" fill="#8b949e" font-size="10" font-family="Segoe UI, system-ui, sans-serif">List[SyncEvent]</text>
+
+        <!-- ── Step 3: Update status to processing ── -->
+        <rect x="440" y="295" width="14" height="14" rx="7" fill="#8957e5"/>
+        <text x="447" y="306" text-anchor="middle" fill="#fff" font-size="9" font-weight="700">3</text>
+
+        <line x1="524" y1="310" x2="132" y2="310" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrowL)"/>
+        <rect x="240" y="297" width="220" height="20" rx="3" fill="#0f1117"/>
+        <text x="350" y="311" text-anchor="middle" fill="#e1e4e8" font-size="11" font-family="Segoe UI, system-ui, sans-serif">UPDATE status='processing'</text>
+
+        <text x="535" y="332" text-anchor="start" fill="#8b949e" font-size="10" font-family="Segoe UI, system-ui, sans-serif">update_event_status()</text>
+
+        <!-- ── Step 4: Validate event ── -->
+        <rect x="440" y="348" width="14" height="14" rx="7" fill="#8957e5"/>
+        <text x="447" y="359" text-anchor="middle" fill="#fff" font-size="9" font-weight="700">4</text>
+
+        <!-- Self-arrow for validation -->
+        <path d="M536 362 H586 V382 H536" stroke="#d2a8ff" stroke-width="1.5" fill="none" marker-end="url(#arrowL)"/>
+        <text x="592" y="375" text-anchor="start" fill="#d2a8ff" font-size="10" font-family="Segoe UI, system-ui, sans-serif">Validate PKs, table name,</text>
+        <text x="592" y="389" text-anchor="start" fill="#d2a8ff" font-size="10" font-family="Segoe UI, system-ui, sans-serif">source table format</text>
+
+        <!-- ── Step 5: Read data from Databricks ── -->
+        <rect x="440" y="402" width="14" height="14" rx="7" fill="#f78166"/>
+        <text x="447" y="413" text-anchor="middle" fill="#fff" font-size="9" font-weight="700">5</text>
+
+        <line x1="524" y1="418" x2="132" y2="418" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrowL)"/>
+        <rect x="240" y="405" width="220" height="20" rx="3" fill="#0f1117"/>
+        <text x="350" y="419" text-anchor="middle" fill="#e1e4e8" font-size="11" font-family="Segoe UI, system-ui, sans-serif">SELECT * FROM source_table</text>
+
+        <line x1="132" y1="440" x2="524" y2="440" stroke="#3fb950" stroke-width="2" stroke-dasharray="6 3" marker-end="url(#arrowR)"/>
+        <rect x="270" y="428" width="140" height="20" rx="3" fill="#0f1117"/>
+        <text x="340" y="441" text-anchor="middle" fill="#8b949e" font-size="10" font-family="Segoe UI, system-ui, sans-serif">Polars DataFrame</text>
+
+        <!-- ── Step 6: Write to SQL Server ── -->
+        <rect x="440" y="458" width="14" height="14" rx="7" fill="#1f6feb"/>
+        <text x="447" y="469" text-anchor="middle" fill="#fff" font-size="9" font-weight="700">6</text>
+
+        <line x1="536" y1="474" x2="934" y2="474" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrowR)"/>
+        <rect x="640" y="461" width="200" height="20" rx="3" fill="#0f1117"/>
+        <text x="740" y="475" text-anchor="middle" fill="#e1e4e8" font-size="11" font-family="Segoe UI, system-ui, sans-serif">INSERT / UPDATE / DELETE</text>
+
+        <text x="700" y="496" text-anchor="middle" fill="#8b949e" font-size="10" font-family="Segoe UI, system-ui, sans-serif">SyncOperator.process_event()</text>
+
+        <!-- Return from SQL -->
+        <line x1="934" y1="514" x2="536" y2="514" stroke="#3fb950" stroke-width="2" stroke-dasharray="6 3" marker-end="url(#arrowL)"/>
+        <rect x="670" y="501" width="130" height="20" rx="3" fill="#0f1117"/>
+        <text x="735" y="515" text-anchor="middle" fill="#8b949e" font-size="10" font-family="Segoe UI, system-ui, sans-serif">rows_affected</text>
+
+        <!-- ── Step 7: Update status to completed ── -->
+        <rect x="440" y="535" width="14" height="14" rx="7" fill="#238636"/>
+        <text x="447" y="546" text-anchor="middle" fill="#fff" font-size="9" font-weight="700">7</text>
+
+        <line x1="524" y1="552" x2="132" y2="552" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrowL)"/>
+        <rect x="230" y="539" width="240" height="20" rx="3" fill="#0f1117"/>
+        <text x="350" y="553" text-anchor="middle" fill="#e1e4e8" font-size="11" font-family="Segoe UI, system-ui, sans-serif">UPDATE status='completed', rows=N</text>
+
+        <!-- ── Error path (dashed red) ── -->
+        <rect x="440" y="585" width="14" height="14" rx="7" fill="#da3633"/>
+        <text x="447" y="596" text-anchor="middle" fill="#fff" font-size="9" font-weight="700">!</text>
+
+        <line x1="524" y1="600" x2="132" y2="600" stroke="#f85149" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrowRed)"/>
+        <rect x="220" y="587" width="260" height="20" rx="3" fill="#0f1117"/>
+        <text x="350" y="601" text-anchor="middle" fill="#f85149" font-size="10" font-family="Segoe UI, system-ui, sans-serif">On error: retry (3x exp backoff) or fail</text>
+
+        <!-- Bottom entities -->
+        <rect x="30" y="630" width="180" height="30" rx="6" fill="#161b22" stroke="#ff3621" stroke-width="1"/>
+        <text x="120" y="650" text-anchor="middle" fill="#ff6a4d" font-size="11" font-family="Segoe UI, system-ui, sans-serif">bridge_events table</text>
+
+        <rect x="440" y="630" width="180" height="30" rx="6" fill="#161b22" stroke="#238636" stroke-width="1"/>
+        <text x="530" y="650" text-anchor="middle" fill="#3fb950" font-size="11" font-family="Segoe UI, system-ui, sans-serif">EventPoller + SyncOperator</text>
+
+        <rect x="850" y="630" width="180" height="30" rx="6" fill="#161b22" stroke="#1f6feb" stroke-width="1"/>
+        <text x="940" y="650" text-anchor="middle" fill="#58a6ff" font-size="11" font-family="Segoe UI, system-ui, sans-serif">Target tables</text>
+      </svg>
+    </div>
+
+    <!-- ════════════════════ OPERATION DETAILS ════════════════════ -->
+    <div style="margin-top:48px;">
+      <h2 style="text-align:center;font-size:1.2rem;margin-bottom:24px;color:#f0f3f6;">Operation Details</h2>
+      <div class="ops-grid">
+
+        <div class="op-card op-insert">
+          <h4>
+            <div class="op-icon">INS</div>
+            INSERT
+          </h4>
+          <ol>
+            <li>Read all rows from <code>source_table</code></li>
+            <li>Validate PK columns exist in data</li>
+            <li>Check for duplicate primary keys</li>
+            <li><strong>bulk_insert()</strong> into SQL Server</li>
+            <li>Compare rows_affected vs expected</li>
+          </ol>
+          <div class="node-file">sync/operations.py : _execute_insert()</div>
+        </div>
+
+        <div class="op-card op-update">
+          <h4>
+            <div class="op-icon">UPD</div>
+            UPDATE
+          </h4>
+          <ol>
+            <li>Read all rows from <code>source_table</code></li>
+            <li>Validate PK columns exist</li>
+            <li>For each row, build SET + WHERE clauses</li>
+            <li><strong>execute_write()</strong> per row on SQL Server</li>
+            <li>Sum total rows_affected</li>
+          </ol>
+          <div class="node-file">sync/operations.py : _execute_update()</div>
+        </div>
+
+        <div class="op-card op-delete">
+          <h4>
+            <div class="op-icon">DEL</div>
+            DELETE
+          </h4>
+          <ol>
+            <li>Build WHERE from filter_conditions</li>
+            <li>COUNT rows matching filter</li>
+            <li>Validate against max_delete_rows (10k)</li>
+            <li><strong>execute_write(DELETE)</strong> on SQL Server</li>
+            <li>Compare rows_affected vs counted</li>
+          </ol>
+          <div class="node-file">sync/operations.py : _execute_delete()</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ════════════════════ STATUS FLOW ════════════════════ -->
+    <div class="status-flow">
+      <h3>Event Status Machine</h3>
+      <div class="status-chain">
+        <span class="status-pill status-pending">pending</span>
+        <span class="status-arrow">&rarr;</span>
+        <span class="status-pill status-processing">processing</span>
+        <span class="status-arrow">&rarr;</span>
+
+        <div class="status-branch">
+          <span class="status-pill status-completed">completed</span>
+          <span class="status-branch-label">success</span>
+        </div>
+
+        <span style="color:#484f58;font-size:0.8rem;padding:0 8px;">or</span>
+
+        <div class="status-branch">
+          <span class="status-pill status-retry">retry</span>
+          <span class="status-branch-label">retryable error (3x exp backoff)</span>
+        </div>
+
+        <span class="status-arrow">&rarr;</span>
+
+        <div class="status-branch">
+          <span class="status-pill status-failed">failed</span>
+          <span class="status-branch-label">exhausted / fatal</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════ KEY FILES ════════════════════ -->
+    <div style="margin-top:40px;background:#161b22;border:1px solid #21262d;border-radius:12px;padding:24px;">
+      <h3 style="font-size:0.85rem;text-transform:uppercase;letter-spacing:1px;color:#8b949e;margin-bottom:16px;">Key Source Files</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;">
+
+        <div class="node" style="margin:0;">
+          <div class="node-title">EventPoller</div>
+          <div class="node-detail">Async polling loop. Queries pending events every 10s, dispatches to SyncOperator, updates status back in Databricks.</div>
+          <div class="node-file">sync/poller.py</div>
+        </div>
+
+        <div class="node" style="margin:0;">
+          <div class="node-title">SyncOperator</div>
+          <div class="node-detail">Routes events to INSERT/UPDATE/DELETE handlers. Reads from Databricks, validates, writes to SQL Server.</div>
+          <div class="node-file">sync/operations.py</div>
+        </div>
+
+        <div class="node" style="margin:0;">
+          <div class="node-title">BridgeEventsClient (SDK)</div>
+          <div class="node-detail">Used inside Databricks notebooks/jobs to write events into bridge_events Delta table via Spark SQL.</div>
+          <div class="node-file">sdk/.../events_client.py</div>
+        </div>
+
+        <div class="node" style="margin:0;">
+          <div class="node-title">SyncEvent Model</div>
+          <div class="node-detail">Pydantic model: event_id, operation, source/target tables, primary_keys, status, retry_count, filter_conditions.</div>
+          <div class="node-file">models/events.py</div>
+        </div>
+
+        <div class="node" style="margin:0;">
+          <div class="node-title">Validators</div>
+          <div class="node-detail">Table name parsing, PK validation, duplicate checks, delete row limits. Guards against bad events.</div>
+          <div class="node-file">sync/validators.py</div>
+        </div>
+
+        <div class="node" style="margin:0;">
+          <div class="node-title">Retry Logic</div>
+          <div class="node-detail">Exponential backoff with jitter (1s base, 30s max). 3 attempts before marking failed.</div>
+          <div class="node-file">sync/retry.py</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ════════════════════ LEGEND ════════════════════ -->
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#ff3621;"></div>
+        Databricks
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#238636;"></div>
+        Bridge (FastAPI)
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#1f6feb;"></div>
+        SQL Server
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#8957e5;"></div>
+        Validation
+      </div>
+      <div class="legend-item">
+        <svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5" stroke="#58a6ff" stroke-width="2"/></svg>
+        Request
+      </div>
+      <div class="legend-item">
+        <svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5" stroke="#3fb950" stroke-width="2" stroke-dasharray="6 3"/></svg>
+        Response
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>
