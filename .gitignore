@@ -71,14 +71,6 @@ test_*.txt
 nul
 output/
 
-# Tauri
-frontend/src-tauri/target/
-frontend/src-tauri/gen/
-
-# Frontend build artifacts
-frontend/node_modules/
-frontend/dist/
-
 # Root node_modules (slidev)
 /node_modules/
 
@@ -87,7 +79,6 @@ frontend/dist/
 /*.csv
 /dist-artifacts/
 /dist-test/
-/deploy-frontend/
 /debug-screenshots/
 .playwright-mcp/
 squashfs-root/

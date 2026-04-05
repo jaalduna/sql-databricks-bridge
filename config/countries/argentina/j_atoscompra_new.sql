@@ -1,5 +1,5 @@
 -- argentina: j_atoscompra_new
--- columns: 30
+-- columns: 37
 
 select
     coef_01,
@@ -30,6 +30,13 @@ select
     unidades_packs,
     value_pm,
     FACTOR_RW1,
+    FACTOR_RW2,
+    FACTOR_RW3,
+    FACTOR_RW4,
+    FACTOR_RW5,
+    FACTOR_RW6,
+    FACTOR_RW7,
+    FACTOR_RW8,
     Acceso_canal,
     IdApp
 from j_atoscompra_new

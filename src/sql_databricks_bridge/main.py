@@ -9,12 +9,14 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from sql_databricks_bridge import __version__
-from sql_databricks_bridge.api.routes import auth, databricks_jobs, diff_sync_schedule, eligibility, extract, health, jobs, metadata, pipeline, simulador, sync, tags, trigger
+from sql_databricks_bridge.api.routes import auth, databricks_jobs, diff_sync_schedule, eligibility, extract, health, jobs, metadata, pipeline, sync, tags, traceability, trigger
+from sql_databricks_bridge.api.routes.auth import github_router
 from sql_databricks_bridge.core.config import get_settings
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db.jobs_table import ensure_jobs_table
 from sql_databricks_bridge.db.local_store import init_db, mark_orphaned_jobs
 from sql_databricks_bridge.db.version_tags_table import ensure_version_tags_table
+from sql_databricks_bridge.db.traceability_table import ensure_traceability_tables
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 from sql_databricks_bridge.core.calibration_launcher import CalibrationJobLauncher
 from sql_databricks_bridge.core.databricks_monitor import DatabricksJobMonitor
@@ -49,9 +51,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             databricks_client = DatabricksClient()
             sql_client = SQLServerClient()
 
-            # Ensure the jobs and version_tags Delta tables exist
+            # Ensure the jobs, version_tags and traceability Delta tables exist
             ensure_jobs_table(databricks_client, settings.jobs_table)
             ensure_version_tags_table(databricks_client, settings.version_tags_table)
+            ensure_traceability_tables(
+                databricks_client,
+                settings.traceability_tags_table,
+                settings.traceability_tag_tables_table,
+            )
 
             # Initialize local SQLite store and recover orphaned jobs
             db_path = init_db(settings.sqlite_db_path)
@@ -64,7 +71,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             _event_poller = EventPoller(
                 databricks_client=databricks_client,
                 sql_client=sql_client,
-                events_table=settings.events_table,
                 poll_interval=settings.polling_interval_seconds,
                 max_events_per_poll=settings.max_events_per_poll,
             )
@@ -168,8 +174,12 @@ def create_app() -> FastAPI:
     api_v1.include_router(databricks_jobs.router)
     api_v1.include_router(eligibility.router)
     api_v1.include_router(diff_sync_schedule.router)
-    api_v1.include_router(simulador.router)
+    api_v1.include_router(traceability.router)
     app.include_router(api_v1)
+
+    # GitHub OAuth routes are mounted at root level (not under /api/v1) so the
+    # frontend can redirect to {serverRoot}/auth/github after stripping /api/v1.
+    app.include_router(github_router)
 
     # Root endpoint
     @app.get("/", tags=["Root"])

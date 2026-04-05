@@ -143,9 +143,10 @@ class BridgeSettings(BaseSettings):
     # Stages & jobs table
     stages_file: str = Field(default="", description="Override path to stages YAML (empty = bundled default)")
     jobs_table: str = Field(default="bridge.events.trigger_jobs", description="Databricks Delta table for job history")
-    events_table: str = Field(default="bridge.events.bridge_events", description="Databricks Delta table for sync events (EventPoller)")
 
     version_tags_table: str = Field(default="bridge.events.version_tags", description="Databricks Delta table for version tags")
+    traceability_tags_table: str = Field(default="bridge.events.traceability_tags", description="Databricks Delta table for traceability tags")
+    traceability_tag_tables_table: str = Field(default="bridge.events.traceability_tag_tables", description="Databricks Delta table for traceability tag tables")
     fingerprint_table: str = Field(default="`000-sql-databricks-bridge`.events.sync_fingerprints", description="Databricks Delta table for differential sync fingerprints")
 
     # Differential sync defaults (server-side, applied even if client doesn't request it)
@@ -170,8 +171,26 @@ class BridgeSettings(BaseSettings):
     azure_ad_client_id: str = Field(default="", description="Azure AD app client ID (audience)")
     authorized_users_file: str = Field(default="", description="Override path to authorized users YAML (empty = bundled default)")
 
-    # Two-phase sync (warehouse optimization)
-    two_phase_sync: bool = Field(default=False, description="Enable two-phase sync: Phase 1 downloads without warehouse, Phase 2 commits in tight batch")
+    # GitHub OAuth settings
+    github_client_id: str = Field(default="", description="GitHub OAuth App client ID")
+    github_client_secret: SecretStr = Field(default=SecretStr(""), description="GitHub OAuth App client secret")
+    github_callback_url: str = Field(
+        default="http://localhost:8000/auth/github/callback",
+        description="GitHub OAuth callback URL (must match GitHub App registration)",
+    )
+    frontend_url: str = Field(
+        default="http://localhost:5173",
+        description="Frontend URL — where the callback redirects after issuing the JWT",
+    )
+    jwt_secret: SecretStr = Field(
+        default=SecretStr("dev-secret-change-in-production"),
+        description="Secret for signing/verifying GitHub app JWTs",
+    )
+    jwt_expiry_hours: int = Field(default=8, description="GitHub JWT expiry in hours")
+    admin_emails: str = Field(
+        default="",
+        description="Comma-separated admin email whitelist. Empty = any GitHub user gets admin.",
+    )
 
     # E2E testing
     skip_sync_data: bool = Field(default=False, description="Skip SQL Server sync, jump to Databricks steps (e2e testing)")
@@ -179,16 +198,6 @@ class BridgeSettings(BaseSettings):
 
     # Calibration job prefix (matches DAB target prefix, e.g. '[dev] ' for development)
     calibration_job_prefix: str = Field(default="[dev] ", description="Prefix prepended to calibration job names when searching Databricks. Set to '' for production.")
-
-    # Simulador sync (network share → Databricks)
-    simulador_base_path: str = Field(
-        default=r"\\ktclfs001\Procesos\PRISM\SIMULADOR",
-        description="UNC path to SIMULADOR network share",
-    )
-    simulador_countries: str = Field(
-        default="AR:argentina,BO:bolivia,CE:cam,CL:chile,CO:colombia,EC:ecuador,MX:mexico,PE:peru",
-        description="Country code:name mapping for simulador sync (CC:name,...)",
-    )
 
     # CORS settings
     cors_allowed_origins: str = Field(
