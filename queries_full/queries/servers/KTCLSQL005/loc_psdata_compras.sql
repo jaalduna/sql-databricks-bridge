@@ -1,0 +1,20 @@
+-- KTCLSQL005: loc_psdata_compras
+-- columns: 11
+-- Source: PS_LATAM database (server-wide shared table)
+-- Description: Purchase trip/journey data for all countries on KTCLSQL005
+-- Target schema: 000-sql-databricks-bridge.KTCLSQL005
+
+SELECT
+    entryid_ato,
+    entryid_viagem,
+    feviaje,
+    flg_duplicado,
+    formacompra,
+    granel,
+    idcountry,
+    itemprice,
+    itemqty,
+    vol,
+    wt,
+    CONVERT(VARCHAR(6), feviaje, 112) AS periodo
+FROM [PS_LATAM].dbo.loc_psdata_compras

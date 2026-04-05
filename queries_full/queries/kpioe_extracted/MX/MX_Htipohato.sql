@@ -1,0 +1,1 @@
+select * from HTipo_Ato

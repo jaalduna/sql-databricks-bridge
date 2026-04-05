@@ -1,0 +1,1 @@
+select  idDomicilio	,	Quantidade,idPosse_Bem from Domicilio_Posse_Bens where  YEAR(data)=2025

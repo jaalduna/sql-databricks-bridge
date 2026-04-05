@@ -1,0 +1,1 @@
+select * from NAC_Ato where DataTransmissao >= getdate()-70
