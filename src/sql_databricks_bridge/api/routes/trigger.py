@@ -180,6 +180,7 @@ class EventSummary(BaseModel):
     queries_failed: int
     queries_running: int = 0
     running_queries: list[str] = Field(default_factory=list)
+    failed_queries: list[str] = Field(default_factory=list)
     total_rows_extracted: int = 0
     created_at: datetime
     started_at: datetime | None = None
@@ -366,6 +367,7 @@ def _build_event_summary(row: dict, results: list[QueryResult]) -> EventSummary:
         queries_failed=failed,
         queries_running=len(running_queries),
         running_queries=running_queries,
+        failed_queries=[r.query_name for r in results if r.status == "failed"],
         total_rows_extracted=_total_rows(results),
         created_at=row["created_at"],
         started_at=row.get("started_at"),
@@ -1737,6 +1739,7 @@ async def list_events(
                     queries_failed=job.queries_failed,
                     queries_running=len(running_queries),
                     running_queries=running_queries,
+                    failed_queries=[r.query_name for r in job.results if r.status == "failed"],
                     total_rows_extracted=sum(r.rows_extracted or 0 for r in job.results),
                     created_at=job.created_at,
                     started_at=job.started_at,
@@ -1780,6 +1783,7 @@ async def list_events(
                 queries_failed=job.queries_failed,
                 queries_running=len(inflight_running),
                 running_queries=inflight_running,
+                failed_queries=[r.query_name for r in job.results if r.status == "failed"],
                 total_rows_extracted=sum(r.rows_extracted or 0 for r in job.results),
                 created_at=job.created_at,
                 started_at=job.started_at,
@@ -1835,6 +1839,7 @@ async def list_events(
                 queries_failed=job.queries_failed,
                 queries_running=len(running_queries),
                 running_queries=running_queries,
+                failed_queries=[r.query_name for r in job.results if r.status == "failed"],
                 total_rows_extracted=total_rows,
                 created_at=row["created_at"],
                 started_at=job.started_at,
@@ -1859,6 +1864,7 @@ async def list_events(
                 queries_failed=0,
                 queries_running=0,
                 running_queries=[],
+                failed_queries=[],
                 total_rows_extracted=0,
                 created_at=row["created_at"],
                 started_at=row.get("started_at"),
@@ -1898,6 +1904,7 @@ async def list_events(
             queries_failed=job.queries_failed,
             queries_running=len(inflight_running),
             running_queries=inflight_running,
+            failed_queries=[r.query_name for r in job.results if r.status == "failed"],
             total_rows_extracted=sum(r.rows_extracted or 0 for r in job.results),
             created_at=job.created_at,
             started_at=job.started_at,

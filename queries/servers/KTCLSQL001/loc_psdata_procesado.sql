@@ -4,6 +4,6 @@
 -- Description: Processed purchase trip/journey data for all countries on KTCLSQL001
 -- Target schema: 000-sql-databricks-bridge.KTCLSQL001
 
-SELECT *
+SELECT *, CONVERT(VARCHAR(6), FeProcesado, 112) AS periodo
 FROM [PS_LATAM].dbo.loc_psdata_procesado
-WHERE feviaje >= DATEADD(MONTH, -{lookback_months}, GETDATE())
+WHERE FeProcesado >= DATEADD(MONTH, -{lookback_months}, GETDATE())
