@@ -18,3 +18,4 @@ SELECT
     wt,
     CONVERT(VARCHAR(6), feviaje, 112) AS periodo
 FROM [PS_LATAM].dbo.loc_psdata_compras
+WHERE feviaje >= DATEADD(MONTH, -{lookback_months}, GETDATE())
