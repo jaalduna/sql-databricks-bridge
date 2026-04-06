@@ -230,17 +230,21 @@ async def get_current_azure_ad_user(
         Depends(security),
     ],
 ) -> AuthorizedUser:
-    """Validate Azure AD JWT and return the authorized user.
+    """Validate a Bearer token and return the authorized user.
 
-    This dependency validates the JWT token against Azure AD JWKS keys,
-    then checks the user's email against the authorized users allowlist.
+    Accepts two token types (tried in order):
+    1. GitHub app JWT — issued by ``/auth/github/callback``, signed with ``JWT_SECRET``.
+    2. Azure AD JWT  — validated against Azure AD JWKS, checked against the
+       authorized-users allowlist.
 
     Returns:
-        AuthorizedUser from the allowlist.
+        AuthorizedUser populated from whichever token type matched.
 
     Raises:
-        HTTPException: 401 if token invalid/expired, 403 if user not authorized.
+        HTTPException: 401 if no/invalid token, 403 if user not authorized.
     """
+    from sql_databricks_bridge.auth.github import verify_github_jwt
+
     settings = get_settings()
     client_ip = get_client_ip(request)
 
@@ -265,10 +269,22 @@ async def get_current_azure_ad_user(
 
     token = credentials.credentials
 
-    # Validate JWT against Azure AD
+    # --- Try GitHub app JWT first (fast, symmetric, no network) ---
+    if settings.jwt_secret.get_secret_value() != "dev-secret-change-in-production" or settings.github_client_id:
+        claims = verify_github_jwt(token, settings.jwt_secret.get_secret_value())
+        if claims:
+            logger.debug("GitHub JWT auth success for %s", claims.get("email"))
+            return AuthorizedUser(
+                email=claims["email"],
+                name=claims.get("name", ""),
+                roles=claims.get("roles", ["viewer"]),
+                countries=claims.get("countries", []),
+            )
+
+    # --- Fall back to Azure AD JWT ---
     validator = get_azure_ad_validator()
     try:
-        claims = validator.validate(token)
+        ad_claims = validator.validate(token)
     except InvalidTokenError as e:
         audit_logger.log_auth_failure(
             token=token,
@@ -283,13 +299,13 @@ async def get_current_azure_ad_user(
 
     # Check allowlist
     store = get_authorized_users_store()
-    user = store.get_user(claims.email)
+    user = store.get_user(ad_claims.email)
 
     if not user:
         audit_logger.log_auth_failure(
             token=token,
             source_ip=client_ip,
-            reason=f"User not in allowlist: {claims.email}",
+            reason=f"User not in allowlist: {ad_claims.email}",
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
