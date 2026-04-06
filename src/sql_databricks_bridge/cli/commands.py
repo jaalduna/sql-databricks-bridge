@@ -807,43 +807,84 @@ def diff_sync(
                 suffix_exclude=suffix_exclude,
             )
 
-            # Print per-country summary table
-            summary = Table(title=f"Run #{run_num} Summary")
-            summary.add_column("Country", style="cyan")
-            summary.add_column("Table", style="white")
-            summary.add_column("Status", style="green")
-            summary.add_column("Rows", justify="right")
-            summary.add_column("Time", justify="right")
-            summary.add_column("Stable", justify="right")
-
+            # Update stability and collect data
             round_tables: list[dict] = []
+            country_stats: dict[str, dict] = {}
             for cr in results:
                 if cr.error and not cr.tables:
-                    summary.add_row(cr.country, "", f"[red]{cr.status}[/red]", "", "", "")
+                    country_stats[cr.country] = {
+                        "status": cr.status, "tables": 0, "total": 0,
+                        "rows": 0, "duration": cr.total_duration_s, "failed": 0,
+                    }
                     continue
+                total_rows = 0
+                failed_count = 0
                 for t in cr.tables:
                     key = f"{cr.country}:{t.table}"
                     if t.rows_extracted == 0 and t.status == "completed":
                         stability[key] = stability.get(key, 0) + 1
                     else:
                         stability[key] = 0
-                    streak = stability.get(key, 0)
-                    status_style = "green" if t.status == "completed" else "red"
-                    summary.add_row(
-                        cr.country,
-                        t.table,
-                        f"[{status_style}]{t.status}[/{status_style}]",
-                        f"{t.rows_extracted:,}",
-                        f"{t.duration_s:.1f}s",
-                        f"{streak}x",
-                    )
+                    total_rows += t.rows_extracted
+                    if t.status == "failed":
+                        failed_count += 1
                     round_tables.append({
                         "country": cr.country,
                         "table": t.table,
                         "rows": t.rows_extracted,
+                        "status": t.status,
+                        "duration": t.duration_s,
                     })
+                country_stats[cr.country] = {
+                    "status": cr.status, "tables": len(cr.tables),
+                    "total": len(cr.tables), "rows": total_rows,
+                    "duration": cr.total_duration_s, "failed": failed_count,
+                }
+
+            # Print compact country summary
+            summary = Table(title=f"Run #{run_num} Summary")
+            summary.add_column("Country", style="cyan")
+            summary.add_column("Tables", justify="right")
+            summary.add_column("Rows", justify="right")
+            summary.add_column("Time", justify="right")
+            summary.add_column("Status", style="green")
+
+            for c in sorted(country_stats.keys()):
+                s = country_stats[c]
+                m, sec = divmod(int(s["duration"]), 60)
+                time_str = f"{m}m {sec:02d}s"
+                if s["status"] == "failed" and s["tables"] == 0:
+                    summary.add_row(c, "-", "-", time_str, f"[red]{s['status']}[/red]")
+                else:
+                    tables_str = f"{s['tables']}" + (f" ({s['failed']}F)" if s["failed"] else "")
+                    status_style = "green" if s["failed"] == 0 else "yellow"
+                    summary.add_row(
+                        c, tables_str, f"{s['rows']:,}", time_str,
+                        f"[{status_style}]{s['status']}[/{status_style}]",
+                    )
 
             console.print(summary)
+
+            # Print detail table for changes and failures only
+            changes_or_fails = [
+                r for r in round_tables
+                if r["rows"] > 0 or r["status"] == "failed"
+            ]
+            if changes_or_fails:
+                detail_tbl = Table(title="Changes & Failures")
+                detail_tbl.add_column("Country", style="cyan")
+                detail_tbl.add_column("Table", style="white")
+                detail_tbl.add_column("Status")
+                detail_tbl.add_column("Rows", justify="right")
+                detail_tbl.add_column("Time", justify="right")
+                for r in changes_or_fails:
+                    status_style = "green" if r["status"] == "completed" else "red"
+                    detail_tbl.add_row(
+                        r["country"], r["table"],
+                        f"[{status_style}]{r['status']}[/{status_style}]",
+                        f"{r['rows']:,}", f"{r['duration']:.1f}s",
+                    )
+                console.print(detail_tbl)
 
             # Highlight changes
             changed = [

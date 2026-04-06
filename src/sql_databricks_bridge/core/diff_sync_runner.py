@@ -160,6 +160,7 @@ def trigger_and_poll(
 
     # Poll
     last_reported: set[str] = set()
+    last_heartbeat = time.time()
     while True:
         time.sleep(poll_interval)
         try:
@@ -171,7 +172,7 @@ def trigger_and_poll(
 
         job_status = detail.get("status", "unknown")
 
-        # Report per-table completions
+        # Report per-table completions (only changes and failures)
         for r in detail.get("results", []):
             qn = r.get("query_name", "?")
             r_status = r.get("status", "?")
@@ -179,13 +180,14 @@ def trigger_and_poll(
                 rows = r.get("rows_extracted", 0)
                 dur = r.get("duration_seconds", 0)
                 err = r.get("error", "")
-                marker = "OK" if r_status == "completed" else "FAIL"
-                if on_progress:
+                last_reported.add(qn)
+                # Only log tables with changes or failures
+                if on_progress and (rows > 0 or r_status == "failed"):
+                    marker = "OK" if r_status == "completed" else "FAIL"
                     msg = f"[{marker}] {qn}: {rows:,} rows in {dur:.1f}s"
                     if err:
                         msg += f" -- {err}"
                     on_progress(country, msg)
-                last_reported.add(qn)
 
         if job_status in ("completed", "failed", "cancelled"):
             tables = _parse_results(detail)
@@ -197,19 +199,21 @@ def trigger_and_poll(
                 total_duration_s=time.time() - t0,
             )
 
-        # Heartbeat
+        # Heartbeat — every 60s to reduce noise
         all_results = detail.get("results", [])
         completed_count = sum(
             1 for r in all_results
             if r.get("status") in ("completed", "failed")
         )
         total_count = len(all_results) or "?"
-        elapsed = time.time() - t0
-        if on_progress:
+        now = time.time()
+        if on_progress and (now - last_heartbeat) >= 60:
+            elapsed = now - t0
             on_progress(
                 country,
-                f"[{elapsed:.0f}s] {completed_count}/{total_count} tables done...",
+                f"{completed_count}/{total_count} done ({elapsed:.0f}s elapsed)",
             )
+            last_heartbeat = now
 
 
 def _parse_results(detail: dict) -> list[TableResult]:
