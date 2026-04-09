@@ -269,11 +269,15 @@ class Phase2Executor:
                 "DATATYPE_MISMATCH", "CAST_WITHOUT_SUGGESTION",
                 "DELTA_DUPLICATE_COLUMNS_FOUND", "UNRESOLVED_COLUMN",
             ]):
-                logger.warning(
-                    f"Phase 2: schema issue on INSERT, falling back to CTAS: {e}"
+                # NEVER fall back to CTAS on diff_write — it would replace
+                # the entire table with just the changed periods, destroying
+                # historical data.  Log the error and raise so it gets
+                # recorded as a failure instead.
+                logger.error(
+                    f"Phase 2 diff_write INSERT failed (schema mismatch), "
+                    f"NOT falling back to CTAS to protect existing data: {e}"
                 )
-                self._execute_ctas(country, table_name, staging_path, tag, table_suffix)
-                return
+                raise
             raise
 
         self.writer._apply_tags(target, tag)
