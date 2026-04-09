@@ -312,7 +312,7 @@ async def get_sync_stats() -> dict:
 @router.get(
     "/poller/status",
     summary="Get poller status",
-    description="Get the status of the background event poller.",
+    description="Get the status of the event poller and its schedule.",
 )
 async def get_poller_status() -> dict:
     """Get event poller status."""
@@ -321,26 +321,42 @@ async def get_poller_status() -> dict:
     if _event_poller is None:
         return {
             "enabled": False,
-            "running": False,
             "message": "Event poller not configured (no warehouse_id)",
         }
 
+    # Check schedule from schedules.yaml
+    schedule_info: dict = {"mode": "on-demand"}
+    try:
+        from sql_databricks_bridge.core.config import get_settings
+        from sql_databricks_bridge.core.scheduler import load_schedules
+        settings = get_settings()
+        schedules = load_schedules(settings.schedules_file)
+        ep = schedules.get("event_poller")
+        if ep and ep.enabled:
+            schedule_info = {
+                "mode": "scheduled",
+                "hours_utc": ep.hours,
+                "minute": ep.minute,
+                "weekdays_only": ep.weekdays_only,
+            }
+    except Exception:
+        pass
+
     return {
         "enabled": True,
-        "running": _event_poller.is_running,
         "events_table": _event_poller.events_table,
-        "poll_interval_seconds": _event_poller.poll_interval,
         "max_events_per_poll": _event_poller.max_events_per_poll,
+        "schedule": schedule_info,
     }
 
 
 @router.post(
     "/poller/trigger",
     summary="Trigger poll cycle",
-    description="Manually trigger a poll cycle to process pending events.",
+    description="Run a single poll cycle: query all pending events and process them.",
 )
 async def trigger_poll_cycle() -> dict:
-    """Manually trigger a poll cycle."""
+    """Manually trigger a single poll cycle."""
     from sql_databricks_bridge.main import _event_poller
 
     if _event_poller is None:

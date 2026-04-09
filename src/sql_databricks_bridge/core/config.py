@@ -126,6 +126,9 @@ class BridgeSettings(BaseSettings):
     polling_interval_seconds: int = Field(default=10, description="Interval for event polling")
     max_events_per_poll: int = Field(default=100, description="Max events per poll cycle")
 
+    # Schedules file (YAML with cron-like task schedules; empty = bundled default)
+    schedules_file: str = Field(default="", description="Override path to schedules YAML (empty = bundled default)")
+
     # Extraction settings
     extraction_chunk_size: int = Field(default=100_000, description="Rows per extraction chunk")
     max_retries: int = Field(default=3, description="Max retry attempts")
@@ -133,6 +136,12 @@ class BridgeSettings(BaseSettings):
     max_parallel_queries: int = Field(default=4, ge=1, le=20, description="Max parallel queries per extraction job")
     query_row_limit: int = Field(default=0, ge=0, description="Row limit per query (0 = no limit, use TOP N)")
     lookback_months: int = Field(default=24, ge=1, le=120, description="Rolling lookback months for time-filtered queries")
+
+    # Two-phase sync (Phase 1: extract without warehouse, Phase 2: write with warehouse)
+    two_phase_sync: bool = Field(default=False, description="Enable two-phase sync to minimize warehouse usage")
+
+    # Startup behaviour
+    ensure_tables_on_startup: bool = Field(default=False, description="Run CREATE TABLE IF NOT EXISTS DDL on startup (wakes SQL Warehouse)")
 
     # Local persistence
     sqlite_db_path: str = Field(default=".bridge_data/jobs.db", description="Local SQLite database path")
@@ -143,6 +152,7 @@ class BridgeSettings(BaseSettings):
     # Stages & jobs table
     stages_file: str = Field(default="", description="Override path to stages YAML (empty = bundled default)")
     jobs_table: str = Field(default="bridge.events.trigger_jobs", description="Databricks Delta table for job history")
+    events_table: str = Field(default="bridge.events.bridge_events", description="Databricks Delta table for sync events (EventPoller)")
 
     version_tags_table: str = Field(default="bridge.events.version_tags", description="Databricks Delta table for version tags")
     traceability_tags_table: str = Field(default="bridge.events.traceability_tags", description="Databricks Delta table for traceability tags")
@@ -160,6 +170,10 @@ class BridgeSettings(BaseSettings):
     # Incremental sync for append-only tables (only download new rows above max key)
     # Format: "table1:key_col,table2:key_col" e.g. "nac_ato:idAto,hato_cabecalho:idhato_cabecalho"
     incremental_sync_tables: str = Field(default="", description="Append-only tables that use incremental sync (format: table:key_col,...)")
+
+    # Simulador sync settings
+    simulador_base_path: str = Field(default="", description="Network share base path for simulador ZIP files")
+    simulador_countries: str = Field(default="AR:argentina,BO:bolivia,CE:cam,CL:chile,CO:colombia,EC:ecuador,MX:mexico,PE:peru", description="Country code to schema mapping for simulador sync")
 
     # Auth settings
     auth_enabled: bool = Field(default=True, description="Enable token authentication")

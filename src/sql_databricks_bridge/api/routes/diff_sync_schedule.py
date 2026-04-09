@@ -39,6 +39,13 @@ class DiffSyncScheduleRequest(BaseModel):
         default="diff_sync_validation.csv",
         description="CSV log file path",
     )
+    deferred_phase2: bool = Field(
+        default=False,
+        description=(
+            "When True, each country runs Phase 1 only (extract + upload). "
+            "After all countries finish, a single Phase 2 batch drains the queue."
+        ),
+    )
 
 
 class TableResultResponse(BaseModel):
@@ -97,6 +104,7 @@ class _DiffSyncScheduleManager:
         self._lookback: int = 24
         self._log_file: str = "diff_sync_validation.csv"
         self._api_base: str = "http://127.0.0.1:8000/api/v1"
+        self._deferred_phase2: bool = False
         self._round_number: int = 0
         self._last_round_at: datetime | None = None
         self._next_round_at: datetime | None = None
@@ -115,6 +123,7 @@ class _DiffSyncScheduleManager:
         lookback: int,
         log_file: str,
         api_base: str,
+        deferred_phase2: bool = False,
     ) -> None:
         if self._running:
             raise RuntimeError("Already running")
@@ -125,6 +134,7 @@ class _DiffSyncScheduleManager:
         self._lookback = lookback
         self._log_file = log_file
         self._api_base = api_base
+        self._deferred_phase2 = deferred_phase2
         self._round_number = 0
         self._history = []
         self._last_results = []
@@ -192,6 +202,10 @@ class _DiffSyncScheduleManager:
                     self._lookback,
                     10,  # poll_interval
                     None,  # on_progress
+                    None,  # table_suffix
+                    False,  # all_tables
+                    None,  # suffix_exclude
+                    self._deferred_phase2,
                 )
 
                 self._last_results = results
@@ -296,6 +310,7 @@ async def start_diff_sync(req: DiffSyncScheduleRequest) -> DiffSyncStatusRespons
         lookback=req.lookback_months,
         log_file=req.log_file,
         api_base=api_base,
+        deferred_phase2=req.deferred_phase2,
     )
 
     return _manager.get_status()

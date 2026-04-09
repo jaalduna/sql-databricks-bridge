@@ -705,6 +705,13 @@ def diff_sync(
             help="Also check SIMULADOR network share for changes each round",
         ),
     ] = False,
+    deferred_phase2: Annotated[
+        bool,
+        typer.Option(
+            "--deferred-phase2",
+            help="Run Phase 1 for ALL countries first, then a single Phase 2 batch",
+        ),
+    ] = False,
 ) -> None:
     """Run periodic sync for all (or one) country.
 
@@ -763,6 +770,8 @@ def diff_sync(
         console.print(f"  No suffix: {', '.join(suffix_exclude)}")
     if with_simulador:
         console.print(f"  Simulador: [green]enabled[/green] (check network share each round)")
+    if deferred_phase2:
+        console.print(f"  Phase 2:   [cyan]deferred[/cyan] (single batch after all countries)")
     console.print(f"  Interval:  {interval} min {'(once)' if once else '(loop)'}")
     console.print(f"  Log file:  {log_file}")
     console.print()
@@ -784,8 +793,13 @@ def diff_sync(
     all_runs: list[list] = []  # list of per-round country results (flattened)
     run_num = 0
 
+    _current_country: list[str] = [""]  # mutable container for closure
+
     def _on_progress(cty: str, msg: str) -> None:
-        console.print(f"  [{cty}] {msg}")
+        if cty != _current_country[0]:
+            _current_country[0] = cty
+            console.print(f"\n  [bold cyan]{cty.upper()}[/bold cyan]")
+        console.print(f"    {msg}")
 
     try:
         while True:
@@ -794,6 +808,7 @@ def diff_sync(
             console.print(f"\n[bold]{'='*65}[/bold]")
             console.print(f"  [bold]Run #{run_num}[/bold]  --  {ts}")
             console.print(f"[bold]{'='*65}[/bold]")
+            _current_country[0] = ""
 
             results = run_diff_sync_round(
                 api_base=api_url,
@@ -805,6 +820,7 @@ def diff_sync(
                 table_suffix=suffix,
                 all_tables=all_tables,
                 suffix_exclude=suffix_exclude,
+                deferred_phase2=deferred_phase2,
             )
 
             # Update stability and collect data

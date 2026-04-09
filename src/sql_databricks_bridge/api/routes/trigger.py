@@ -132,6 +132,14 @@ class TriggerRequest(BaseModel):
         default=None,
         description="Override the server QUERIES_PATH for this request. Use a different queries directory.",
     )
+    skip_phase2: bool = Field(
+        default=False,
+        description=(
+            "When True and TWO_PHASE_SYNC is enabled, skip the Phase 2 commit "
+            "after extraction. Items stay in the SyncQueue for a later batch commit "
+            "via POST /api/v1/phase2/execute."
+        ),
+    )
 
 
 class TriggerResponse(BaseModel):
@@ -435,6 +443,7 @@ def _run_trigger_extraction(
     table_suffix: str | None = None,
     suffix_exclude: list[str] | None = None,
     force_full_sync: bool = False,
+    skip_phase2: bool = False,
 ) -> None:
     """Background task to run the extraction triggered by a user."""
     # Rename so process_query() can shadow table_suffix per query
@@ -454,7 +463,16 @@ def _run_trigger_extraction(
             _sync_queue = SyncQueue()
             # Cold-start: if the local cache has no data for this country,
             # download fingerprints from Databricks once (requires warehouse).
-            if _fp_cache.is_empty(job.country, "", "period"):
+            # When skip_phase2 is set, skip the cold-start to avoid waking the
+            # warehouse — diff-sync tables will treat everything as first-sync
+            # (full extract + enqueue), which is safe.
+            if skip_phase2:
+                if _fp_cache.is_empty(job.country, "", "period"):
+                    logger.info(
+                        "skip_phase2: skipping fingerprint cache cold-start "
+                        f"for {job.country} (will do full extract)"
+                    )
+            elif _fp_cache.is_empty(job.country, "", "period"):
                 logger.info(
                     f"Two-phase: cold-start fingerprint cache for {job.country}"
                 )
@@ -477,7 +495,8 @@ def _run_trigger_extraction(
 
         job.status = JobStatus.RUNNING
         job.started_at = datetime.utcnow()
-        update_job_status(client, table, job.job_id, "running", started_at=job.started_at)
+        if not skip_phase2:
+            update_job_status(client, table, job.job_id, "running", started_at=job.started_at)
         if db_path:
             local_store.update_job(db_path, job.job_id, status="running", started_at=job.started_at.isoformat())
 
@@ -531,9 +550,12 @@ def _run_trigger_extraction(
                     record.running_queries.add(query_name)
                 _persist_progress()
 
-            # Check if this query should use differential sync or incremental sync
+            # Check if this query should use differential sync or incremental sync.
+            # When skip_phase2 is set, disable incremental sync — it requires
+            # warehouse access (SELECT MAX for watermark, direct writes).  These
+            # tables fall through to the full-overwrite two-phase path instead.
             diff_config = (differential_sync_config or {}).get(query_name)
-            incr_config = (incremental_sync_config or {}).get(query_name)
+            incr_config = (incremental_sync_config or {}).get(query_name) if not skip_phase2 else None
 
             try:
                 if diff_config:
@@ -602,8 +624,9 @@ def _run_trigger_extraction(
                         query_name, job.country, table_suffix=table_suffix,
                     )
 
-                    # Tag the new version
-                    if tag and result.table_name and diff_stats.rows_downloaded > 0:
+                    # Tag the new version (skip when Phase 2 is deferred —
+                    # table hasn't been written yet)
+                    if tag and result.table_name and diff_stats.rows_downloaded > 0 and not skip_phase2:
                         try:
                             version = writer.get_current_version(result.table_name)
                             insert_version_tag(
@@ -900,11 +923,13 @@ def _run_trigger_extraction(
                                 Fingerprint as _DimFP,
                             )
 
-                            # Try SQLite cache first, then Databricks
+                            # Try SQLite cache first, then Databricks.
+                            # When skip_phase2, never fall back to Databricks
+                            # (avoid waking the warehouse).
                             _dim_stored = []
                             if _fp_cache is not None:
                                 _dim_stored = _fp_cache.load(job.country, _dim_fp_name, "dimension")
-                            if not _dim_stored:
+                            if not _dim_stored and not skip_phase2:
                                 _dim_stored = _dim_load_fp(
                                     client, settings.fingerprint_table,
                                     job.country, _dim_fp_name, level="dimension",
@@ -1168,7 +1193,12 @@ def _run_trigger_extraction(
         # --- Phase 2: Commit all queued Databricks operations in a tight batch ---
         if _two_phase and _sync_queue is not None and _fp_cache is not None:
             pending_count = _sync_queue.count_pending(job_id=job.job_id)
-            if pending_count > 0:
+            if skip_phase2:
+                logger.info(
+                    f"Phase 2 DEFERRED: {pending_count} operation(s) queued for "
+                    f"job {job.job_id} — will be committed via /api/v1/phase2/execute"
+                )
+            elif pending_count > 0:
                 logger.info(
                     f"Phase 2: committing {pending_count} queued operation(s) "
                     f"for job {job.job_id}"
@@ -1225,13 +1255,14 @@ def _run_trigger_extraction(
 
         # Persist extraction results
         persist_status = job.status.value
-        update_job_status(
-            client,
-            table,
-            job.job_id,
-            persist_status,
-            completed_at=job.completed_at,
-        )
+        if not skip_phase2:
+            update_job_status(
+                client,
+                table,
+                job.job_id,
+                persist_status,
+                completed_at=job.completed_at,
+            )
         if db_path:
             serialized_results = json.dumps(
                 [r.model_dump(mode="json") for r in job.results]
@@ -1287,7 +1318,8 @@ def _run_trigger_extraction(
         job.status = JobStatus.FAILED
         job.error = str(e)
         logger.error(f"Trigger job {job.job_id} failed: {e}")
-        update_job_status(client, table, job.job_id, "failed", error=str(e))
+        if not skip_phase2:
+            update_job_status(client, table, job.job_id, "failed", error=str(e))
         if db_path:
             local_store.update_job(db_path, job.job_id, status="failed", error=str(e), running_queries="[]", current_query=None)
         # Mark sync_data as failed
@@ -1519,23 +1551,27 @@ async def trigger_extraction(
     jobs_tbl = settings.jobs_table
 
     # Persist to Databricks Delta table (best-effort, may fail if unreachable/token expired)
+    # When skip_phase2 is set, skip Delta writes to avoid waking the warehouse.
     aggregations_dict = request.aggregations.model_dump() if request.aggregations else None
-    try:
-        insert_job(
-            db_client,
-            jobs_tbl,
-            job_id=job.job_id,
-            country=request.country,
-            stage=request.stage,
-            tag=tag,
-            queries=job.queries,
-            triggered_by=user.email,
-            created_at=job.created_at,
-            period=request.period,
-            aggregations=aggregations_dict,
-        )
-    except Exception as e:
-        logger.warning("insert_job to Delta table failed (job=%s): %s", job.job_id, e)
+    if request.skip_phase2:
+        logger.info("skip_phase2: skipping insert_job to Delta (SQLite only)")
+    else:
+        try:
+            insert_job(
+                db_client,
+                jobs_tbl,
+                job_id=job.job_id,
+                country=request.country,
+                stage=request.stage,
+                tag=tag,
+                queries=job.queries,
+                triggered_by=user.email,
+                created_at=job.created_at,
+                period=request.period,
+                aggregations=aggregations_dict,
+            )
+        except Exception as e:
+            logger.warning("insert_job to Delta table failed (job=%s): %s", job.job_id, e)
 
     # Persist to local SQLite for crash recovery and fast reads
     db_path = _get_db_path(raw_request)
@@ -1655,7 +1691,7 @@ async def trigger_extraction(
         tag, user.email, db_path, settings.max_parallel_queries,
         request.row_limit, request.lookback_months, diff_sync_cfg, incr_sync_cfg,
         request.fingerprint_only, request.table_suffix,
-        request.suffix_exclude, request.force_full_sync,
+        request.suffix_exclude, request.force_full_sync, request.skip_phase2,
     )
 
     return TriggerResponse(

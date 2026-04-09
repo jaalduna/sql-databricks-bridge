@@ -113,6 +113,7 @@ def trigger_and_poll(
     table_suffix: str | None = None,
     all_tables: bool = False,
     suffix_exclude: list[str] | None = None,
+    skip_phase2: bool = False,
 ) -> CountryRoundResult:
     """Trigger diff sync for *country*, poll until terminal, return result.
 
@@ -127,6 +128,9 @@ def trigger_and_poll(
         use incremental mode, others use full extraction).
     suffix_exclude:
         Tables that should be synced WITHOUT the suffix (e.g. prediccion_compras).
+    skip_phase2:
+        When True, the trigger API skips Phase 2 (Databricks writes) so items
+        stay queued for a later batch commit via ``execute_phase2()``.
     """
     t0 = time.time()
 
@@ -140,6 +144,8 @@ def trigger_and_poll(
     if not all_tables:
         payload["queries"] = DIFF_TABLES
     # When all_tables=True, omit "queries" so the API discovers all of them
+    if skip_phase2:
+        payload["skip_phase2"] = True
     if table_suffix:
         payload["table_suffix"] = table_suffix
     if suffix_exclude:
@@ -156,7 +162,7 @@ def trigger_and_poll(
 
     job_id = resp["job_id"]
     if on_progress:
-        on_progress(country, f"Job {job_id} triggered")
+        on_progress(country, f"Job {job_id[:8]} triggered")
 
     # Poll
     last_reported: set[str] = set()
@@ -247,16 +253,22 @@ def run_diff_sync_round(
     table_suffix: str | None = None,
     all_tables: bool = False,
     suffix_exclude: list[str] | None = None,
+    deferred_phase2: bool = False,
 ) -> list[CountryRoundResult]:
     """Trigger diff sync for each country sequentially, poll until done.
 
     When *all_tables* is True, all available queries are synced (not just
     the 6 diff-sync tables).  Returns per-country results.
+
+    When *deferred_phase2* is True, each country runs Phase 1 only (extract
+    + upload, no warehouse).  After all countries finish, a single Phase 2
+    batch commit drains the entire SyncQueue.
     """
     results: list[CountryRoundResult] = []
     for country in countries:
         if on_progress:
-            on_progress(country, "Starting sync...")
+            phase_hint = " (Phase 1 only)" if deferred_phase2 else ""
+            on_progress(country, f"Starting sync...{phase_hint}")
         result = trigger_and_poll(
             api_base=api_base,
             country=country,
@@ -267,9 +279,62 @@ def run_diff_sync_round(
             table_suffix=table_suffix,
             all_tables=all_tables,
             suffix_exclude=suffix_exclude,
+            skip_phase2=deferred_phase2,
         )
         results.append(result)
+
+    # Deferred Phase 2: drain the entire SyncQueue in a single batch
+    if deferred_phase2:
+        if on_progress:
+            on_progress("phase2", "Executing deferred Phase 2 (all countries)...")
+        p2 = execute_phase2(api_base, on_progress=on_progress)
+        if p2:
+            if on_progress:
+                on_progress(
+                    "phase2",
+                    f"Phase 2 done: {p2.get('tables_committed', 0)} committed, "
+                    f"{p2.get('tables_failed', 0)} failed, "
+                    f"{p2.get('fingerprints_saved', 0)} fp saves in "
+                    f"{p2.get('duration_seconds', 0):.1f}s",
+                )
+
     return results
+
+
+# ---------------------------------------------------------------------------
+# Deferred Phase 2 execution
+# ---------------------------------------------------------------------------
+
+
+def execute_phase2(
+    api_base: str,
+    job_id: str | None = None,
+    max_parallel: int = 4,
+    on_progress: Callable[[str, str], None] | None = None,
+    timeout: int = 600,
+) -> dict | None:
+    """Call ``POST /api/v1/phase2/execute`` to drain the SyncQueue.
+
+    Returns the JSON response dict on success, or None on failure.
+    """
+    payload: dict = {"max_parallel": max_parallel}
+    if job_id:
+        payload["job_id"] = job_id
+
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        f"{api_base}/phase2/execute",
+        data=body,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except Exception as exc:
+        logger.error("Phase 2 execute failed: %s", exc)
+        if on_progress:
+            on_progress("phase2", f"Phase 2 execute FAILED: {exc}")
+        return None
 
 
 # ---------------------------------------------------------------------------

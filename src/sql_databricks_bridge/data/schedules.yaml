@@ -1,0 +1,29 @@
+# Scheduled tasks for the bridge server.
+# Each entry defines a named task with a cron-like schedule.
+#
+# Fields:
+#   enabled:  true/false — whether the task runs automatically
+#   hours:    list of UTC hours to run (0-23)
+#   minute:   minute of the hour (0-59)
+#   weekdays_only: true = Mon-Fri only, false = every day
+#
+# The on-demand API endpoints always work regardless of these settings.
+
+schedules:
+
+  # Databricks -> SQL Server reverse sync (event polling)
+  event_poller:
+    enabled: false
+    hours: [4]
+    minute: 0
+    weekdays_only: true
+
+  # SQL Server -> Databricks incremental sync (diff-sync)
+  diff_sync:
+    enabled: false
+    hours: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+    minute: 0
+    weekdays_only: true
+    countries: []          # empty = all discovered countries
+    stage: sincronizacion
+    lookback_months: 24

@@ -118,3 +118,60 @@ async def readiness() -> HealthResponse:
 async def startup() -> dict[str, str]:
     """Kubernetes startup probe."""
     return {"status": "started"}
+
+
+@router.get(
+    "/schedules",
+    summary="View task schedules",
+    description="Return the current schedules.yaml configuration.",
+)
+async def get_schedules() -> dict:
+    """Return the loaded schedule entries."""
+    from sql_databricks_bridge.core.scheduler import load_schedules
+
+    settings = get_settings()
+    entries = load_schedules(settings.schedules_file)
+    return {
+        name: {
+            "enabled": entry.enabled,
+            "hours": entry.hours,
+            "minute": entry.minute,
+            "weekdays_only": entry.weekdays_only,
+            **entry.extra,
+        }
+        for name, entry in entries.items()
+    }
+
+
+@router.post(
+    "/schedules/reload",
+    summary="Reload schedules",
+    description="Hot-reload schedules.yaml and update the running scheduler.",
+)
+async def reload_schedules(request: Any = None) -> dict:
+    """Reload schedules from YAML and apply to the running scheduler."""
+    from fastapi import Request as _Req
+
+    from sql_databricks_bridge.core.scheduler import load_schedules
+
+    settings = get_settings()
+    entries = load_schedules(settings.schedules_file)
+
+    # Try to hot-reload the running scheduler instance
+    reloaded_live = False
+    try:
+        from sql_databricks_bridge.main import app
+        if hasattr(app.state, "scheduler"):
+            app.state.scheduler.reload(settings.schedules_file)
+            reloaded_live = True
+    except Exception:
+        pass
+
+    return {
+        "reloaded": True,
+        "live_scheduler_updated": reloaded_live,
+        "schedules": {
+            name: {"enabled": entry.enabled, "hours": entry.hours, "minute": entry.minute}
+            for name, entry in entries.items()
+        },
+    }
