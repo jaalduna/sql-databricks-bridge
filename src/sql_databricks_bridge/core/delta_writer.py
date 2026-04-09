@@ -112,11 +112,23 @@ class DeltaTableWriter:
                 df, query_name, country, target_catalog, target_schema
             )
 
+        # Standard TBLPROPERTIES for all tables created by the bridge
+        _tblprops = (
+            "TBLPROPERTIES ("
+            "'delta.checkpoint.writeStatsAsJson' = 'false', "
+            "'delta.checkpoint.writeStatsAsStruct' = 'true', "
+            "'delta.parquet.compression.codec' = 'zstd', "
+            "'delta.enableDeletionVectors' = 'true', "
+            "'delta.logRetentionDuration' = 'interval 1825 days', "
+            "'delta.deletedFileRetentionDuration' = 'interval 1825 days'"
+            ")"
+        )
+
         if rows == 0:
             # Create empty table with correct schema using LIMIT 0
             self.client.upload_dataframe(df, staging_file)
             ctas = (
-                f"CREATE OR REPLACE TABLE {table_name} "
+                f"CREATE OR REPLACE TABLE {table_name} {_tblprops} "
                 f"AS SELECT * EXCEPT(_rescued_data) FROM read_files('{staging_dir}', format => 'parquet') LIMIT 0"
             )
             self.client.execute_sql(ctas)
@@ -135,7 +147,7 @@ class DeltaTableWriter:
         # 2. CTAS (read_files reads all parquet files in the directory)
         # Exclude _rescued_data to keep table schema clean for future INSERT operations
         ctas = (
-            f"CREATE OR REPLACE TABLE {table_name} "
+            f"CREATE OR REPLACE TABLE {table_name} {_tblprops} "
             f"AS SELECT * EXCEPT(_rescued_data) FROM read_files('{staging_dir}', format => 'parquet')"
         )
         self.client.execute_sql(ctas)
