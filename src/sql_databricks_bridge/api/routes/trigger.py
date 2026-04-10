@@ -918,13 +918,11 @@ def _run_trigger_extraction(
                                 Fingerprint as _DimFP,
                             )
 
-                            # Try SQLite cache first, then Databricks.
-                            # When skip_phase2, never fall back to Databricks
-                            # (avoid waking the warehouse).
+                            # Try SQLite cache first, then Databricks fallback.
                             _dim_stored = []
                             if _fp_cache is not None:
                                 _dim_stored = _fp_cache.load(job.country, _dim_fp_name, "dimension")
-                            if not _dim_stored and not skip_phase2:
+                            if not _dim_stored:
                                 _dim_stored = _dim_load_fp(
                                     client, settings.fingerprint_table,
                                     job.country, _dim_fp_name, level="dimension",
