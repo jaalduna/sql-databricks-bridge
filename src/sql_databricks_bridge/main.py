@@ -104,9 +104,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 stage = entry.extra.get("stage", "sincronizacion")
                 lookback = entry.extra.get("lookback_months", 24)
                 deferred = entry.extra.get("deferred_phase2", False)
+                all_tables = entry.extra.get("all_tables", False)
+                table_suffix = entry.extra.get("table_suffix") or None
                 await asyncio.to_thread(
                     run_diff_sync_round, api_base, countries, stage, lookback,
-                    10, None, None, False, None, deferred,
+                    10, None, table_suffix, all_tables, None, deferred,
                 )
 
             scheduler.register("diff_sync", _handle_diff_sync)

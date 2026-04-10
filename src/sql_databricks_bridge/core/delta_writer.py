@@ -125,17 +125,22 @@ class DeltaTableWriter:
         )
 
         if rows == 0:
-            # Create empty table with correct schema using LIMIT 0
-            self.client.upload_dataframe(df, staging_file)
-            ctas = (
-                f"CREATE OR REPLACE TABLE {table_name} {_tblprops} "
-                f"AS SELECT * EXCEPT(_rescued_data) FROM read_files('{staging_dir}', format => 'parquet') LIMIT 0"
-            )
-            self.client.execute_sql(ctas)
+            if self.table_exists(table_name):
+                # Table exists — truncate to preserve time travel history
+                self.client.execute_sql(f"TRUNCATE TABLE {table_name}")
+                logger.info(f"Truncated existing table {table_name} (0 rows)")
+            else:
+                # Create empty table with correct schema using LIMIT 0
+                self.client.upload_dataframe(df, staging_file)
+                ctas = (
+                    f"CREATE TABLE {table_name} {_tblprops} "
+                    f"AS SELECT * EXCEPT(_rescued_data) FROM read_files('{staging_dir}', format => 'parquet') LIMIT 0"
+                )
+                self.client.execute_sql(ctas)
+                logger.info(f"Created empty table {table_name}")
             self._apply_tags(table_name, tag)
             self._cleanup_staging(staging_file)
             duration = (datetime.utcnow() - start_time).total_seconds()
-            logger.info(f"Created empty table {table_name}")
             return WriteResult(
                 table_name=table_name, rows=0, duration_seconds=duration, local_path=local_path
             )
@@ -144,14 +149,23 @@ class DeltaTableWriter:
         self.client.upload_dataframe(df, staging_file)
         logger.info(f"Staged {rows} rows to {staging_dir}")
 
-        # 2. CTAS (read_files reads all parquet files in the directory)
-        # Exclude _rescued_data to keep table schema clean for future INSERT operations
-        ctas = (
-            f"CREATE OR REPLACE TABLE {table_name} {_tblprops} "
-            f"AS SELECT * EXCEPT(_rescued_data) FROM read_files('{staging_dir}', format => 'parquet')"
-        )
-        self.client.execute_sql(ctas)
-        logger.info(f"Created table {table_name} with {rows} rows")
+        # 2. Write data to Delta table
+        # Use INSERT OVERWRITE for existing tables to preserve time travel history.
+        # Only use CREATE TABLE for genuinely new tables.
+        if self.table_exists(table_name):
+            insert_sql = (
+                f"INSERT OVERWRITE {table_name} "
+                f"SELECT * EXCEPT(_rescued_data) FROM read_files('{staging_dir}', format => 'parquet')"
+            )
+            self.client.execute_sql(insert_sql)
+            logger.info(f"Overwrote table {table_name} with {rows} rows (INSERT OVERWRITE)")
+        else:
+            ctas = (
+                f"CREATE TABLE {table_name} {_tblprops} "
+                f"AS SELECT * EXCEPT(_rescued_data) FROM read_files('{staging_dir}', format => 'parquet')"
+            )
+            self.client.execute_sql(ctas)
+            logger.info(f"Created table {table_name} with {rows} rows")
 
         # 3. Apply tags (best-effort)
         self._apply_tags(table_name, tag)

@@ -23,7 +23,7 @@ class ScheduleEntry:
     name: str
     enabled: bool = False
     hours: list[int] = field(default_factory=lambda: [4])
-    minute: int = 0
+    minutes: list[int] = field(default_factory=lambda: [0])
     weekdays_only: bool = True
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -50,13 +50,19 @@ def load_schedules(override_path: str = "") -> dict[str, ScheduleEntry]:
     for name, cfg in schedules_data.items():
         if not isinstance(cfg, dict):
             continue
-        known_keys = {"enabled", "hours", "minute", "weekdays_only"}
+        known_keys = {"enabled", "hours", "minutes", "minute", "weekdays_only"}
         extra = {k: v for k, v in cfg.items() if k not in known_keys}
+
+        # Support both "minutes: [0, 15, 30]" (list) and legacy "minute: 0" (int)
+        raw_minutes = cfg.get("minutes", cfg.get("minute", 0))
+        if isinstance(raw_minutes, int):
+            raw_minutes = [raw_minutes]
+
         entries[name] = ScheduleEntry(
             name=name,
             enabled=cfg.get("enabled", False),
             hours=cfg.get("hours", [4]),
-            minute=cfg.get("minute", 0),
+            minutes=raw_minutes,
             weekdays_only=cfg.get("weekdays_only", True),
             extra=extra,
         )
@@ -76,7 +82,7 @@ class TaskScheduler:
     def __init__(self, schedules_path: str = "") -> None:
         self._schedules = load_schedules(schedules_path)
         self._handlers: dict[str, Callable[..., Awaitable[None]]] = {}
-        self._last_run: dict[str, str] = {}  # "name" -> "YYYY-MM-DD-HH"
+        self._last_run: dict[str, str] = {}  # "name" -> "YYYY-MM-DD-HH-MM"
         self._running = False
 
     @property
@@ -122,9 +128,10 @@ class TaskScheduler:
         if enabled:
             for name in enabled:
                 entry = self._schedules[name]
+                mins_str = ",".join(f":{m:02d}" for m in entry.minutes)
                 logger.info(
-                    "Scheduler: %s enabled — hours=%s, minute=%02d, weekdays_only=%s",
-                    name, entry.hours, entry.minute, entry.weekdays_only,
+                    "Scheduler: %s enabled — hours=%s, minutes=%s, weekdays_only=%s",
+                    name, entry.hours, mins_str, entry.weekdays_only,
                 )
         else:
             logger.info("Scheduler: no enabled schedules with registered handlers")
@@ -134,11 +141,11 @@ class TaskScheduler:
         logger.info("Scheduler stopped")
 
     def _check_and_run(self, name: str, entry: ScheduleEntry, now: datetime) -> None:
-        run_key = f"{now.date()}-{now.hour:02d}"
+        run_key = f"{now.date()}-{now.hour:02d}-{now.minute:02d}"
 
         should_run = (
             now.hour in entry.hours
-            and now.minute == entry.minute
+            and now.minute in entry.minutes
             and run_key != self._last_run.get(name)
             and (not entry.weekdays_only or now.weekday() < 5)
         )

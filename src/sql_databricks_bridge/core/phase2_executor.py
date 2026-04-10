@@ -196,23 +196,34 @@ class Phase2Executor:
         schema = country
         self.writer._ensure_schema(catalog, schema)
 
-        # Standard TBLPROPERTIES — ensures 5-year retention survives CTAS
-        _tblprops = (
-            "TBLPROPERTIES ("
-            "'delta.checkpoint.writeStatsAsJson' = 'false', "
-            "'delta.checkpoint.writeStatsAsStruct' = 'true', "
-            "'delta.parquet.compression.codec' = 'zstd', "
-            "'delta.enableDeletionVectors' = 'true', "
-            "'delta.logRetentionDuration' = 'interval 1825 days', "
-            "'delta.deletedFileRetentionDuration' = 'interval 1825 days'"
-            ")"
-        )
-        ctas_sql = (
-            f"CREATE OR REPLACE TABLE {target} {_tblprops} "
-            f"AS SELECT * EXCEPT(_rescued_data) "
-            f"FROM read_files('{staging_path}', format => 'parquet')"
-        )
-        self.dbx_client.execute_sql(ctas_sql)
+        # Use INSERT OVERWRITE for existing tables to preserve time travel history.
+        # Only use CREATE TABLE for genuinely new tables.
+        if self.writer.table_exists(target):
+            insert_sql = (
+                f"INSERT OVERWRITE {target} "
+                f"SELECT * EXCEPT(_rescued_data) "
+                f"FROM read_files('{staging_path}', format => 'parquet')"
+            )
+            self.dbx_client.execute_sql(insert_sql)
+            logger.info(f"Phase 2: INSERT OVERWRITE {target} (preserving history)")
+        else:
+            _tblprops = (
+                "TBLPROPERTIES ("
+                "'delta.checkpoint.writeStatsAsJson' = 'false', "
+                "'delta.checkpoint.writeStatsAsStruct' = 'true', "
+                "'delta.parquet.compression.codec' = 'zstd', "
+                "'delta.enableDeletionVectors' = 'true', "
+                "'delta.logRetentionDuration' = 'interval 1825 days', "
+                "'delta.deletedFileRetentionDuration' = 'interval 1825 days'"
+                ")"
+            )
+            ctas_sql = (
+                f"CREATE TABLE {target} {_tblprops} "
+                f"AS SELECT * EXCEPT(_rescued_data) "
+                f"FROM read_files('{staging_path}', format => 'parquet')"
+            )
+            self.dbx_client.execute_sql(ctas_sql)
+            logger.info(f"Phase 2: created new table {target}")
         self.writer._apply_tags(target, tag)
         self._cleanup_staging(staging_path)
 

@@ -463,16 +463,11 @@ def _run_trigger_extraction(
             _sync_queue = SyncQueue()
             # Cold-start: if the local cache has no data for this country,
             # download fingerprints from Databricks once (requires warehouse).
-            # When skip_phase2 is set, skip the cold-start to avoid waking the
-            # warehouse — diff-sync tables will treat everything as first-sync
-            # (full extract + enqueue), which is safe.
-            if skip_phase2:
-                if _fp_cache.is_empty(job.country, "", "period"):
-                    logger.info(
-                        "skip_phase2: skipping fingerprint cache cold-start "
-                        f"for {job.country} (will do full extract)"
-                    )
-            elif _fp_cache.is_empty(job.country, "", "period"):
+            # This is critical even when skip_phase2 is set — without cached
+            # fingerprints, diff-sync treats every table as first-sync and
+            # enqueues a destructive CTAS that replaces the entire table with
+            # just the changed periods' data.
+            if _fp_cache.is_empty(job.country, "", "period"):
                 logger.info(
                     f"Two-phase: cold-start fingerprint cache for {job.country}"
                 )
