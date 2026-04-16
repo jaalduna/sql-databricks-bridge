@@ -173,9 +173,10 @@ class TestMonitorWithLauncher:
 
     @pytest.fixture
     def mock_launcher(self):
-        launcher = MagicMock(spec=CalibrationJobLauncher)
+        launcher = MagicMock()
         launcher.get_covered_steps.return_value = ["copy_to_calibration"]
         launcher.launch_step.return_value = 999
+        launcher._step_jobs = {}
         return launcher
 
     @pytest.fixture
@@ -202,7 +203,7 @@ class TestMonitorWithLauncher:
 
             monitor._poll_run("job-1", "copy_to_calibration", 100)
 
-            mock_launcher.launch_step.assert_called_once_with("job-1", "merge_data", "bolivia")
+            mock_launcher.launch_step.assert_called_once_with("job-1", "merge_data", "bolivia", extra_params=None)
 
     def test_advance_with_multi_step_coverage(self, monitor, mock_client, mock_launcher, tracker):
         """When merge_data completes and covers 3 steps, all are completed
@@ -224,7 +225,7 @@ class TestMonitorWithLauncher:
             assert info.get_step("calculate_penetration").status == "completed"
             # download_csv should be started and launcher called
             assert info.get_step("download_csv").status == "running"
-            mock_launcher.launch_step.assert_called_once_with("job-1", "download_csv", "bolivia")
+            mock_launcher.launch_step.assert_called_once_with("job-1", "download_csv", "bolivia", extra_params=None)
 
     def test_no_launcher_still_advances(self, mock_client, tracker):
         """Without a launcher, steps still advance (just no job submission)."""

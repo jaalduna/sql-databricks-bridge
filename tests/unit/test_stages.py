@@ -26,10 +26,10 @@ class TestLoadStages:
         assert stages[0] == {"code": "precios", "name": "Precios"}
         assert stages[1] == {"code": "mtr", "name": "MTR"}
 
-    def test_file_not_found(self, tmp_path):
-        """Raises FileNotFoundError for missing file."""
-        with pytest.raises(FileNotFoundError):
-            load_stages(str(tmp_path / "missing.yaml"))
+    def test_file_not_found_falls_back_to_bundled(self, tmp_path):
+        """Falls back to bundled stages.yaml when override path doesn't exist."""
+        stages = load_stages(str(tmp_path / "missing.yaml"))
+        assert len(stages) > 0  # Falls back to bundled config
 
     def test_empty_yaml(self, tmp_path):
         """Returns empty list for YAML with no stages key."""
@@ -40,10 +40,11 @@ class TestLoadStages:
         assert stages == []
 
     def test_real_config_file(self):
-        """The actual config/stages.yaml loads correctly."""
-        stages = load_stages("config/stages.yaml")
-        assert len(stages) == 5
+        """The bundled stages.yaml loads correctly."""
+        stages = load_stages()
+        assert len(stages) == 6
         codes = [s["code"] for s in stages]
+        assert "inicio" in codes
         assert "precios" in codes
         assert "calibracion" in codes
         assert "mtr" in codes

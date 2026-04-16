@@ -233,7 +233,8 @@ class TestMetadataCountries:
     """GET /api/v1/metadata/countries"""
 
     def test_returns_200(self, admin_client):
-        with patch("sql_databricks_bridge.api.routes.metadata.CountryAwareQueryLoader") as mock_loader:
+        with patch("sql_databricks_bridge.api.routes.metadata._loader", None), \
+             patch("sql_databricks_bridge.api.routes.metadata.CountryAwareQueryLoader") as mock_loader:
             instance = mock_loader.return_value
             instance.list_all_entries.return_value = [("bolivia", "country"), ("chile", "country")]
             instance.list_queries.side_effect = lambda name: ["q1", "q2"] if name == "bolivia" else ["q3"]
@@ -242,7 +243,8 @@ class TestMetadataCountries:
         assert response.status_code == 200
 
     def test_returns_countries_list(self, admin_client):
-        with patch("sql_databricks_bridge.api.routes.metadata.CountryAwareQueryLoader") as mock_loader:
+        with patch("sql_databricks_bridge.api.routes.metadata._loader", None), \
+             patch("sql_databricks_bridge.api.routes.metadata.CountryAwareQueryLoader") as mock_loader:
             instance = mock_loader.return_value
             instance.list_all_entries.return_value = [("bolivia", "country"), ("chile", "country")]
             instance.list_queries.side_effect = lambda name: ["q1", "q2"] if name == "bolivia" else ["q3"]
@@ -253,7 +255,8 @@ class TestMetadataCountries:
         assert len(data["countries"]) == 2
 
     def test_country_entry_has_required_fields(self, admin_client):
-        with patch("sql_databricks_bridge.api.routes.metadata.CountryAwareQueryLoader") as mock_loader:
+        with patch("sql_databricks_bridge.api.routes.metadata._loader", None), \
+             patch("sql_databricks_bridge.api.routes.metadata.CountryAwareQueryLoader") as mock_loader:
             instance = mock_loader.return_value
             instance.list_all_entries.return_value = [("bolivia", "country")]
             instance.list_queries.return_value = ["q1", "q2"]
@@ -266,7 +269,8 @@ class TestMetadataCountries:
         assert "type" in country
 
     def test_queries_count_matches_queries_list(self, admin_client):
-        with patch("sql_databricks_bridge.api.routes.metadata.CountryAwareQueryLoader") as mock_loader:
+        with patch("sql_databricks_bridge.api.routes.metadata._loader", None), \
+             patch("sql_databricks_bridge.api.routes.metadata.CountryAwareQueryLoader") as mock_loader:
             instance = mock_loader.return_value
             instance.list_all_entries.return_value = [("bolivia", "country")]
             instance.list_queries.return_value = ["q1", "q2", "q3"]
@@ -277,7 +281,8 @@ class TestMetadataCountries:
         assert len(country["queries"]) == 3
 
     def test_empty_countries(self, admin_client):
-        with patch("sql_databricks_bridge.api.routes.metadata.CountryAwareQueryLoader") as mock_loader:
+        with patch("sql_databricks_bridge.api.routes.metadata._loader", None), \
+             patch("sql_databricks_bridge.api.routes.metadata.CountryAwareQueryLoader") as mock_loader:
             instance = mock_loader.return_value
             instance.list_all_entries.return_value = []
             response = admin_client.get("/api/v1/metadata/countries")
@@ -287,7 +292,8 @@ class TestMetadataCountries:
 
     def test_server_type_entry(self, admin_client):
         """Entries with type='server' are also returned."""
-        with patch("sql_databricks_bridge.api.routes.metadata.CountryAwareQueryLoader") as mock_loader:
+        with patch("sql_databricks_bridge.api.routes.metadata._loader", None), \
+             patch("sql_databricks_bridge.api.routes.metadata.CountryAwareQueryLoader") as mock_loader:
             instance = mock_loader.return_value
             instance.list_all_entries.return_value = [("prod-server", "server")]
             instance.list_queries.return_value = ["sp_query"]

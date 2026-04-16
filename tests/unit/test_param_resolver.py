@@ -23,17 +23,17 @@ class TestFlattenDict:
     def test_nested_dict(self):
         """Test nested dictionary flattening."""
         result = flatten_dict({"a": {"b": 1, "c": 2}})
-        assert result == {"a_b": "1", "a_c": "2"}
+        assert result == {"a.b": "1", "a.c": "2"}
 
     def test_deeply_nested_dict(self):
         """Test deeply nested dictionary."""
         result = flatten_dict({"a": {"b": {"c": 1}}})
-        assert result == {"a_b_c": "1"}
+        assert result == {"a.b.c": "1"}
 
     def test_mixed_nesting(self):
         """Test mixed flat and nested keys."""
         result = flatten_dict({"a": 1, "b": {"c": 2, "d": {"e": 3}}})
-        assert result == {"a": "1", "b_c": "2", "b_d_e": "3"}
+        assert result == {"a": "1", "b.c": "2", "b.d.e": "3"}
 
     def test_none_values(self):
         """Test that None values become empty strings."""

@@ -129,13 +129,14 @@ class TestRunIds:
         assert ("job-1", "copy_to_calibration", 111) in result
         assert ("job-1", "merge_data", 222) in result
 
-    def test_completed_steps_not_in_run_ids(self, tracker):
+    def test_completed_steps_included_in_run_ids(self, tracker):
         tracker.create("job-1")
         tracker.attach_run_id("job-1", "copy_to_calibration", 111)
         tracker.start_step("job-1", "copy_to_calibration")
         tracker.complete_step("job-1", "copy_to_calibration")
         result = tracker.get_steps_with_run_ids()
-        assert len(result) == 0
+        # Completed steps with run IDs are now included for monitoring
+        assert len(result) == 1
 
 
 class TestSerialization:

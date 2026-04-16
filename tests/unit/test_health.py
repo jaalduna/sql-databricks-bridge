@@ -66,7 +66,7 @@ class TestLivenessEndpoint:
 
     def test_liveness_returns_ok(self, client):
         """Liveness probe returns ok."""
-        response = client.get("/health/live")
+        response = client.get("/api/v1/health/live")
 
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
@@ -77,7 +77,7 @@ class TestStartupEndpoint:
 
     def test_startup_returns_started(self, client):
         """Startup probe returns started."""
-        response = client.get("/health/startup")
+        response = client.get("/api/v1/health/startup")
 
         assert response.status_code == 200
         assert response.json() == {"status": "started"}
@@ -107,7 +107,7 @@ class TestReadinessEndpoint:
                     from sql_databricks_bridge.main import app
 
                     client = TestClient(app)
-                    response = client.get("/health/ready")
+                    response = client.get("/api/v1/health/ready")
 
         assert response.status_code == 200
         data = response.json()
@@ -134,7 +134,7 @@ class TestReadinessEndpoint:
                     from sql_databricks_bridge.main import app
 
                     client = TestClient(app)
-                    response = client.get("/health/ready")
+                    response = client.get("/api/v1/health/ready")
 
         assert response.status_code == 200
         data = response.json()
@@ -164,7 +164,7 @@ class TestReadinessEndpoint:
                     from sql_databricks_bridge.main import app
 
                     client = TestClient(app)
-                    response = client.get("/health/ready")
+                    response = client.get("/api/v1/health/ready")
 
         assert response.status_code == 200
         data = response.json()

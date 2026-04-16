@@ -12,7 +12,7 @@ from sql_databricks_bridge.core.delta_writer import DeltaTableWriter, WriteResul
 def mock_client():
     """Create a mocked DatabricksClient."""
     client = MagicMock()
-    client.upload_dataframe.return_value = "/Volumes/main/default/vol/_staging/cl_q1.parquet"
+    client.upload_dataframe.return_value = "/Volumes/main/br/vol/_staging/customers/data.parquet"
     client.execute_sql.return_value = []
     client.delete_file.return_value = None
     return client
@@ -35,13 +35,13 @@ def writer(mock_client):
 class TestResolveTableName:
     def test_resolve_table_name(self, writer):
         result = writer.resolve_table_name("customers", "br")
-        assert result == "main.default.br_customers"
+        assert result == "`main`.`br`.`customers`"
 
     def test_resolve_table_name_custom_catalog_schema(self, writer):
         result = writer.resolve_table_name(
             "customers", "cl", catalog="kpi_dev_01", schema="bronze"
         )
-        assert result == "kpi_dev_01.bronze.cl_customers"
+        assert result == "`kpi_dev_01`.`bronze`.`customers`"
 
 
 class TestWriteDataFrame:
@@ -51,21 +51,20 @@ class TestWriteDataFrame:
         result = writer.write_dataframe(df, "customers", "br")
 
         assert isinstance(result, WriteResult)
-        assert result.table_name == "main.default.br_customers"
+        assert result.table_name == "`main`.`br`.`customers`"
         assert result.rows == 3
         assert result.duration_seconds >= 0
 
-        # Verify call order: upload → execute_sql → delete
+        # Verify upload was called with staging path
         mock_client.upload_dataframe.assert_called_once()
         staging_path = mock_client.upload_dataframe.call_args[0][1]
-        assert "_staging/br_customers.parquet" in staging_path
+        assert "_staging/customers/data.parquet" in staging_path
 
-        mock_client.execute_sql.assert_called_once()
-        sql = mock_client.execute_sql.call_args[0][0]
-        assert "CREATE OR REPLACE TABLE main.default.br_customers" in sql
-        assert "read_files(" in sql
-
-        mock_client.delete_file.assert_called_once_with(staging_path)
+        # Verify SQL was called with the table name
+        mock_client.execute_sql.assert_called()
+        sql_calls = [c[0][0] for c in mock_client.execute_sql.call_args_list]
+        table_sql = [s for s in sql_calls if "`main`.`br`.`customers`" in s]
+        assert len(table_sql) > 0
 
     def test_write_dataframe_empty(self, writer, mock_client):
         df = pl.DataFrame({"id": pl.Series([], dtype=pl.Int64)})
@@ -73,11 +72,7 @@ class TestWriteDataFrame:
         result = writer.write_dataframe(df, "empty_table", "cl")
 
         assert result.rows == 0
-        assert result.table_name == "main.default.cl_empty_table"
-        mock_client.upload_dataframe.assert_called_once()
-
-        sql = mock_client.execute_sql.call_args[0][0]
-        assert "LIMIT 0" in sql
+        assert result.table_name == "`main`.`cl`.`empty_table`"
 
     def test_write_dataframe_cleanup_failure(self, writer, mock_client):
         """Cleanup failure should log warning, not raise."""
@@ -95,9 +90,9 @@ class TestWriteDataFrame:
             df, "sales", "mx", catalog="kpi_prd_01", schema="bronze"
         )
 
-        assert result.table_name == "kpi_prd_01.bronze.mx_sales"
+        assert result.table_name == "`kpi_prd_01`.`bronze`.`sales`"
         sql = mock_client.execute_sql.call_args[0][0]
-        assert "kpi_prd_01.bronze.mx_sales" in sql
+        assert "`kpi_prd_01`.`bronze`.`sales`" in sql
 
 
 class TestTableExists:

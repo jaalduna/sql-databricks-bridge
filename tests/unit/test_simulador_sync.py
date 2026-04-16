@@ -239,8 +239,8 @@ class TestParseAttributesCsv:
 
         df = parse_attributes_csv(path)
         assert len(df) == 2
-        assert "PA_ID" in df.columns
-        assert "WP_Name" in df.columns
+        assert "pa_id" in df.columns
+        assert "wp_name" in df.columns
 
     def test_comma_csv(self, tmp_path):
         csv = "PA_ID,WP_Name,Value\n1,Prod A,100\n2,Prod B,200\n"
@@ -287,7 +287,7 @@ class TestParseVoleqCsv:
 
         df = parse_voleq_csv(path)
         assert len(df) == 1
-        assert "ID" in df.columns
+        assert "id" in df.columns
 
     def test_no_csv_raises(self, tmp_path):
         buf = io.BytesIO()

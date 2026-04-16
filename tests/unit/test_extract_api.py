@@ -74,24 +74,31 @@ class TestStartExtraction:
         self, client, sample_queries_dir, sample_config_dir
     ):
         """Start extraction job successfully."""
-        with patch(
-            "sql_databricks_bridge.api.routes.extract.SQLServerClient"
-        ) as mock_sql:
-            with patch(
-                "sql_databricks_bridge.api.routes.extract.DatabricksClient"
-            ) as mock_db:
-                mock_sql.return_value = MagicMock()
-                mock_db.return_value = MagicMock()
+        mock_extractor = MagicMock()
+        mock_job = MagicMock()
+        mock_job.job_id = "test-123"
+        mock_job.queries = ["query1"]
+        mock_extractor.create_job.return_value = mock_job
 
-                response = client.post(
-                    "/extract",
-                    json={
-                        "country": "CL",
-                        "queries_path": sample_queries_dir,
-                        "config_path": sample_config_dir,
-                        "queries": ["query1"],
-                    },
-                )
+        with patch(
+            "sql_databricks_bridge.api.routes.extract.get_extractor",
+            return_value=mock_extractor,
+        ):
+            with patch(
+                "sql_databricks_bridge.api.routes.extract.DeltaTableWriter"
+            ):
+                with patch(
+                    "sql_databricks_bridge.api.routes.extract.DatabricksClient"
+                ):
+                    response = client.post(
+                        "/api/v1/extract",
+                        json={
+                            "country": "CL",
+                            "queries_path": sample_queries_dir,
+                            "config_path": sample_config_dir,
+                            "queries": ["query1"],
+                        },
+                    )
 
         assert response.status_code == 202
         data = response.json()
@@ -103,12 +110,12 @@ class TestStartExtraction:
     ):
         """Reject unknown queries."""
         with patch(
-            "sql_databricks_bridge.api.routes.extract.SQLServerClient"
-        ) as mock_sql:
-            mock_sql.return_value = MagicMock()
+            "sql_databricks_bridge.api.routes.extract.get_extractor",
+        ) as mock_get_ext:
+            mock_get_ext.return_value.create_job.side_effect = ValueError("Unknown query: nonexistent")
 
             response = client.post(
-                "/extract",
+                "/api/v1/extract",
                 json={
                     "country": "CL",
                     "queries_path": sample_queries_dir,
@@ -122,7 +129,7 @@ class TestStartExtraction:
     def test_start_extraction_missing_path(self, client):
         """Reject missing query path."""
         response = client.post(
-            "/extract",
+            "/api/v1/extract",
             json={
                 "country": "CL",
                 "queries_path": "/nonexistent/path",

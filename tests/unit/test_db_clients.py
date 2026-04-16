@@ -49,7 +49,8 @@ class TestSQLServerClient:
         """Engine is created on first access."""
         assert client._engine is None
 
-        with patch("sql_databricks_bridge.db.sql_server.create_engine") as mock_create:
+        with patch("sql_databricks_bridge.db.sql_server.create_engine") as mock_create, \
+             patch("sql_databricks_bridge.db.sql_server.event"):
             mock_create.return_value = MagicMock()
             _ = client.engine
 
@@ -57,7 +58,8 @@ class TestSQLServerClient:
 
     def test_engine_cached(self, client):
         """Engine is cached after creation."""
-        with patch("sql_databricks_bridge.db.sql_server.create_engine") as mock_create:
+        with patch("sql_databricks_bridge.db.sql_server.create_engine") as mock_create, \
+             patch("sql_databricks_bridge.db.sql_server.event"):
             mock_engine = MagicMock()
             mock_create.return_value = mock_engine
 
@@ -289,6 +291,9 @@ class TestDatabricksClient:
         mock_workspace = MagicMock()
         mock_statement = MagicMock()
         mock_statement.result = None
+        # Simulate a successful statement with no results (not a failure)
+        mock_statement.status.error = None
+        mock_statement.status.state = "SUCCEEDED"
         mock_workspace.statement_execution.execute_statement.return_value = mock_statement
         client._client = mock_workspace
 

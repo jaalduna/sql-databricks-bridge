@@ -34,14 +34,22 @@ class TestAppSetup:
         """App has expected routes."""
         from sql_databricks_bridge.main import app
 
-        paths = [route.path for route in app.routes]
+        # Collect all paths including nested router paths
+        all_paths = set()
+        for route in app.routes:
+            if hasattr(route, "path"):
+                all_paths.add(route.path)
+            if hasattr(route, "routes"):
+                for r in route.routes:
+                    if hasattr(r, "path"):
+                        all_paths.add(f"{route.path}{r.path}")
 
         # Health endpoints
-        assert "/health/live" in paths
-        assert "/health/ready" in paths
+        assert "/api/v1/health/live" in all_paths
+        assert "/api/v1/health/ready" in all_paths
 
         # Sync endpoints
-        assert "/sync/events" in paths
+        assert "/api/v1/sync/events" in all_paths
 
     def test_root_endpoint(self, client):
         """Root endpoint redirects or returns info."""

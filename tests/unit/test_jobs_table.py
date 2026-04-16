@@ -31,7 +31,7 @@ class TestEnsureJobsTable:
     def test_calls_create_table(self, mock_client):
         """Issues CREATE TABLE IF NOT EXISTS."""
         ensure_jobs_table(mock_client, TABLE)
-        sql = mock_client.execute_sql.call_args[0][0]
+        sql = mock_client.execute_sql.call_args_list[0][0][0]
         assert "CREATE TABLE IF NOT EXISTS" in sql
         assert TABLE in sql
         assert "job_id STRING" in sql
@@ -123,13 +123,10 @@ class TestListJobs:
     """Tests for list_jobs."""
 
     def test_no_filters(self, mock_client):
-        """Generates unfiltered query with LIMIT/OFFSET."""
-        mock_client.execute_sql.side_effect = [
-            [{"cnt": "3"}],
-            [
-                {"job_id": "j1", "queries": '["q1"]', "created_at": "2026-02-10"},
-                {"job_id": "j2", "queries": '["q2"]', "created_at": "2026-02-09"},
-            ],
+        """Generates unfiltered query with LIMIT/OFFSET using COUNT(*) OVER()."""
+        mock_client.execute_sql.return_value = [
+            {"job_id": "j1", "queries": '["q1"]', "created_at": "2026-02-10", "_total_count": "3"},
+            {"job_id": "j2", "queries": '["q2"]', "created_at": "2026-02-09", "_total_count": "3"},
         ]
 
         items, total = list_jobs(mock_client, TABLE, limit=2, offset=0)
@@ -139,30 +136,30 @@ class TestListJobs:
 
     def test_filter_country(self, mock_client):
         """Adds WHERE country = ... clause."""
-        mock_client.execute_sql.side_effect = [[{"cnt": "1"}], []]
+        mock_client.execute_sql.return_value = []
 
         list_jobs(mock_client, TABLE, country="bolivia")
 
-        count_sql = mock_client.execute_sql.call_args_list[0][0][0]
-        assert "country = 'bolivia'" in count_sql
+        sql = mock_client.execute_sql.call_args[0][0]
+        assert "country = 'bolivia'" in sql
 
     def test_filter_status(self, mock_client):
         """Adds WHERE status = ... clause."""
-        mock_client.execute_sql.side_effect = [[{"cnt": "0"}], []]
+        mock_client.execute_sql.return_value = []
 
         list_jobs(mock_client, TABLE, status="completed")
 
-        count_sql = mock_client.execute_sql.call_args_list[0][0][0]
-        assert "status = 'completed'" in count_sql
+        sql = mock_client.execute_sql.call_args[0][0]
+        assert "status = 'completed'" in sql
 
     def test_filter_triggered_by(self, mock_client):
         """Adds WHERE triggered_by = ... clause."""
-        mock_client.execute_sql.side_effect = [[{"cnt": "0"}], []]
+        mock_client.execute_sql.return_value = []
 
         list_jobs(mock_client, TABLE, triggered_by="user@test.com")
 
-        count_sql = mock_client.execute_sql.call_args_list[0][0][0]
-        assert "triggered_by = 'user@test.com'" in count_sql
+        sql = mock_client.execute_sql.call_args[0][0]
+        assert "triggered_by = 'user@test.com'" in sql
 
 
 class TestUpdateJobStatus:

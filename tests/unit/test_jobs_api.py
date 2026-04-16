@@ -49,7 +49,7 @@ class TestGetJobStatus:
             "sql_databricks_bridge.api.routes.jobs._extractors",
             {job.job_id: extractor},
         ):
-            response = client.get(f"/jobs/{job.job_id}")
+            response = client.get(f"/api/v1/jobs/{job.job_id}")
 
         assert response.status_code == 200
         data = response.json()
@@ -63,7 +63,7 @@ class TestGetJobStatus:
             "sql_databricks_bridge.api.routes.jobs._extractors",
             {},
         ):
-            response = client.get("/jobs/nonexistent")
+            response = client.get("/api/v1/jobs/nonexistent")
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
@@ -77,7 +77,7 @@ class TestGetJobStatus:
             "sql_databricks_bridge.api.routes.jobs._extractors",
             {"test-job": extractor},
         ):
-            response = client.get("/jobs/test-job")
+            response = client.get("/api/v1/jobs/test-job")
 
         assert response.status_code == 404
 
@@ -94,7 +94,7 @@ class TestCancelJob:
             "sql_databricks_bridge.api.routes.jobs._extractors",
             {job.job_id: extractor},
         ):
-            response = client.delete(f"/jobs/{job.job_id}")
+            response = client.delete(f"/api/v1/jobs/{job.job_id}")
 
         assert response.status_code == 204
         assert job.status == JobStatus.CANCELLED
@@ -108,7 +108,7 @@ class TestCancelJob:
             "sql_databricks_bridge.api.routes.jobs._extractors",
             {job.job_id: extractor},
         ):
-            response = client.delete(f"/jobs/{job.job_id}")
+            response = client.delete(f"/api/v1/jobs/{job.job_id}")
 
         assert response.status_code == 204
         assert job.status == JobStatus.CANCELLED
@@ -122,7 +122,7 @@ class TestCancelJob:
             "sql_databricks_bridge.api.routes.jobs._extractors",
             {job.job_id: extractor},
         ):
-            response = client.delete(f"/jobs/{job.job_id}")
+            response = client.delete(f"/api/v1/jobs/{job.job_id}")
 
         assert response.status_code == 400
         assert "Cannot cancel" in response.json()["detail"]
@@ -136,7 +136,7 @@ class TestCancelJob:
             "sql_databricks_bridge.api.routes.jobs._extractors",
             {job.job_id: extractor},
         ):
-            response = client.delete(f"/jobs/{job.job_id}")
+            response = client.delete(f"/api/v1/jobs/{job.job_id}")
 
         assert response.status_code == 400
 
@@ -146,7 +146,7 @@ class TestCancelJob:
             "sql_databricks_bridge.api.routes.jobs._extractors",
             {},
         ):
-            response = client.delete("/jobs/nonexistent")
+            response = client.delete("/api/v1/jobs/nonexistent")
 
         assert response.status_code == 404
 
@@ -160,7 +160,7 @@ class TestListJobs:
             "sql_databricks_bridge.api.routes.jobs._extractors",
             {},
         ):
-            response = client.get("/jobs")
+            response = client.get("/api/v1/jobs")
 
         assert response.status_code == 200
         assert response.json() == []
@@ -173,7 +173,7 @@ class TestListJobs:
             "sql_databricks_bridge.api.routes.jobs._extractors",
             {job.job_id: extractor},
         ):
-            response = client.get("/jobs")
+            response = client.get("/api/v1/jobs")
 
         assert response.status_code == 200
         jobs = response.json()
@@ -210,7 +210,7 @@ class TestListJobs:
             "sql_databricks_bridge.api.routes.jobs._extractors",
             {"job-1": extractor1, "job-2": extractor2},
         ):
-            response = client.get("/jobs", params={"status_filter": "running"})
+            response = client.get("/api/v1/jobs", params={"status_filter": "running"})
 
         assert response.status_code == 200
         jobs = response.json()
@@ -238,7 +238,7 @@ class TestListJobs:
             "sql_databricks_bridge.api.routes.jobs._extractors",
             extractors,
         ):
-            response = client.get("/jobs", params={"limit": 2})
+            response = client.get("/api/v1/jobs", params={"limit": 2})
 
         assert response.status_code == 200
         assert len(response.json()) == 2

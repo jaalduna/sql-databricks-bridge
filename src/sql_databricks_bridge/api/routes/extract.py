@@ -28,7 +28,6 @@ def get_extractor(request: ExtractionRequest) -> Extractor:
     sql_client = SQLServerClient(country=request.country)
     return Extractor(
         queries_path=request.queries_path,
-        config_path=request.config_path,
         sql_client=sql_client,
     )
 
