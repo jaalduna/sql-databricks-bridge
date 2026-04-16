@@ -14,16 +14,16 @@ schedules:
   # Databricks -> SQL Server reverse sync (event polling)
   event_poller:
     enabled: true
-    hours: [9]
-    minutes: [0]
+    hours: [9, 10]
+    minutes: [0, 10, 20, 30, 40, 50]
     weekdays_only: true
 
   # SQL Server -> Databricks incremental sync (diff-sync)
   # 4:00 AM Ecuador (UTC-5) = 09:00 UTC
   diff_sync:
     enabled: true
-    hours: [9, 10]
-    minutes: [0, 15, 30, 45]
+    hours: [12]
+    minutes: [20]
     weekdays_only: true
     countries: []          # empty = all discovered countries
     stage: sincronizacion

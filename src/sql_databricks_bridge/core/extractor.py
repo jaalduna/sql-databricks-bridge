@@ -45,7 +45,19 @@ def concat_chunks(chunks: list[pl.DataFrame]) -> pl.DataFrame:
         ]
         result.append(chunk.with_columns(exprs) if exprs else chunk)
 
-    return pl.concat(result)
+    combined = pl.concat(result)
+
+    # Safety net: cast any remaining Null columns to String to prevent VOID
+    null_cols = [col for col in combined.columns if combined[col].dtype == pl.Null]
+    if null_cols:
+        logger.warning(
+            "concat_chunks: casting %d Null-typed columns to String: %s",
+            len(null_cols),
+            null_cols,
+        )
+        combined = combined.with_columns([pl.col(c).cast(pl.String) for c in null_cols])
+
+    return combined
 
 
 @dataclass

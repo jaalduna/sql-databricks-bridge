@@ -12,6 +12,12 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 
+from sql_databricks_bridge.core.composite_columns import (
+    is_composite,
+    parse_columns,
+    sql_server_group_expr,
+    sql_server_value_expr,
+)
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 
@@ -87,18 +93,24 @@ def compute_level1_fingerprints(
     source = f"({base_query}) AS _src" if base_query else table
     where = f"WHERE {where_clause}" if where_clause else ""
     checksum_expr = f"CHECKSUM({', '.join(checksum_columns)})" if checksum_columns else "CHECKSUM(*)"
+
+    # Support composite level1 columns (e.g. "ano+mes+idproduto")
+    l1_cols = parse_columns(level1_column)
+    value_expr = sql_server_value_expr(l1_cols)
+    group_expr = sql_server_group_expr(l1_cols)
+
     query = f"""
         SELECT
-            CAST({level1_column} AS VARCHAR(100)) AS grp_value,
+            {value_expr} AS grp_value,
             COUNT(*) AS cnt,
             CHECKSUM_AGG({checksum_expr}) AS chk
         FROM {source}
         {where}
-        GROUP BY {level1_column}
-        ORDER BY {level1_column}
+        GROUP BY {group_expr}
+        ORDER BY {group_expr}
     """
     cols_desc = ', '.join(checksum_columns) if checksum_columns else '*'
-    logger.info(f"Computing Level 1 fingerprints: {table} GROUP BY {level1_column} CHECKSUM({cols_desc})")
+    logger.info(f"Computing Level 1 fingerprints: {table} GROUP BY {group_expr} CHECKSUM({cols_desc})")
     df = sql_client.execute_query(query)
     return [
         Fingerprint(
@@ -135,13 +147,18 @@ def compute_level2_fingerprints(
     """
     source = f"({base_query}) AS _src" if base_query else table
     checksum_expr = f"CHECKSUM({', '.join(checksum_columns)})" if checksum_columns else "CHECKSUM(*)"
+
+    # Support composite level1 columns for the WHERE filter
+    l1_cols = parse_columns(level1_column)
+    l1_value_expr = sql_server_value_expr(l1_cols)
+
     query = f"""
         SELECT
             CAST({level2_column} AS VARCHAR(100)) AS grp_value,
             COUNT(*) AS cnt,
             CHECKSUM_AGG({checksum_expr}) AS chk
         FROM {source}
-        WHERE CAST({level1_column} AS VARCHAR(100)) = '{level1_value}'
+        WHERE {l1_value_expr} = '{level1_value}'
         GROUP BY {level2_column}
         ORDER BY {level2_column}
     """

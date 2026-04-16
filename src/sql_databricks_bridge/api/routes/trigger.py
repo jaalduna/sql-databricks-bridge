@@ -538,6 +538,7 @@ def _run_trigger_extraction(
 
             result = QueryResult(query_name=query_name, status=JobStatus.RUNNING)
             start_time = datetime.utcnow()
+            logger.info(f"[{job.country}] {query_name} ...")
 
             with results_lock:
                 job.results.append(result)
@@ -1128,8 +1129,9 @@ def _run_trigger_extraction(
                                     fingerprints=_dim_fp, job_id=job.job_id,
                                 )
 
-                            # Also save to local cache
-                            if _fp_cache is not None:
+                            # Save to local cache only in single-phase (immediate commit).
+                            # In two-phase, Phase 2's _execute_save_fingerprints handles it.
+                            if not _two_phase and _fp_cache is not None:
                                 _fp_cache.save(job.country, _dim_fp_name, "dimension", _dim_fp)
 
                             logger.info(
@@ -1160,6 +1162,16 @@ def _run_trigger_extraction(
             result.duration_seconds = (
                 datetime.utcnow() - start_time
             ).total_seconds()
+
+            # Verbose per-table completion log
+            _dur = f"{result.duration_seconds:.1f}s"
+            if result.status == JobStatus.COMPLETED:
+                _rows = result.rows_extracted or 0
+                logger.info(f"[{job.country}] {query_name} ... ok ({_rows:,} rows, {_dur})")
+            elif result.status == JobStatus.FAILED:
+                logger.info(f"[{job.country}] {query_name} ... FAIL ({_dur}) {result.error}")
+            elif result.status == JobStatus.CANCELLED:
+                logger.info(f"[{job.country}] {query_name} ... cancelled ({_dur})")
 
             with results_lock:
                 if record:

@@ -23,6 +23,11 @@ from typing import TYPE_CHECKING, Callable
 
 import polars as pl
 
+from sql_databricks_bridge.core.composite_columns import (
+    is_composite,
+    parse_columns,
+    sql_server_where_in,
+)
 from sql_databricks_bridge.core.delta_writer import DeltaTableWriter
 from sql_databricks_bridge.core.fingerprint import (
     compare_fingerprints,
@@ -231,12 +236,14 @@ def run_differential_sync(
                 _needs_overwrite = False
 
                 # Check 1: diff columns must exist in target for DELETE
-                _l1_ok = level1_column.lower() in _target_cols
+                # Support composite level1 columns (e.g. "ano+mes+idproduto")
+                _l1_parts = parse_columns(level1_column)
+                _l1_ok = all(c.lower() in _target_cols for c in _l1_parts)
                 _l2_ok = (not level2_column) or level2_column.lower() in _target_cols
                 if not _l1_ok or not _l2_ok:
                     _missing = []
                     if not _l1_ok:
-                        _missing.append(level1_column)
+                        _missing.extend(c for c in _l1_parts if c.lower() not in _target_cols)
                     if not _l2_ok:
                         _missing.append(level2_column)
                     log_progress(
@@ -314,42 +321,48 @@ def run_differential_sync(
 
     # --- MUTABLE WINDOW: Only process recent periods ---
     if mutable_months and not stats.is_first_sync:
-        now = datetime.utcnow()
-        # Compute cutoff period (YYYYMM format)
-        cutoff_year = now.year
-        cutoff_month = now.month - mutable_months
-        while cutoff_month <= 0:
-            cutoff_month += 12
-            cutoff_year -= 1
-        cutoff_str = f"{cutoff_year}{cutoff_month:02d}"
-
-        def _in_window(val: str) -> bool:
-            """Check if a period value (e.g. '202501') is within the mutable window."""
-            try:
-                return val >= cutoff_str
-            except (TypeError, ValueError):
-                return True  # Non-numeric values always checked
-
-        orig_changed = len(l1_diff.changed)
-        orig_new = len(l1_diff.new)
-        l1_diff.changed = [v for v in l1_diff.changed if _in_window(v)]
-        l1_diff.new = [v for v in l1_diff.new if _in_window(v)]
-        skipped_by_window = (orig_changed - len(l1_diff.changed)) + (orig_new - len(l1_diff.new))
-        if skipped_by_window:
+        if is_composite(level1_column):
             log_progress(
-                f"Mutable window ({mutable_months}mo, cutoff={cutoff_str}): "
-                f"checking {len(l1_diff.changed)} changed + {len(l1_diff.new)} new, "
-                f"skipped {skipped_by_window} older periods"
+                f"Mutable window ({mutable_months}mo) skipped: "
+                f"not supported with composite level1 column '{level1_column}'"
             )
-            # Recalculate estimated download
-            window_values = set(l1_diff.changed + l1_diff.new)
-            estimated_download = sum(
-                fp.row_count for fp in current_l1 if fp.value in window_values
-            )
-            skipped_rows = total_rows_current - estimated_download
-            stats.rows_skipped = skipped_rows
-            if on_rows_progress:
-                on_rows_progress(0, 0, estimated_download)
+        else:
+            now = datetime.utcnow()
+            # Compute cutoff period (YYYYMM format)
+            cutoff_year = now.year
+            cutoff_month = now.month - mutable_months
+            while cutoff_month <= 0:
+                cutoff_month += 12
+                cutoff_year -= 1
+            cutoff_str = f"{cutoff_year}{cutoff_month:02d}"
+
+            def _in_window(val: str) -> bool:
+                """Check if a period value (e.g. '202501') is within the mutable window."""
+                try:
+                    return val >= cutoff_str
+                except (TypeError, ValueError):
+                    return True  # Non-numeric values always checked
+
+            orig_changed = len(l1_diff.changed)
+            orig_new = len(l1_diff.new)
+            l1_diff.changed = [v for v in l1_diff.changed if _in_window(v)]
+            l1_diff.new = [v for v in l1_diff.new if _in_window(v)]
+            skipped_by_window = (orig_changed - len(l1_diff.changed)) + (orig_new - len(l1_diff.new))
+            if skipped_by_window:
+                log_progress(
+                    f"Mutable window ({mutable_months}mo, cutoff={cutoff_str}): "
+                    f"checking {len(l1_diff.changed)} changed + {len(l1_diff.new)} new, "
+                    f"skipped {skipped_by_window} older periods"
+                )
+                # Recalculate estimated download
+                window_values = set(l1_diff.changed + l1_diff.new)
+                estimated_download = sum(
+                    fp.row_count for fp in current_l1 if fp.value in window_values
+                )
+                skipped_rows = total_rows_current - estimated_download
+                stats.rows_skipped = skipped_rows
+                if on_rows_progress:
+                    on_rows_progress(0, 0, estimated_download)
 
     # --- FINGERPRINT-ONLY MODE: save L1 and return without downloading data ---
     if fingerprint_only:
@@ -368,7 +381,7 @@ def run_differential_sync(
                 },
                 tag=tag, table_suffix=table_suffix or "",
             )
-            fingerprint_cache.save(country, effective_fp_name, "period", current_l1, job_id)
+            # Cache will be updated by Phase 2 after successful commit
             stats.queued = True
         else:
             save_fingerprints(
@@ -400,7 +413,7 @@ def run_differential_sync(
                     },
                     tag=tag, table_suffix=table_suffix or "",
                 )
-                fingerprint_cache.save(country, effective_fp_name, "period", current_l1, job_id)
+                # Cache will be updated by Phase 2 after successful commit
                 stats.queued = True
             else:
                 save_fingerprints(
@@ -443,10 +456,11 @@ def run_differential_sync(
             if where_clause:
                 extract_query += f" WHERE {where_clause}"
     else:
-        periods_csv = ", ".join(f"'{p}'" for p in periods_to_sync)
+        l1_cols = parse_columns(level1_column)
+        where_filter = sql_server_where_in(l1_cols, periods_to_sync)
         extract_query = (
             f"SELECT * FROM {_sql_source} "
-            f"WHERE CAST({level1_column} AS VARCHAR(100)) IN ({periods_csv})"
+            f"WHERE {where_filter}"
         )
 
     bulk_dir = diff_chunk_dir / "bulk"
@@ -512,8 +526,7 @@ def run_differential_sync(
             tag=tag, table_suffix=table_suffix or "",
         )
 
-        # Update local fingerprint cache immediately
-        fingerprint_cache.save(country, effective_fp_name, "period", current_l1, job_id)
+        # Fingerprint cache will be updated by Phase 2 after successful commit
 
         stats.write_time = (datetime.utcnow() - t0).total_seconds()
         stats.queued = True

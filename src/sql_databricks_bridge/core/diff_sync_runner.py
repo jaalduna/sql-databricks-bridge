@@ -166,6 +166,7 @@ def trigger_and_poll(
 
     # Poll
     last_reported: set[str] = set()
+    announced_running: set[str] = set()
     last_heartbeat = time.time()
     while True:
         time.sleep(poll_interval)
@@ -178,7 +179,14 @@ def trigger_and_poll(
 
         job_status = detail.get("status", "unknown")
 
-        # Report per-table completions (only changes and failures)
+        # Report tables that just started querying
+        if on_progress:
+            for qn in detail.get("running_queries", []):
+                if qn not in announced_running:
+                    announced_running.add(qn)
+                    on_progress(country, f"{qn} ...")
+
+        # Report per-table completions
         for r in detail.get("results", []):
             qn = r.get("query_name", "?")
             r_status = r.get("status", "?")
@@ -187,12 +195,13 @@ def trigger_and_poll(
                 dur = r.get("duration_seconds", 0)
                 err = r.get("error", "")
                 last_reported.add(qn)
-                # Only log tables with changes or failures
-                if on_progress and (rows > 0 or r_status == "failed"):
-                    marker = "OK" if r_status == "completed" else "FAIL"
-                    msg = f"[{marker}] {qn}: {rows:,} rows in {dur:.1f}s"
-                    if err:
-                        msg += f" -- {err}"
+                if on_progress:
+                    if r_status == "failed":
+                        msg = f"{qn} ... FAIL ({dur:.1f}s) {err}"
+                    elif rows > 0:
+                        msg = f"{qn} ... ok ({rows:,} rows, {dur:.1f}s)"
+                    else:
+                        msg = f"{qn} ... ok (no changes, {dur:.1f}s)"
                     on_progress(country, msg)
 
         if job_status in ("completed", "failed", "cancelled"):
@@ -260,9 +269,9 @@ def run_diff_sync_round(
     When *all_tables* is True, all available queries are synced (not just
     the 6 diff-sync tables).  Returns per-country results.
 
-    When *deferred_phase2* is True, each country runs Phase 1 only (extract
-    + upload, no warehouse).  After all countries finish, a single Phase 2
-    batch commit drains the entire SyncQueue.
+    When *deferred_phase2* is True, each country runs Phase 1 first (extract
+    + upload, no warehouse), then Phase 2 runs immediately for that country
+    before moving to the next one.
     """
     results: list[CountryRoundResult] = []
     for country in countries:
@@ -283,15 +292,14 @@ def run_diff_sync_round(
         )
         results.append(result)
 
-    # Deferred Phase 2: drain the entire SyncQueue in a single batch
-    if deferred_phase2:
-        if on_progress:
-            on_progress("phase2", "Executing deferred Phase 2 (all countries)...")
-        p2 = execute_phase2(api_base, on_progress=on_progress)
-        if p2:
+        # Per-country deferred Phase 2: drain only this country's queued ops
+        if deferred_phase2 and result.job_id:
             if on_progress:
+                on_progress(country, "Executing Phase 2...")
+            p2 = execute_phase2(api_base, job_id=result.job_id, on_progress=on_progress)
+            if p2 and on_progress:
                 on_progress(
-                    "phase2",
+                    country,
                     f"Phase 2 done: {p2.get('tables_committed', 0)} committed, "
                     f"{p2.get('tables_failed', 0)} failed, "
                     f"{p2.get('fingerprints_saved', 0)} fp saves in "

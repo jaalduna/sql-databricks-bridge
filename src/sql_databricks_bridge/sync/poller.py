@@ -11,7 +11,7 @@ from sql_databricks_bridge.core.config import get_settings
 from sql_databricks_bridge.db.databricks import DatabricksClient
 from sql_databricks_bridge.db.sql_server import SQLServerClient
 from sql_databricks_bridge.models.events import SyncEvent, SyncOperation, SyncStatus
-from sql_databricks_bridge.sync.operations import SyncOperator
+from sql_databricks_bridge.sync.operations import SyncOperator, TransientConnectionError
 from sql_databricks_bridge.sync.retry import RetryExhaustedError, retry_async
 
 logger = logging.getLogger(__name__)
@@ -194,9 +194,10 @@ class EventPoller:
             result = await retry_async(
                 self.operator.process_event,
                 event,
-                max_attempts=3,
-                base_delay=1.0,
-                max_delay=30.0,
+                max_attempts=10,
+                base_delay=5.0,
+                max_delay=300.0,
+                retryable_exceptions=(TransientConnectionError,),
             )
 
             if result.success:

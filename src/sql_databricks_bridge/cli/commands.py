@@ -709,7 +709,7 @@ def diff_sync(
         bool,
         typer.Option(
             "--deferred-phase2",
-            help="Run Phase 1 for ALL countries first, then a single Phase 2 batch",
+            help="Run Phase 1 then Phase 2 per country (warehouse only active during Phase 2)",
         ),
     ] = False,
 ) -> None:
@@ -743,9 +743,9 @@ def diff_sync(
         run_diff_sync_round,
     )
 
-    # Resolve countries
+    # Resolve countries (supports comma-separated: --country mexico,colombia)
     if country:
-        countries = [country]
+        countries = [c.strip() for c in country.split(",") if c.strip()]
     else:
         console.print("[bold]Discovering countries from API...[/bold]")
         try:
@@ -771,7 +771,7 @@ def diff_sync(
     if with_simulador:
         console.print(f"  Simulador: [green]enabled[/green] (check network share each round)")
     if deferred_phase2:
-        console.print(f"  Phase 2:   [cyan]deferred[/cyan] (single batch after all countries)")
+        console.print(f"  Phase 2:   [cyan]deferred[/cyan] (per-country, after each Phase 1)")
     console.print(f"  Interval:  {interval} min {'(once)' if once else '(loop)'}")
     console.print(f"  Log file:  {log_file}")
     console.print()

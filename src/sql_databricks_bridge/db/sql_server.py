@@ -1,8 +1,11 @@
 """SQL Server database connection and operations."""
 
+import datetime
+import decimal
 import logging
 import socket
 import struct
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable
@@ -16,17 +19,74 @@ from sql_databricks_bridge.core.config import SQLServerSettings, get_settings
 
 logger = logging.getLogger(__name__)
 
+# Mapping from pyodbc cursor.description type_code (Python types) to Polars types.
+# pyodbc exposes the column type as a Python type object in cursor.description[i][1].
+_PYODBC_TYPE_MAP: dict[type, pl.DataType] = {
+    str: pl.String,
+    int: pl.Int64,
+    float: pl.Float64,
+    decimal.Decimal: pl.Float64,
+    datetime.datetime: pl.Datetime,
+    datetime.date: pl.Date,
+    bytes: pl.Binary,
+    bool: pl.Boolean,
+}
 
-def _rows_to_dataframe(columns: list[str], rows: list) -> pl.DataFrame:
+
+def _schema_from_cursor(description: list[tuple]) -> dict[str, pl.DataType]:
+    """Extract column name -> Polars dtype mapping from pyodbc cursor.description.
+
+    Args:
+        description: cursor.description — list of 7-tuples
+            (name, type_code, display_size, internal_size, precision, scale, null_ok).
+
+    Returns:
+        Dict mapping column name to Polars DataType.
+    """
+    schema: dict[str, pl.DataType] = {}
+    for col_desc in description:
+        col_name = col_desc[0]
+        type_code = col_desc[1]  # Python type object (str, int, datetime.datetime, …)
+        schema[col_name] = _PYODBC_TYPE_MAP.get(type_code, pl.String)
+    return schema
+
+
+def _rows_to_dataframe(
+    columns: list[str],
+    rows: list,
+    cursor_schema: dict[str, pl.DataType] | None = None,
+) -> pl.DataFrame:
     """Convert fetched rows to a Polars DataFrame using columnar construction.
 
     This is significantly faster than the dict-per-row approach because it avoids
     creating N Python dicts and lets Polars ingest columnar data directly.
+
+    When cursor_schema is provided (from pyodbc cursor.description), any column
+    that Polars infers as pl.Null (all values null) is cast to the declared SQL
+    Server type.  This prevents VOID columns in downstream Parquet/Delta.
     """
     if not rows:
-        return pl.DataFrame(schema={col: pl.Utf8 for col in columns})
+        # Use cursor_schema types when available, fall back to Utf8
+        schema = {
+            col: cursor_schema.get(col, pl.Utf8) if cursor_schema else pl.Utf8
+            for col in columns
+        }
+        return pl.DataFrame(schema=schema)
+
     col_data = {col: [row[i] for row in rows] for i, col in enumerate(columns)}
-    return pl.DataFrame(col_data, infer_schema_length=None)
+    df = pl.DataFrame(col_data, infer_schema_length=None)
+
+    # Fix Null-typed columns using the declared SQL Server types
+    if cursor_schema:
+        casts = [
+            pl.col(col).cast(cursor_schema[col], strict=False)
+            for col in df.columns
+            if df[col].dtype == pl.Null and col in cursor_schema
+        ]
+        if casts:
+            df = df.with_columns(casts)
+
+    return df
 
 try:
     from kantar_db_handler.configs import get_country_params
@@ -83,6 +143,14 @@ class SQLServerClient:
                 max_overflow=10,
                 pool_recycle=1800,
             )
+            # Use READ UNCOMMITTED (NOLOCK) for all read connections to avoid
+            # blocking on concurrent writes — safe for analytics extraction.
+            @event.listens_for(self._engine, "connect")
+            def _set_read_uncommitted(dbapi_conn, connection_record):
+                cursor = dbapi_conn.cursor()
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
+                cursor.close()
+
             # Set TCP keep-alive on every new raw DBAPI connection
             @event.listens_for(self._engine, "connect")
             def _set_tcp_keepalive(dbapi_conn, connection_record):
@@ -159,9 +227,16 @@ class SQLServerClient:
         with self.engine.connect() as conn:
             result = conn.execute(text(query), params or {})
             columns = list(result.keys())
+
+            # Extract declared column types from pyodbc cursor
+            cursor_schema = None
+            cursor = getattr(result, "cursor", None)
+            if cursor and getattr(cursor, "description", None):
+                cursor_schema = _schema_from_cursor(cursor.description)
+
             rows = result.fetchall()
 
-        return _rows_to_dataframe(columns, rows)
+        return _rows_to_dataframe(columns, rows, cursor_schema)
 
     def execute_query_chunked(
         self,
@@ -183,13 +258,19 @@ class SQLServerClient:
             result = conn.execute(text(query), params or {})
             columns = list(result.keys())
 
+            # Extract declared column types from pyodbc cursor
+            cursor_schema = None
+            cursor = getattr(result, "cursor", None)
+            if cursor and getattr(cursor, "description", None):
+                cursor_schema = _schema_from_cursor(cursor.description)
+
             # Infer schema from first chunk with larger sample
             first_chunk_rows = result.fetchmany(chunk_size)
             if not first_chunk_rows:
                 return
 
             # Create first DataFrame and capture its schema
-            first_df = _rows_to_dataframe(columns, first_chunk_rows)
+            first_df = _rows_to_dataframe(columns, first_chunk_rows, cursor_schema)
             schema = first_df.schema
             yield first_df
 
@@ -199,7 +280,7 @@ class SQLServerClient:
                 if not rows:
                     break
 
-                chunk_df = _rows_to_dataframe(columns, rows)
+                chunk_df = _rows_to_dataframe(columns, rows, cursor_schema)
 
                 # Reconcile column types with the reference schema.
                 # If the reference has Null (first chunk was all-null) but this
@@ -251,22 +332,39 @@ class SQLServerClient:
         total_rows = 0
         schema = None
         null_upgraded: dict[str, pl.DataType] = {}  # col -> real type discovered later
+        t_download_start = time.monotonic()
+        stall_threshold = 120  # warn if a single fetchmany takes longer
 
         with self.engine.connect() as conn:
             result = conn.execute(text(query), params or {})
             columns = list(result.keys())
             part_num = 0
 
+            # Extract declared column types from pyodbc cursor
+            cursor_schema = None
+            cursor = getattr(result, "cursor", None)
+            if cursor and getattr(cursor, "description", None):
+                cursor_schema = _schema_from_cursor(cursor.description)
+
             while True:
                 if is_cancelled and is_cancelled():
                     logger.info("Download cancelled, stopping fetch")
                     break
 
+                t_fetch = time.monotonic()
                 rows = result.fetchmany(chunk_size)
+                fetch_secs = time.monotonic() - t_fetch
+
                 if not rows:
                     break
 
-                chunk_df = _rows_to_dataframe(columns, rows)
+                if fetch_secs > stall_threshold:
+                    logger.warning(
+                        "Slow fetch: chunk %d took %.1fs (%d rows) — possible network stall",
+                        part_num, fetch_secs, len(rows),
+                    )
+
+                chunk_df = _rows_to_dataframe(columns, rows, cursor_schema)
 
                 # Reconcile schema with first chunk
                 if schema is None:
@@ -294,6 +392,13 @@ class SQLServerClient:
                 parts.append(part_path)
                 total_rows += len(chunk_df)
                 part_num += 1
+
+                elapsed = time.monotonic() - t_download_start
+                rate = total_rows / elapsed if elapsed > 0 else 0
+                logger.info(
+                    "Download chunk %d: %s rows (total: %s, %.0f rows/sec, %.1fs elapsed)",
+                    part_num, f"{len(chunk_df):,}", f"{total_rows:,}", rate, elapsed,
+                )
 
                 if on_progress:
                     on_progress(len(chunk_df), total_rows)

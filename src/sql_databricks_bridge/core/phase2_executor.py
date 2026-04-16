@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from sql_databricks_bridge.core.composite_columns import databricks_where_in, parse_columns
 from sql_databricks_bridge.core.delta_writer import DeltaTableWriter
 from sql_databricks_bridge.core.fingerprint import (
     Fingerprint,
@@ -175,6 +176,94 @@ class Phase2Executor:
                     result.fingerprints_saved += 1
 
     # ------------------------------------------------------------------
+    # VOID schema fix
+    # ------------------------------------------------------------------
+
+    def _fix_void_schema(self, target: str, staging_path: str) -> bool:
+        """Detect and fix VOID columns in a Delta table.
+
+        If the target table has VOID-typed columns (from old writes before the
+        _schema_from_cursor fix), this method:
+          1. Renames the table to ``{target}__old``
+          2. Creates a fresh table from the parquet staging data (correct types)
+          3. Copies non-VOID data from ``__old`` into the new table
+          4. Drops ``__old`` on success; renames it back on failure
+
+        Returns True if a fix was applied, False if no VOID columns found.
+        """
+        schema = self.writer._get_table_schema(target)
+        if not schema:
+            return False
+
+        void_cols = [c for c, t in schema.items() if t.upper() == "VOID"]
+        if not void_cols:
+            return False
+
+        logger.warning(f"VOID columns detected in {target}: {void_cols}")
+
+        # Build __old name: strip trailing backtick, append __old, re-add backtick
+        # target looks like `catalog`.`schema`.`name`
+        old_target = target[:-1] + "__old`"
+
+        try:
+            # 1. Rename existing table to __old
+            self.dbx_client.execute_sql(
+                f"ALTER TABLE {target} RENAME TO {old_target}"
+            )
+            logger.info(f"VOID fix: renamed {target} -> {old_target}")
+
+            # 2. Create fresh table with correct schema from parquet
+            self.dbx_client.execute_sql(
+                f"CREATE TABLE {target} AS "
+                f"SELECT * EXCEPT(_rescued_data) "
+                f"FROM read_files('{staging_path}', format => 'parquet') "
+                f"WHERE 1=0"
+            )
+            logger.info(f"VOID fix: created empty {target} with correct schema")
+
+            # 3. Copy data from __old, casting VOID columns to STRING
+            old_schema = self.writer._get_table_schema(old_target)
+            new_schema = self.writer._get_table_schema(target)
+            select_parts = []
+            for col in old_schema:
+                if col.lower() == "_rescued_data":
+                    continue
+                if col not in new_schema:
+                    continue
+                if old_schema[col].upper() == "VOID":
+                    # Cast VOID -> target type from new schema
+                    select_parts.append(
+                        f"CAST(NULL AS {new_schema[col]}) AS `{col}`"
+                    )
+                else:
+                    select_parts.append(f"`{col}`")
+
+            if select_parts:
+                select_list = ", ".join(select_parts)
+                self.dbx_client.execute_sql(
+                    f"INSERT INTO {target} SELECT {select_list} FROM {old_target}"
+                )
+                logger.info(f"VOID fix: copied data from {old_target} -> {target}")
+
+            # 4. Drop __old
+            self.dbx_client.execute_sql(f"DROP TABLE {old_target}")
+            logger.info(f"VOID fix: dropped {old_target}")
+            return True
+
+        except Exception as e:
+            logger.error(f"VOID fix failed for {target}: {e}")
+            # Attempt recovery: drop the new table and rename __old back
+            try:
+                self.dbx_client.execute_sql(f"DROP TABLE IF EXISTS {target}")
+                self.dbx_client.execute_sql(
+                    f"ALTER TABLE {old_target} RENAME TO {target}"
+                )
+                logger.info(f"VOID fix: recovered — renamed {old_target} back to {target}")
+            except Exception as recover_err:
+                logger.error(f"VOID fix recovery also failed: {recover_err}")
+            raise
+
+    # ------------------------------------------------------------------
     # Operation handlers
     # ------------------------------------------------------------------
 
@@ -199,6 +288,9 @@ class Phase2Executor:
         # Use INSERT OVERWRITE for existing tables to preserve time travel history.
         # Only use CREATE TABLE for genuinely new tables.
         if self.writer.table_exists(target):
+            # Fix VOID columns if present (from old writes before schema fix)
+            self._fix_void_schema(target, staging_path)
+
             insert_sql = (
                 f"INSERT OVERWRITE {target} "
                 f"SELECT * EXCEPT(_rescued_data) "
@@ -255,26 +347,30 @@ class Phase2Executor:
             self._execute_ctas(country, table_name, staging_path, tag, table_suffix)
             return
 
-        # DELETE periods in batches
+        # Fix VOID columns if present (from old writes before schema fix)
+        self._fix_void_schema(target, staging_path)
+
+        # DELETE periods in batches (supports composite level1 columns)
         if periods:
+            l1_cols = parse_columns(l1_col)
             batch_size = 500
             for i in range(0, len(periods), batch_size):
                 batch = periods[i : i + batch_size]
-                values_csv = ", ".join(f"'{v}'" for v in batch)
-                delete_sql = (
-                    f"DELETE FROM {target} "
-                    f"WHERE CAST({l1_col} AS STRING) IN ({values_csv})"
-                )
+                where_clause = databricks_where_in(l1_cols, batch)
+                delete_sql = f"DELETE FROM {target} WHERE {where_clause}"
                 self.dbx_client.execute_sql(delete_sql)
 
-        # INSERT from staged parquet
-        target_cols = self.writer._get_table_columns(target)
-        if target_cols:
-            cols = [c for c in target_cols if c.lower() != "_rescued_data"]
+        # INSERT from staged parquet (CAST to target types)
+        target_schema = self.writer._get_table_schema(target)
+        if target_schema:
+            cols = [c for c in target_schema if c.lower() != "_rescued_data"]
             col_list = ", ".join(f"`{c}`" for c in cols)
+            cast_list = ", ".join(
+                f"CAST(`{c}` AS {target_schema[c]}) AS `{c}`" for c in cols
+            )
             insert_sql = (
                 f"INSERT INTO {target} ({col_list}) "
-                f"SELECT {col_list} FROM read_files('{staging_path}', format => 'parquet')"
+                f"SELECT {cast_list} FROM read_files('{staging_path}', format => 'parquet')"
             )
         else:
             insert_sql = (
@@ -312,7 +408,7 @@ class Phase2Executor:
         meta: dict,
         job_id: str,
     ) -> None:
-        """Save fingerprints to Databricks Delta (mirrors local cache)."""
+        """Save fingerprints to Databricks Delta and update local SQLite cache."""
         level = meta.get("level", "period")
         fp_dicts = meta.get("fingerprints", [])
         fingerprints = [
@@ -332,6 +428,8 @@ class Phase2Executor:
             fingerprints=fingerprints,
             job_id=job_id,
         )
+        # Update local SQLite cache only after Databricks save succeeds
+        self.fingerprint_cache.save(country, table_name, level, fingerprints, job_id)
 
     def _cleanup_staging(self, staging_dir: str) -> None:
         """Best-effort cleanup of staged parquet files in Volume."""

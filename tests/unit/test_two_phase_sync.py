@@ -260,6 +260,9 @@ class TestPhase2Executor:
         mock.resolve_table_name.return_value = "`main`.`bolivia`.`j_atoscompra_new`"
         mock.table_exists.return_value = True
         mock._get_table_columns.return_value = ["periodo", "idproduto", "cantidad"]
+        mock._get_table_schema.return_value = {
+            "periodo": "INT", "idproduto": "STRING", "cantidad": "DOUBLE",
+        }
         mock._settings = MagicMock()
         mock._settings.catalog = "main"
         return mock
@@ -298,13 +301,13 @@ class TestPhase2Executor:
 
         assert result.tables_committed == 1
         assert result.tables_failed == 0
-        # Verify CTAS was executed
+        # Verify INSERT OVERWRITE was executed (table_exists=True)
         assert mock_dbx.execute_sql.called
-        ctas_calls = [
+        overwrite_calls = [
             c for c in mock_dbx.execute_sql.call_args_list
-            if "CREATE OR REPLACE" in str(c)
+            if "INSERT OVERWRITE" in str(c)
         ]
-        assert len(ctas_calls) >= 1
+        assert len(overwrite_calls) >= 1
 
     def test_execute_diff_write_item(self, mock_dbx, mock_writer, queue, fp_cache):
         from sql_databricks_bridge.core.phase2_executor import Phase2Executor
@@ -581,3 +584,339 @@ class TestDiffSyncTwoPhase:
         pending = sync_queue.get_pending(job_id="test-job-2")
         fp_items = [p for p in pending if p["operation"] == "save_fingerprints"]
         assert len(fp_items) == 1
+
+
+# ---------------------------------------------------------------------------
+# VOID column fix tests
+# ---------------------------------------------------------------------------
+
+
+class TestVoidColumnFix:
+    """Test that Phase 2 detects and fixes VOID columns in Delta tables."""
+
+    @pytest.fixture
+    def fp_cache(self, tmp_path):
+        return FingerprintCache(db_path=str(tmp_path / "void_cache.db"))
+
+    @pytest.fixture
+    def queue(self, tmp_path):
+        return SyncQueue(db_path=str(tmp_path / "void_queue.db"))
+
+    @pytest.fixture
+    def mock_dbx(self):
+        mock = MagicMock()
+        mock.execute_sql.return_value = []
+        mock.list_files.return_value = []
+        return mock
+
+    @pytest.fixture
+    def mock_writer(self, mock_dbx):
+        mock = MagicMock()
+        mock.client = mock_dbx
+        mock.resolve_table_name.return_value = "`main`.`bolivia`.`my_table`"
+        mock.table_exists.return_value = True
+        mock._settings = MagicMock()
+        mock._settings.catalog = "main"
+        return mock
+
+    def test_void_detected_and_fixed_in_ctas(self, mock_dbx, mock_writer, queue, fp_cache):
+        """CTAS path: VOID columns trigger backup-recreate-copy flow."""
+        from sql_databricks_bridge.core.phase2_executor import Phase2Executor
+
+        # First call to _get_table_schema returns VOID, second returns fixed schema
+        mock_writer._get_table_schema.side_effect = [
+            # 1st: _fix_void_schema detects VOID
+            {"periodo": "INT", "cantidad": "VOID", "nombre": "STRING"},
+            # 2nd: _fix_void_schema reads __old schema
+            {"periodo": "INT", "cantidad": "VOID", "nombre": "STRING"},
+            # 3rd: _fix_void_schema reads new table schema (from parquet)
+            {"periodo": "INT", "cantidad": "DOUBLE", "nombre": "STRING"},
+        ]
+
+        queue.enqueue(
+            job_id="j1", country="bolivia", table_name="my_table",
+            operation="ctas",
+            staging_path="/Volumes/main/bolivia/vol/_staging/my_table_j1",
+        )
+
+        executor = Phase2Executor(
+            dbx_client=mock_dbx, writer=mock_writer, queue=queue,
+            fingerprint_cache=fp_cache, fingerprint_table="bridge.events.fingerprints",
+        )
+        result = executor.execute_batch(job_id="j1")
+
+        assert result.tables_committed == 1
+        assert result.tables_failed == 0
+
+        # Verify the VOID fix SQL sequence was executed
+        sql_calls = [str(c) for c in mock_dbx.execute_sql.call_args_list]
+        # Should have: ALTER TABLE RENAME, CREATE TABLE ... WHERE 1=0, INSERT INTO (copy), DROP TABLE __old
+        assert any("RENAME TO" in s for s in sql_calls), f"No RENAME in: {sql_calls}"
+        assert any("WHERE 1=0" in s for s in sql_calls), f"No empty CREATE in: {sql_calls}"
+        assert any("__old" in s and "DROP TABLE" in s for s in sql_calls), f"No DROP __old in: {sql_calls}"
+        # And finally the INSERT OVERWRITE with the new data
+        assert any("INSERT OVERWRITE" in s for s in sql_calls), f"No INSERT OVERWRITE in: {sql_calls}"
+
+    def test_no_void_skips_fix(self, mock_dbx, mock_writer, queue, fp_cache):
+        """When no VOID columns, _fix_void_schema returns False and no backup happens."""
+        from sql_databricks_bridge.core.phase2_executor import Phase2Executor
+
+        mock_writer._get_table_schema.return_value = {
+            "periodo": "INT", "cantidad": "DOUBLE", "nombre": "STRING",
+        }
+
+        queue.enqueue(
+            job_id="j1", country="bolivia", table_name="my_table",
+            operation="ctas",
+            staging_path="/Volumes/main/bolivia/vol/_staging/my_table_j1",
+        )
+
+        executor = Phase2Executor(
+            dbx_client=mock_dbx, writer=mock_writer, queue=queue,
+            fingerprint_cache=fp_cache, fingerprint_table="bridge.events.fingerprints",
+        )
+        result = executor.execute_batch(job_id="j1")
+
+        assert result.tables_committed == 1
+        sql_calls = [str(c) for c in mock_dbx.execute_sql.call_args_list]
+        # Should NOT have any RENAME (no VOID fix needed)
+        assert not any("RENAME TO" in s for s in sql_calls), f"Unexpected RENAME in: {sql_calls}"
+        # Should still do INSERT OVERWRITE
+        assert any("INSERT OVERWRITE" in s for s in sql_calls)
+
+    def test_void_detected_in_diff_write(self, mock_dbx, mock_writer, queue, fp_cache):
+        """diff_write path: VOID columns get fixed before DELETE+INSERT."""
+        from sql_databricks_bridge.core.phase2_executor import Phase2Executor
+
+        mock_writer._get_table_schema.side_effect = [
+            # 1st: _fix_void_schema detects VOID
+            {"periodo": "INT", "cantidad": "VOID"},
+            # 2nd: _fix_void_schema reads __old schema
+            {"periodo": "INT", "cantidad": "VOID"},
+            # 3rd: _fix_void_schema reads new table schema
+            {"periodo": "INT", "cantidad": "DOUBLE"},
+            # 4th: _execute_diff_write reads schema for INSERT CAST
+            {"periodo": "INT", "cantidad": "DOUBLE"},
+        ]
+
+        queue.enqueue(
+            job_id="j1", country="bolivia", table_name="my_table",
+            operation="diff_write",
+            staging_path="/Volumes/main/bolivia/vol/_staging/my_table_j1",
+            metadata={
+                "periods_to_delete": ["202401"],
+                "level1_column": "periodo",
+            },
+        )
+
+        executor = Phase2Executor(
+            dbx_client=mock_dbx, writer=mock_writer, queue=queue,
+            fingerprint_cache=fp_cache, fingerprint_table="bridge.events.fingerprints",
+        )
+        result = executor.execute_batch(job_id="j1")
+
+        assert result.tables_committed == 1
+        assert result.tables_failed == 0
+
+        sql_calls = [str(c) for c in mock_dbx.execute_sql.call_args_list]
+        # VOID fix happened
+        assert any("RENAME TO" in s for s in sql_calls)
+        assert any("DROP TABLE" in s and "__old" in s for s in sql_calls)
+        # Normal diff_write DELETE + INSERT happened after fix
+        assert any("DELETE FROM" in s for s in sql_calls)
+        assert any("INSERT INTO" in s for s in sql_calls)
+
+    def test_void_fix_recovery_on_failure(self, mock_dbx, mock_writer, queue, fp_cache):
+        """If VOID fix fails mid-way, __old is renamed back."""
+        from sql_databricks_bridge.core.phase2_executor import Phase2Executor
+
+        mock_writer._get_table_schema.side_effect = [
+            # 1st: detects VOID
+            {"periodo": "INT", "cantidad": "VOID"},
+        ]
+
+        # RENAME succeeds, CREATE fails
+        call_count = 0
+        def side_effect(sql):
+            nonlocal call_count
+            call_count += 1
+            if "ALTER TABLE" in sql and "RENAME TO" in sql:
+                return []  # RENAME succeeds
+            if "CREATE TABLE" in sql:
+                raise RuntimeError("Warehouse timeout")
+            if "DROP TABLE IF EXISTS" in sql:
+                return []  # recovery DROP succeeds
+            return []
+
+        mock_dbx.execute_sql.side_effect = side_effect
+
+        queue.enqueue(
+            job_id="j1", country="bolivia", table_name="my_table",
+            operation="ctas",
+            staging_path="/Volumes/main/bolivia/vol/_staging/my_table_j1",
+        )
+
+        executor = Phase2Executor(
+            dbx_client=mock_dbx, writer=mock_writer, queue=queue,
+            fingerprint_cache=fp_cache, fingerprint_table="bridge.events.fingerprints",
+        )
+        result = executor.execute_batch(job_id="j1")
+
+        # Should have failed
+        assert result.tables_failed == 1
+        assert result.tables_committed == 0
+
+        # Recovery: should have tried DROP IF EXISTS + ALTER TABLE RENAME back
+        sql_calls = [str(c) for c in mock_dbx.execute_sql.call_args_list]
+        assert any("DROP TABLE IF EXISTS" in s for s in sql_calls)
+        # The second ALTER TABLE RENAME restores __old back
+        rename_calls = [s for s in sql_calls if "RENAME TO" in s]
+        assert len(rename_calls) >= 2  # original rename + recovery rename
+
+
+# ---------------------------------------------------------------------------
+# Fingerprint timing: cache only saved after Phase 2
+# ---------------------------------------------------------------------------
+
+
+class TestFingerprintTiming:
+    """Verify fingerprints are NOT saved to local cache during Phase 1,
+    and ARE saved during Phase 2."""
+
+    @pytest.fixture
+    def fp_cache(self, tmp_path):
+        return FingerprintCache(db_path=str(tmp_path / "timing_cache.db"))
+
+    @pytest.fixture
+    def sync_queue(self, tmp_path):
+        return SyncQueue(db_path=str(tmp_path / "timing_queue.db"))
+
+    @patch("sql_databricks_bridge.core.config.get_settings")
+    def test_phase1_does_not_save_cache(
+        self, mock_get_settings, fp_cache, sync_queue, tmp_path,
+    ):
+        """Phase 1 (diff_sync with two_phase=True) should NOT save to local cache."""
+        from sql_databricks_bridge.core.diff_sync import run_differential_sync
+
+        mock_settings = MagicMock()
+        mock_settings.databricks.catalog = "main"
+        mock_settings.databricks.volume = "landing"
+        mock_get_settings.return_value = mock_settings
+
+        mock_sql = MagicMock()
+        # Return fingerprint with change
+        mock_sql.execute_query.return_value = pl.DataFrame({
+            "grp_value": ["202401"],
+            "cnt": [1000],
+            "chk": [111],
+        })
+        _tmp_dir = tmp_path / "chunks" / "diff_tp-j1" / "t1" / "bulk"
+        _tmp_dir.mkdir(parents=True, exist_ok=True)
+        _part = _tmp_dir / "part_0.parquet"
+        pl.DataFrame({"periodo": ["202401"] * 100, "val": list(range(100))}).write_parquet(_part)
+        mock_sql.execute_query_to_disk.return_value = ([_part], 100)
+
+        # Seed cache with different fingerprint to trigger extraction
+        fp_cache.save("bolivia", "t1", "period",
+                      [Fingerprint(value="202401", row_count=500, checksum_xor=999)], "old")
+
+        mock_dbx = MagicMock()
+        mock_dbx.execute_sql.return_value = []
+        mock_writer = MagicMock()
+        mock_writer.client = mock_dbx
+        mock_writer._settings = mock_settings.databricks
+        mock_writer.resolve_table_name.return_value = "`main`.`bolivia`.`t1`"
+
+        stats = run_differential_sync(
+            sql_client=mock_sql, dbx_client=mock_dbx, writer=mock_writer,
+            sql_table="t1", country="bolivia",
+            level1_column="periodo", level2_column="idproduto",
+            fingerprint_table="bridge.events.fingerprints",
+            job_id="tp-j1",
+            two_phase=True, fingerprint_cache=fp_cache, sync_queue=sync_queue,
+        )
+        assert stats.queued is True
+
+        # Local cache should still have the OLD fingerprint (checksum_xor=999),
+        # NOT the new one (111), because Phase 1 should not update the cache.
+        cached = fp_cache.load("bolivia", "t1", "period")
+        assert len(cached) == 1
+        assert cached[0].checksum_xor == 999, (
+            f"Cache was updated prematurely! Expected old xor=999, got {cached[0].checksum_xor}"
+        )
+
+    def test_phase2_saves_cache(self, fp_cache, sync_queue):
+        """Phase 2 (_execute_save_fingerprints) SHOULD save to local cache."""
+        from sql_databricks_bridge.core.phase2_executor import Phase2Executor
+
+        mock_dbx = MagicMock()
+        mock_dbx.execute_sql.return_value = []
+        mock_writer = MagicMock()
+        mock_writer._get_table_schema.return_value = {}
+        mock_writer._settings = MagicMock()
+        mock_writer._settings.catalog = "main"
+
+        sync_queue.enqueue(
+            job_id="j1", country="bolivia", table_name="t1",
+            operation="save_fingerprints",
+            metadata={
+                "level": "period",
+                "fingerprints": [
+                    {"value": "202401", "row_count": 1000, "checksum_xor": 111},
+                    {"value": "202402", "row_count": 2000, "checksum_xor": 222},
+                ],
+            },
+        )
+
+        executor = Phase2Executor(
+            dbx_client=mock_dbx, writer=mock_writer, queue=sync_queue,
+            fingerprint_cache=fp_cache, fingerprint_table="bridge.events.fingerprints",
+        )
+        result = executor.execute_batch(job_id="j1")
+
+        assert result.fingerprints_saved == 1
+
+        # Local cache should now have the fingerprints
+        cached = fp_cache.load("bolivia", "t1", "period")
+        assert len(cached) == 2
+        values = {fp.value: fp.checksum_xor for fp in cached}
+        assert values["202401"] == 111
+        assert values["202402"] == 222
+
+    @patch("sql_databricks_bridge.core.config.get_settings")
+    def test_fingerprint_only_mode_no_premature_cache(
+        self, mock_get_settings, fp_cache, sync_queue,
+    ):
+        """fingerprint_only=True in two-phase should NOT save to local cache."""
+        from sql_databricks_bridge.core.diff_sync import run_differential_sync
+
+        mock_settings = MagicMock()
+        mock_settings.databricks.catalog = "main"
+        mock_get_settings.return_value = mock_settings
+
+        mock_sql = MagicMock()
+        mock_sql.execute_query.return_value = pl.DataFrame({
+            "grp_value": ["202401"],
+            "cnt": [500],
+            "chk": [777],
+        })
+
+        mock_dbx = MagicMock()
+        mock_writer = MagicMock()
+
+        stats = run_differential_sync(
+            sql_client=mock_sql, dbx_client=mock_dbx, writer=mock_writer,
+            sql_table="dim_table", country="bolivia",
+            level1_column="periodo", level2_column="",
+            fingerprint_table="bridge.events.fingerprints",
+            job_id="fp-only-1",
+            fingerprint_only=True,
+            two_phase=True, fingerprint_cache=fp_cache, sync_queue=sync_queue,
+        )
+        assert stats.queued is True
+
+        # Local cache should be empty — Phase 1 should NOT have saved
+        cached = fp_cache.load("bolivia", "dim_table", "period")
+        assert len(cached) == 0, (
+            f"Cache should be empty but has {len(cached)} entries (premature save!)"
+        )

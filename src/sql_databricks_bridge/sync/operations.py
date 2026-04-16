@@ -23,6 +23,40 @@ from sql_databricks_bridge.sync.validators import (
 
 logger = logging.getLogger(__name__)
 
+# SQLSTATE codes for transient connection errors (worth retrying)
+_TRANSIENT_SQLSTATES = {"08S01", "08001", "08004", "HYT00", "HY008"}
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    """Check if an exception is a transient SQL Server connection error."""
+    try:
+        import pyodbc
+
+        if isinstance(exc, pyodbc.OperationalError):
+            if exc.args and isinstance(exc.args[0], str):
+                return exc.args[0] in _TRANSIENT_SQLSTATES
+    except ImportError:
+        pass
+
+    # Also check SQLAlchemy-wrapped errors
+    from sqlalchemy.exc import OperationalError as SAOperationalError
+
+    if isinstance(exc, SAOperationalError):
+        orig = getattr(exc, "orig", None)
+        if orig and hasattr(orig, "args") and orig.args:
+            code = orig.args[0] if isinstance(orig.args[0], str) else ""
+            return code in _TRANSIENT_SQLSTATES
+
+    return False
+
+
+class TransientConnectionError(Exception):
+    """Raised for transient SQL Server connection errors to trigger retry."""
+
+    def __init__(self, message: str, original: Exception):
+        super().__init__(message)
+        self.original = original
+
 
 @dataclass
 class OperationResult:
@@ -124,6 +158,14 @@ class SyncOperator:
             )
 
         except Exception as e:
+            if _is_transient_error(e):
+                logger.warning(
+                    f"Transient connection error for event {event.event_id}: {e}"
+                )
+                raise TransientConnectionError(
+                    f"Transient error processing {event.event_id}: {e}",
+                    original=e,
+                )
             logger.exception(f"Error processing event {event.event_id}: {e}")
             return OperationResult(
                 success=False,

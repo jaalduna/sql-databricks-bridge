@@ -8,6 +8,7 @@ from typing import Any
 
 import polars as pl
 
+from sql_databricks_bridge.core.composite_columns import databricks_where_in, parse_columns
 from sql_databricks_bridge.core.config import get_settings
 from sql_databricks_bridge.db.databricks import DatabricksClient
 
@@ -36,6 +37,23 @@ class DeltaTableWriter:
     def __init__(self, client: DatabricksClient | None = None) -> None:
         self.client = client or DatabricksClient()
         self._settings = get_settings().databricks
+
+    @staticmethod
+    def _fix_null_columns(df: pl.DataFrame) -> pl.DataFrame:
+        """Cast any pl.Null columns to pl.String to prevent VOID in Parquet/Delta.
+
+        This is a safety net for DataFrames that bypass sql_server.py's cursor
+        schema enforcement (e.g., from external sources or simulador sync).
+        """
+        null_cols = [col for col in df.columns if df[col].dtype == pl.Null]
+        if null_cols:
+            logger.warning(
+                "Casting %d Null-typed columns to String to prevent VOID: %s",
+                len(null_cols),
+                null_cols,
+            )
+            df = df.with_columns([pl.col(c).cast(pl.String) for c in null_cols])
+        return df
 
     def resolve_table_name(
         self,
@@ -88,6 +106,7 @@ class DeltaTableWriter:
 
         # Convert all column names to lowercase for Databricks consistency
         df = df.rename({col: col.lower() for col in df.columns})
+        df = self._fix_null_columns(df)
 
         table_name = self.resolve_table_name(query_name, country, catalog, schema, table_suffix)
 
@@ -207,6 +226,7 @@ class DeltaTableWriter:
 
         # Lowercase column names for consistency
         df = df.rename({col: col.lower() for col in df.columns})
+        df = self._fix_null_columns(df)
 
         table_name = self.resolve_table_name(query_name, country, catalog, schema, table_suffix)
         target_catalog = catalog or self._settings.catalog
@@ -359,8 +379,11 @@ class DeltaTableWriter:
 
         # 1. Upload chunks to staging (clean directory first to avoid stale files)
         if chunks:
-            # Lowercase column names for consistency
-            chunks = [c.rename({col: col.lower() for col in c.columns}) for c in chunks]
+            # Lowercase column names for consistency + fix Null columns
+            chunks = [
+                self._fix_null_columns(c.rename({col: col.lower() for col in c.columns}))
+                for c in chunks
+            ]
             # Clean staging directory to prevent stale files with different schemas
             self._clean_staging_dir(staging_dir)
             uploaded_paths = self.client.upload_dataframe_chunked(chunks, staging_dir)
@@ -387,14 +410,12 @@ class DeltaTableWriter:
 
             # Delete entire level1 values (batched into single IN clause)
             if deleted_level1_values:
+                l1_cols = parse_columns(level1_column)
                 batch_size = 500
                 for i in range(0, len(deleted_level1_values), batch_size):
                     batch = deleted_level1_values[i:i + batch_size]
-                    values_list = ", ".join(f"'{v}'" for v in batch)
-                    delete_sql = (
-                        f"DELETE FROM {table_name} "
-                        f"WHERE CAST({level1_column} AS STRING) IN ({values_list})"
-                    )
+                    where_clause = databricks_where_in(l1_cols, batch)
+                    delete_sql = f"DELETE FROM {table_name} WHERE {where_clause}"
                     self.client.execute_sql(delete_sql)
                 logger.info(f"Deleted {len(deleted_level1_values)} {level1_column} values from {table_name}")
         except RuntimeError as e:
@@ -413,17 +434,19 @@ class DeltaTableWriter:
 
         # 3. INSERT from staging (use column intersection to handle schema changes)
         if chunks:
-            target_cols = self._get_table_columns(table_name)
+            target_schema_map = self._get_table_schema(table_name)
             # Get parquet column names from the chunks
             parquet_cols_set = set()
             for c in chunks:
                 parquet_cols_set.update(col.lower() for col in c.columns)
 
-            if target_cols and parquet_cols_set:
-                target_cols_set = {c.lower() for c in target_cols if c.lower() != "_rescued_data"}
+            if target_schema_map and parquet_cols_set:
+                target_cols_set = {
+                    c.lower() for c in target_schema_map if c.lower() != "_rescued_data"
+                }
                 # Use intersection: columns in BOTH target table AND parquet
                 common_cols = [
-                    c for c in target_cols
+                    c for c in target_schema_map
                     if c.lower() in parquet_cols_set and c.lower() != "_rescued_data"
                 ]
                 extra_in_target = target_cols_set - parquet_cols_set
@@ -441,9 +464,13 @@ class DeltaTableWriter:
                         tag=tag, table_suffix=table_suffix,
                     )
                 col_list = ", ".join(f"`{c}`" for c in common_cols)
+                cast_list = ", ".join(
+                    f"CAST(`{c}` AS {target_schema_map[c]}) AS `{c}`"
+                    for c in common_cols
+                )
                 insert_sql = (
                     f"INSERT INTO {table_name} ({col_list}) "
-                    f"SELECT {col_list} FROM read_files('{staging_dir}', format => 'parquet')"
+                    f"SELECT {cast_list} FROM read_files('{staging_dir}', format => 'parquet')"
                 )
             else:
                 # Fallback: SELECT * EXCEPT to avoid _rescued_data duplication
@@ -579,6 +606,18 @@ class DeltaTableWriter:
             return [row["col_name"] for row in rows if row.get("col_name") and not row["col_name"].startswith("#")]
         except Exception:
             return []
+
+    def _get_table_schema(self, table_name: str) -> dict[str, str]:
+        """Get column name -> data_type mapping from an existing Delta table."""
+        try:
+            rows = self.client.execute_sql(f"DESCRIBE TABLE {table_name}")
+            return {
+                row["col_name"]: row["data_type"]
+                for row in rows
+                if row.get("col_name") and not row["col_name"].startswith("#")
+            }
+        except Exception:
+            return {}
 
     def _save_local_parquet(
         self, df: pl.DataFrame, query_name: str, country: str, catalog: str, schema: str
