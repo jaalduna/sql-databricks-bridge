@@ -627,6 +627,91 @@ class SyncMonitorApp(App):
 # ---------------------------------------------------------------------------
 
 
+_COUNTRY_TOKEN_MAP = {
+    "ecuador": "ECU", "argentina": "AR", "bolivia": "BO",
+    "brasil": "BR", "brazil": "BR", "chile": "CL", "colombia": "CO",
+    "mexico": "MX", "peru": "PE",
+    "cr": "CR", "gt": "GT", "hn": "HN", "ni": "NI",
+    "pa": "PA", "sv": "SV", "do": "DO", "cam": "CAM",
+}
+
+
+def _parse_json_field(value: Any) -> dict[str, Any]:
+    """Tolerant decode: bridge_events stores filter_conditions/metadata as
+    JSON strings, but in-memory they may already be dicts. Always return a
+    dict — empty on parse error or None."""
+    if value is None or value == "":
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
+def _extract_country(event: dict[str, Any]) -> str:
+    """Extract country code from an event row.
+
+    Priority:
+        1. filter_conditions.PAIS (set on DELETE events)
+        2. source_table schema like ``gold_cam_cr`` / ``gold_ecuador``
+    Falls back to '-' when neither yields a recognisable token.
+    """
+    fc = _parse_json_field(event.get("filter_conditions"))
+    pais = fc.get("PAIS") or fc.get("pais") or fc.get("country")
+    if pais:
+        return str(pais).strip().upper()
+
+    src = str(event.get("source_table") or "")
+    m = re.search(r"gold_(?:cam_)?(\w+?)\.", src, re.IGNORECASE)
+    if m:
+        token = m.group(1).lower()
+        return _COUNTRY_TOKEN_MAP.get(token, token.upper())
+    return "-"
+
+
+def _event_detail_summary(event: dict[str, Any]) -> str:
+    """Compact one-line description of the event purpose.
+
+    DELETE: shows the filter conditions that scope the deletion.
+    INSERT: shows the source schema/table being pulled in.
+    """
+    op = str(event.get("operation") or "").upper()
+    if op == "DELETE":
+        fc = _parse_json_field(event.get("filter_conditions"))
+        if not fc:
+            return f"{escape(str(event.get('target_table') or '-'))} (no filter)"
+        # Skip PAIS — it's already shown in its own column
+        bits = [
+            f"{k}={v}" for k, v in fc.items()
+            if k.lower() not in ("pais", "country")
+        ]
+        return ", ".join(bits) if bits else "(only PAIS)"
+    if op == "INSERT":
+        src = str(event.get("source_table") or "")
+        # Strip the noisy prefix to keep it short
+        short = re.sub(r"^[`\w-]+\.", "", src.replace("`", ""), count=1)
+        return escape(short or src or "-")
+    return "-"
+
+
+def _event_target_short(event: dict[str, Any]) -> str:
+    """Render target as 'SERVER/db.target_table' using metadata when available."""
+    md = _parse_json_field(event.get("metadata"))
+    server = md.get("target_server")
+    db = md.get("target_database")
+    target = str(event.get("target_table") or "")
+    if server and db:
+        # Trim KTCLSQL005 -> 005 for compactness (preserve all digits).
+        server_short = re.sub(r"^[Kk][Tt][Cc][Ll][Ss][Qq][Ll]", "", server) or server
+        return f"{server_short}/{db}.{target}"
+    return target or "-"
+
+
 def _pull_bridge_events(limit: int = 200) -> tuple[list[dict[str, Any]], str | None]:
     """Fetch recent bridge_events rows.  Returns (rows, error_or_None).
 
@@ -678,18 +763,32 @@ class EventDetailScreen(Screen):
 
     def on_mount(self) -> None:
         e = self.event
+        country = _extract_country(e)
+        md = _parse_json_field(e.get("metadata"))
+        fc = _parse_json_field(e.get("filter_conditions"))
+        pks = e.get("primary_keys") or []
+
         meta = [
             f"[bold]{escape(str(e.get('event_id', '?')))}[/bold]   "
             f"status: {_status_label(str(e.get('status') or 'pending'))}   "
-            f"op: {escape(str(e.get('operation') or '?'))}",
-            f"source: [cyan]{escape(str(e.get('source_table') or '-'))}[/cyan]   "
-            f"target: [cyan]{escape(str(e.get('target_table') or '-'))}[/cyan]",
+            f"op: {escape(str(e.get('operation') or '?'))}   "
+            f"country: [cyan]{country}[/cyan]",
+            f"source: [cyan]{escape(str(e.get('source_table') or '-'))}[/cyan]",
+            f"target: [cyan]{escape(_event_target_short(e))}[/cyan]",
             f"created_at:   {escape(str(e.get('created_at') or '-'))}",
             f"processed_at: {escape(str(e.get('processed_at') or '-'))}",
             f"rows expected: {e.get('rows_expected') or '-'}   "
             f"rows affected: {e.get('rows_affected') or '-'}   "
             f"discrepancy: {e.get('discrepancy') or '-'}",
         ]
+        if pks:
+            meta.append(f"primary_keys: [magenta]{escape(', '.join(pks))}[/magenta]")
+        if fc:
+            fc_text = ", ".join(f"{k}={v}" for k, v in fc.items())
+            meta.append(f"filter_conditions: [yellow]{escape(fc_text)}[/yellow]")
+        if md:
+            md_text = ", ".join(f"{k}={v}" for k, v in md.items())
+            meta.append(f"metadata: [dim]{escape(md_text)}[/dim]")
         if e.get("warning"):
             meta.append(f"[yellow]warning:[/yellow] {escape(str(e['warning']))}")
         self.query_one("#ev_meta", Static).update("\n".join(meta))
@@ -749,8 +848,8 @@ class EventsScreen(Screen):
     def on_mount(self) -> None:
         table = self.query_one("#ev_table", DataTable)
         table.add_columns(
-            "Status", "Op", "Source → Target",
-            "Created", "Processed", "Rows", "Error",
+            "Status", "Op", "Country", "Rows",
+            "Detail", "Target", "Created", "Error",
         )
         self._refresh_summary()
         self._refresh_status()
@@ -849,23 +948,28 @@ class EventsScreen(Screen):
         self._row_events = rows
         for e in rows:
             st = str(e.get("status") or "pending")
-            src = str(e.get("source_table") or "")
-            tgt = str(e.get("target_table") or "")
-            arrow = f"{escape(src)} → {escape(tgt)}" if src or tgt else "-"
-            created = _fmt_event_ts(e.get("created_at"))
-            processed = _fmt_event_ts(e.get("processed_at"))
+            op = str(e.get("operation") or "-").upper()
+            country = _extract_country(e)
             rows_aff = e.get("rows_affected")
+            if rows_aff is None:
+                rows_aff = e.get("rows_expected")
             rows_txt = f"{int(rows_aff):,}" if rows_aff is not None else "-"
+            detail = _event_detail_summary(e)
+            target = _event_target_short(e)
+            created = _fmt_event_ts(e.get("created_at"))
             err = str(e.get("error_message") or "")
             err_short = _summarize_error(err) if err else ""
             err_cell = f"[red]{escape(err_short)}[/red]" if err_short else ""
+            # Color op for quick scanning
+            op_color = {"INSERT": "green", "DELETE": "red", "UPDATE": "yellow"}.get(op, "white")
             table.add_row(
                 _status_label(st),
-                escape(str(e.get("operation") or "-")),
-                arrow,
-                created,
-                processed,
+                f"[{op_color}]{op}[/{op_color}]",
+                country,
                 rows_txt,
+                detail,
+                target,
+                created,
                 err_cell,
             )
 
