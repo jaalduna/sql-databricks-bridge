@@ -653,6 +653,32 @@ def self_update(
     console.print(f"[bold green]Updated to {tag} — please restart.[/bold green]")
 
 
+@app.command(name="monitor")
+def monitor(
+    jobs_db: Annotated[
+        str,
+        typer.Option("--jobs-db", help="Path to jobs SQLite DB (default: from settings)"),
+    ] = "",
+    queue_db: Annotated[
+        str,
+        typer.Option("--queue-db", help="Path to Phase 2 sync queue SQLite DB"),
+    ] = ".bridge_data/sync_queue.db",
+    interval: Annotated[
+        float,
+        typer.Option("--interval", "-i", help="Auto-refresh interval in seconds"),
+    ] = 2.0,
+) -> None:
+    """Interactive TUI for monitoring ongoing and recent sync jobs.
+
+    Keys:  Enter = drill into job  |  r = refresh  |  f = failed-only  |  q = quit
+    """
+    from sql_databricks_bridge.tui.monitor import run_monitor
+
+    settings = get_settings()
+    resolved_jobs_db = jobs_db or settings.sqlite_db_path
+    run_monitor(resolved_jobs_db, queue_db, interval)
+
+
 @app.command(name="diff-sync")
 def diff_sync(
     country: Annotated[
