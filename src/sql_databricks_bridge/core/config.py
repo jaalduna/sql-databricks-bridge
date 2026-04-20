@@ -92,6 +92,14 @@ class DatabricksSettings(BaseSettings):
         description="OAuth client secret",
     )
     warehouse_id: str = Field(default="", description="SQL Warehouse ID for statement execution")
+    poller_warehouse_id: str = Field(
+        default="",
+        description=(
+            "Optional dedicated SQL Warehouse ID for the EventPoller. "
+            "When set, reverse-sync event queries/updates run on this warehouse "
+            "instead of the main one, avoiding contention with diff-sync/triggers."
+        ),
+    )
     catalog: str = Field(default="main", description="Unity Catalog name")
     schema_name: str = Field(default="default", description="Schema name", alias="schema")
     volume: str = Field(default="", description="Volume name for file storage")

@@ -79,6 +79,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 events_table=settings.events_table,
                 poll_interval=settings.polling_interval_seconds,
                 max_events_per_poll=settings.max_events_per_poll,
+                warehouse_id=settings.databricks.poller_warehouse_id or None,
             )
             logger.info("Event poller ready (on-demand: POST /api/v1/sync/poller/trigger)")
 
