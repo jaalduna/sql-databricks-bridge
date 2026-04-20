@@ -284,6 +284,26 @@ class TestR4TruncateLongFields:
         assert "truncated" not in captured["sql"].lower()
 
     @pytest.mark.asyncio
+    async def test_truncation_also_applied_in_legacy_update_event_status(
+        self, poller, mock_dbx
+    ):
+        """The legacy single-row path must truncate too, for consistency."""
+        long_err = "y" * 5000
+        captured = {}
+        mock_dbx.execute_sql = MagicMock(
+            side_effect=lambda q, *a, **kw: captured.update(sql=q) or []
+        )
+
+        await poller.update_event_status(
+            _make_event("legacy"),
+            SyncStatus.FAILED,
+            error_message=long_err,
+        )
+
+        assert "y" * 5000 not in captured["sql"]
+        assert "truncated" in captured["sql"].lower()
+
+    @pytest.mark.asyncio
     async def test_none_values_stay_null(self, poller, mock_dbx):
         """None warning/error must produce NULL, not be affected by truncation."""
         results = [

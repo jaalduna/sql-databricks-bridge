@@ -184,10 +184,13 @@ class EventPoller:
             updates.append(f"rows_affected = {rows_affected}")
         if discrepancy is not None:
             updates.append(f"discrepancy = {discrepancy}")
-        if warning:
-            updates.append(f"warning = '{_esc(warning)}'")
-        if error_message:
-            updates.append(f"error_message = '{_esc(error_message)}'")
+        # R4 also applies here: bound free-text fields on the legacy path.
+        warning_t = _truncate(warning)
+        error_t = _truncate(error_message)
+        if warning_t:
+            updates.append(f"warning = '{_esc(warning_t)}'")
+        if error_t:
+            updates.append(f"error_message = '{_esc(error_t)}'")
 
         query = (
             f"UPDATE {self.events_table} "
