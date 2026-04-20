@@ -73,13 +73,28 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
             # EventPoller: always create instance (on-demand endpoint always works).
             sql_client = SQLServerClient()
+            # If a dedicated poller warehouse is configured, build a
+            # second DatabricksClient pointing at it so EventPoller runs
+            # in isolation from diff-sync/trigger traffic — the poller's
+            # public API stays unchanged.
+            poller_db_client = databricks_client
+            poller_warehouse_id = settings.databricks.poller_warehouse_id
+            if poller_warehouse_id and poller_warehouse_id != settings.databricks.warehouse_id:
+                poller_settings = settings.databricks.model_copy(
+                    update={"warehouse_id": poller_warehouse_id}
+                )
+                poller_db_client = DatabricksClient(settings=poller_settings)
+                logger.info(
+                    "Event poller will use dedicated warehouse: %s",
+                    poller_warehouse_id,
+                )
+
             _event_poller = EventPoller(
-                databricks_client=databricks_client,
+                databricks_client=poller_db_client,
                 sql_client=sql_client,
                 events_table=settings.events_table,
                 poll_interval=settings.polling_interval_seconds,
                 max_events_per_poll=settings.max_events_per_poll,
-                warehouse_id=settings.databricks.poller_warehouse_id or None,
             )
             logger.info("Event poller ready (on-demand: POST /api/v1/sync/poller/trigger)")
 

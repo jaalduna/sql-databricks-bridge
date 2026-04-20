@@ -32,21 +32,19 @@ class EventPoller:
         events_table: str = "bridge.events.bridge_events",
         poll_interval: int = 10,
         max_events_per_poll: int = 100,
-        warehouse_id: str | None = None,
     ) -> None:
         """Initialize event poller.
 
         Args:
-            databricks_client: Databricks client.
+            databricks_client: Databricks client.  To run the poller on a
+                dedicated SQL Warehouse (to avoid contention with diff-sync
+                or triggers), pass a client configured with the desired
+                warehouse — no extra parameter needed here.
             sql_client: SQL Server client.
             permission_manager: Permission manager for access control.
             events_table: Databricks table containing events.
             poll_interval: Seconds between poll cycles.
             max_events_per_poll: Maximum events per cycle.
-            warehouse_id: Dedicated SQL Warehouse for this poller. When
-                provided, every Databricks query issued by the poller uses
-                this warehouse instead of the client default — avoiding
-                contention with diff-sync/trigger running on the main one.
         """
         self.databricks = databricks_client
         self.sql = sql_client
@@ -54,7 +52,6 @@ class EventPoller:
         self.events_table = events_table
         self.poll_interval = poll_interval
         self.max_events_per_poll = max_events_per_poll
-        self._warehouse_id = warehouse_id or None
 
         self._running = False
         self._operator: SyncOperator | None = None
@@ -81,9 +78,7 @@ class EventPoller:
     # ------------------------------------------------------------------
 
     async def _dbx_exec(self, query: str) -> list[dict]:
-        return await asyncio.to_thread(
-            self.databricks.execute_sql, query, self._warehouse_id
-        )
+        return await asyncio.to_thread(self.databricks.execute_sql, query)
 
     async def query_pending_events(self) -> list[SyncEvent]:
         """Query pending events from Databricks."""
@@ -334,8 +329,7 @@ class EventPoller:
         self._running = True
         logger.info(
             f"Starting event poller (interval: {self.poll_interval}s, "
-            f"max events: {self.max_events_per_poll}, "
-            f"warehouse: {self._warehouse_id or 'default'})"
+            f"max events: {self.max_events_per_poll})"
         )
 
         while self._running:

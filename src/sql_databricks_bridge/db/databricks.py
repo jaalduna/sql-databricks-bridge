@@ -161,29 +161,22 @@ class DatabricksClient:
         """
         self.client.files.delete(path)
 
-    def execute_sql(
-        self,
-        query: str,
-        warehouse_id: str | None = None,
-    ) -> list[dict[str, Any]]:
+    def execute_sql(self, query: str) -> list[dict[str, Any]]:
         """Execute SQL query using Statement Execution API.
 
         Args:
             query: SQL query to execute.
-            warehouse_id: Override the default warehouse for this call.
-                Useful when a component (e.g. EventPoller) has its own
-                dedicated warehouse to avoid contention.
 
         Returns:
             Query results as list of dictionaries.
         """
         logger.debug("Executing SQL query: %s", query)
 
-        effective_warehouse = warehouse_id or getattr(self.settings, "warehouse_id", "")
-
+        # Use the SQL warehouse for query execution
+        # This requires a warehouse_id to be configured
         try:
             statement = self.client.statement_execution.execute_statement(
-                warehouse_id=effective_warehouse,
+                warehouse_id=getattr(self.settings, "warehouse_id", ""),
                 statement=query,
                 wait_timeout="30s",
             )
