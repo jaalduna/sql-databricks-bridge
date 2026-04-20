@@ -29,6 +29,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+async def _validate_poller_warehouse(
+    client: DatabricksClient, warehouse_id: str
+) -> bool:
+    """Verify the poller warehouse exists and is reachable.
+
+    Called at startup when a dedicated poller warehouse is configured.
+    Uses ``warehouses.get`` which does NOT start the warehouse (cheap,
+    no cold-start cost), only checks credentials + id validity.
+
+    Returns True on success, False on any failure (logged as warning so
+    startup does not crash — the poller will still try to run; the fail
+    shows up early rather than on first poll_cycle).
+    """
+    try:
+        await asyncio.to_thread(client.client.warehouses.get, warehouse_id)
+        return True
+    except Exception as e:
+        logger.warning(
+            "Poller warehouse %s validation failed: %s", warehouse_id, e
+        )
+        return False
+
 _event_poller: EventPoller | None = None
 _job_monitor: DatabricksJobMonitor | None = None
 _monitor_task: asyncio.Task | None = None
@@ -88,6 +111,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     "Event poller will use dedicated warehouse: %s",
                     poller_warehouse_id,
                 )
+                # S3: fail-fast on misconfiguration instead of waiting for
+                # the first poll_cycle to blow up.
+                await _validate_poller_warehouse(poller_db_client, poller_warehouse_id)
 
             _event_poller = EventPoller(
                 databricks_client=poller_db_client,

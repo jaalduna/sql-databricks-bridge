@@ -21,6 +21,34 @@ def _esc(v: str) -> str:
     return v.replace("'", "''")
 
 
+_MAX_TEXT_FIELD_CHARS = 500
+_TRUNCATION_MARKER = "...[truncated]"
+
+
+def _truncate(value: str | None, limit: int = _MAX_TEXT_FIELD_CHARS) -> str | None:
+    """Cap free-text fields (warning/error_message) to keep batched UPDATEs sane.
+
+    A message that is exactly ``limit`` long is preserved as-is; anything
+    longer is cut to ``limit - len(marker)`` chars plus the marker, so the
+    total still fits in ``limit`` chars.
+    """
+    if value is None or len(value) <= limit:
+        return value
+    head = value[: limit - len(_TRUNCATION_MARKER)]
+    return head + _TRUNCATION_MARKER
+
+
+def _format_id_list(event_ids: list[str], limit: int = 10) -> str:
+    """Render event ids for error logs — truncates after *limit* ids."""
+    if not event_ids:
+        return ""
+    shown = event_ids[:limit]
+    rendered = ",".join(shown)
+    if len(event_ids) > limit:
+        rendered += f",...(+{len(event_ids) - limit})"
+    return rendered
+
+
 class EventPoller:
     """Polls Databricks for sync events and processes them."""
 
@@ -56,6 +84,10 @@ class EventPoller:
         self._running = False
         self._operator: SyncOperator | None = None
         self._on_event_processed: Callable[[SyncEvent], None] | None = None
+        # P1: prevent two poll_cycle invocations from running simultaneously
+        # (scheduler + on-demand API trigger).  Checked non-blockingly so a
+        # concurrent call skips instead of queueing up.
+        self._cycle_lock = asyncio.Lock()
 
     @property
     def operator(self) -> SyncOperator:
@@ -173,6 +205,11 @@ class EventPoller:
     # ------------------------------------------------------------------
 
     async def _batch_mark_processing(self, events: list[SyncEvent]) -> None:
+        """Mark a batch of events as 'processing'.
+
+        Re-raises on failure so callers (poll_cycle) can abort the cycle
+        cleanly instead of proceeding with work that may not be recoverable.
+        """
         if not events:
             return
         id_list = ",".join(f"'{_esc(e.event_id)}'" for e in events)
@@ -184,7 +221,12 @@ class EventPoller:
         try:
             await self._dbx_exec(query)
         except Exception as e:
-            logger.error(f"Failed to batch-mark events as processing: {e}")
+            ids = _format_id_list([ev.event_id for ev in events])
+            logger.error(
+                "Failed to batch-mark %d events as processing: %s | ids=[%s]",
+                len(events), e, ids,
+            )
+            raise
 
     async def _batch_finalize(
         self,
@@ -217,7 +259,7 @@ class EventPoller:
         def case_str(pick) -> str:
             parts = []
             for e, _, res, err in results:
-                val = pick(res, err)
+                val = _truncate(pick(res, err))
                 val_sql = "NULL" if val is None else f"'{_esc(str(val))}'"
                 parts.append(f"WHEN '{_esc(e.event_id)}' THEN {val_sql}")
             return "CASE event_id " + " ".join(parts) + " END"
@@ -241,7 +283,11 @@ class EventPoller:
         try:
             await self._dbx_exec(query)
         except Exception as e:
-            logger.error(f"Failed to batch-finalize events: {e}")
+            ids = _format_id_list([ev.event_id for ev, *_ in results])
+            logger.error(
+                "Failed to batch-finalize %d events: %s | ids=[%s]",
+                len(results), e, ids,
+            )
 
     # ------------------------------------------------------------------
     # Event processing (still serial to avoid overwhelming SQL Server)
@@ -299,30 +345,46 @@ class EventPoller:
             self._on_event_processed(event)
 
     async def poll_cycle(self) -> int:
-        """Execute one poll cycle."""
-        events = await self.query_pending_events()
-        if not events:
+        """Execute one poll cycle.
+
+        Serialised against itself: if another cycle is already running, we
+        skip this one and return 0 (the next tick will pick up new events).
+        """
+        # P1: skip — don't queue up behind an in-flight cycle.
+        if self._cycle_lock.locked():
+            logger.info("poll_cycle skipped: another cycle is already in progress")
             return 0
 
-        logger.info(f"Found {len(events)} pending events")
+        async with self._cycle_lock:
+            events = await self.query_pending_events()
+            if not events:
+                return 0
 
-        # 1 query: mark all as processing
-        await self._batch_mark_processing(events)
+            logger.info(f"Found {len(events)} pending events")
 
-        # Serial processing (stays as-is to avoid overwhelming SQL Server)
-        results: list[tuple[SyncEvent, SyncStatus, OperationResult | None, str | None]] = []
-        for event in events:
-            results.append(await self._process_event_collect(event))
+            # R2: if marking fails, abort cleanly — leave events in 'pending'
+            # so the next cycle retries, instead of risking orphaned 'processing'
+            # rows or double-processing on a later manual reset.
+            try:
+                await self._batch_mark_processing(events)
+            except Exception:
+                # The _batch_mark_processing logger already captured ids+error.
+                return 0
 
-        # 1 query: finalize all statuses with CASE WHEN
-        await self._batch_finalize(results)
-
-        # Fire callbacks (kept as-is)
-        if self._on_event_processed:
+            # Serial processing (stays as-is to avoid overwhelming SQL Server)
+            results: list[tuple[SyncEvent, SyncStatus, OperationResult | None, str | None]] = []
             for event in events:
-                self._on_event_processed(event)
+                results.append(await self._process_event_collect(event))
 
-        return len(events)
+            # 1 query: finalize all statuses with CASE WHEN
+            await self._batch_finalize(results)
+
+            # Fire callbacks (kept as-is)
+            if self._on_event_processed:
+                for event in events:
+                    self._on_event_processed(event)
+
+            return len(events)
 
     async def start(self) -> None:
         """Start the polling loop."""
