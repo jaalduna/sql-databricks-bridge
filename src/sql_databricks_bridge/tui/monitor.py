@@ -2,6 +2,10 @@
 
 Reads the local SQLite job store and Phase 2 sync queue directly to provide
 a live view of ongoing and recent extractions, with drill-down to failures.
+
+Also exposes an Events screen (press ``e``) that pulls the Databricks
+``bridge_events`` table on demand — useful for verifying reverse-sync runs.
+Pull is always manual so we don't thrash the SQL Warehouse.
 """
 
 from __future__ import annotations
@@ -435,6 +439,7 @@ class SyncMonitorApp(App):
         Binding("r", "refresh", "Refresh"),
         Binding("f", "toggle_failed", "Failed only"),
         Binding("d,enter", "open_detail", "Detail"),
+        Binding("e", "open_events", "Events"),
     ]
 
     TITLE = "SQL↔Databricks Sync Monitor"
@@ -528,6 +533,11 @@ class SyncMonitorApp(App):
     def action_open_detail(self) -> None:
         self._open_detail_for_cursor()
 
+    def action_open_events(self) -> None:
+        if isinstance(self.screen, EventsScreen):
+            return
+        self.push_screen(EventsScreen())
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle Enter on a DataTable row (Textual fires this event)."""
         self._open_detail_for_cursor()
@@ -610,6 +620,271 @@ class SyncMonitorApp(App):
                         table.update_cell(rk, ck, value)
                     except Exception:
                         pass
+
+
+# ---------------------------------------------------------------------------
+# Events screen — reverse-sync events (bridge_events) pulled on demand
+# ---------------------------------------------------------------------------
+
+
+def _pull_bridge_events(limit: int = 200) -> tuple[list[dict[str, Any]], str | None]:
+    """Fetch recent bridge_events rows.  Returns (rows, error_or_None).
+
+    Imports happen inside the function so the TUI still starts if the
+    Databricks SDK is unavailable — the user just sees an error on pull.
+    """
+    try:
+        from sql_databricks_bridge.core.config import get_settings
+        from sql_databricks_bridge.db.databricks import DatabricksClient
+
+        settings = get_settings()
+        # Prefer the poller's warehouse when configured — same isolation.
+        dbx_settings = settings.databricks
+        if dbx_settings.poller_warehouse_id and (
+            dbx_settings.poller_warehouse_id != dbx_settings.warehouse_id
+        ):
+            dbx_settings = dbx_settings.model_copy(
+                update={"warehouse_id": dbx_settings.poller_warehouse_id}
+            )
+        client = DatabricksClient(settings=dbx_settings)
+        rows = client.execute_sql(
+            f"SELECT event_id, status, operation, source_table, target_table, "
+            f"priority, rows_expected, rows_affected, discrepancy, warning, "
+            f"error_message, created_at, processed_at "
+            f"FROM {settings.events_table} "
+            f"ORDER BY created_at DESC LIMIT {int(limit)}"
+        )
+        return rows, None
+    except Exception as e:
+        return [], str(e)
+
+
+class EventDetailScreen(Screen):
+    """Full detail for one bridge_events row (error_message, metadata, etc.)."""
+
+    BINDINGS = [
+        Binding("escape,q", "app.pop_screen", "Back"),
+    ]
+
+    def __init__(self, event: dict[str, Any]) -> None:
+        super().__init__()
+        self.event = event
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static(id="ev_meta")
+        yield Static(id="ev_error")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        e = self.event
+        meta = [
+            f"[bold]{escape(str(e.get('event_id', '?')))}[/bold]   "
+            f"status: {_status_label(str(e.get('status') or 'pending'))}   "
+            f"op: {escape(str(e.get('operation') or '?'))}",
+            f"source: [cyan]{escape(str(e.get('source_table') or '-'))}[/cyan]   "
+            f"target: [cyan]{escape(str(e.get('target_table') or '-'))}[/cyan]",
+            f"created_at:   {escape(str(e.get('created_at') or '-'))}",
+            f"processed_at: {escape(str(e.get('processed_at') or '-'))}",
+            f"rows expected: {e.get('rows_expected') or '-'}   "
+            f"rows affected: {e.get('rows_affected') or '-'}   "
+            f"discrepancy: {e.get('discrepancy') or '-'}",
+        ]
+        if e.get("warning"):
+            meta.append(f"[yellow]warning:[/yellow] {escape(str(e['warning']))}")
+        self.query_one("#ev_meta", Static).update("\n".join(meta))
+
+        err_raw = str(e.get("error_message") or "")
+        if err_raw:
+            summary = _summarize_error(err_raw)
+            excerpt = _clean_error_excerpt(err_raw)
+            blocks = [
+                f"[red bold]error[/red bold]   [yellow]{escape(summary or '')}[/yellow]",
+                f"[dim]{escape(excerpt)}[/dim]",
+                "",
+                f"[dim]raw (up to 2000 chars):[/dim]",
+                escape(err_raw[:2000]),
+            ]
+            self.query_one("#ev_error", Static).update("\n".join(blocks))
+        else:
+            self.query_one("#ev_error", Static).update("[green]no error[/green]")
+
+
+class EventsScreen(Screen):
+    """Reverse-sync events viewer (bridge_events)."""
+
+    CSS = """
+    #ev_summary { height: 1; padding: 0 1; background: $boost; }
+    #ev_pull_status { height: 1; padding: 0 1; }
+    #ev_table { height: 1fr; }
+    #ev_meta { padding: 1 2; background: $boost; }
+    #ev_error { padding: 1 2; }
+    """
+
+    BINDINGS = [
+        Binding("escape,q", "app.pop_screen", "Back"),
+        Binding("r", "pull", "Pull"),
+        Binding("f", "toggle_failed", "Failed only"),
+        Binding("enter,d", "open_detail", "Detail"),
+    ]
+
+    TITLE = "Reverse-Sync Events"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._events: list[dict[str, Any]] = []
+        self._row_events: list[dict[str, Any]] = []
+        self._failed_only = False
+        self._last_pull: datetime | None = None
+        self._last_error: str | None = None
+        self._pulling = False
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static(id="ev_summary")
+        yield Static(id="ev_pull_status")
+        yield DataTable(id="ev_table", cursor_type="row", zebra_stripes=True)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        table = self.query_one("#ev_table", DataTable)
+        table.add_columns(
+            "Status", "Op", "Source → Target",
+            "Created", "Processed", "Rows", "Error",
+        )
+        self._refresh_summary()
+        self._refresh_status()
+        # No automatic pull — user presses 'r' explicitly.
+
+    def action_pull(self) -> None:
+        if self._pulling:
+            return
+        self._pulling = True
+        self._last_error = None
+        self._refresh_status()
+        self.run_worker(self._do_pull, exclusive=True, thread=True)
+
+    def _do_pull(self) -> None:
+        rows, err = _pull_bridge_events(limit=200)
+        self.app.call_from_thread(self._on_pull_done, rows, err)
+
+    def _on_pull_done(
+        self, rows: list[dict[str, Any]], err: str | None
+    ) -> None:
+        self._pulling = False
+        self._last_pull = datetime.now()
+        self._last_error = err
+        if not err:
+            self._events = rows
+        self._rebuild_table()
+        self._refresh_summary()
+        self._refresh_status()
+
+    def action_toggle_failed(self) -> None:
+        self._failed_only = not self._failed_only
+        self._rebuild_table()
+        self._refresh_summary()
+
+    def action_open_detail(self) -> None:
+        try:
+            table = self.query_one("#ev_table", DataTable)
+        except NoMatches:
+            return
+        row = table.cursor_row
+        if row is None or row < 0 or row >= len(self._row_events):
+            return
+        self.app.push_screen(EventDetailScreen(self._row_events[row]))
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        self.action_open_detail()
+
+    def _filtered(self) -> list[dict[str, Any]]:
+        if self._failed_only:
+            return [e for e in self._events if str(e.get("status") or "") == "failed"]
+        return self._events
+
+    def _refresh_summary(self) -> None:
+        try:
+            widget = self.query_one("#ev_summary", Static)
+        except NoMatches:
+            return
+        events = self._events
+        counts = {s: 0 for s in ("pending", "processing", "completed", "failed")}
+        for e in events:
+            s = str(e.get("status") or "")
+            if s in counts:
+                counts[s] += 1
+        widget.update(
+            f"[blue]pending {counts['pending']}[/blue]  "
+            f"[yellow]processing {counts['processing']}[/yellow]  "
+            f"[green]completed {counts['completed']}[/green]  "
+            f"[red]failed {counts['failed']}[/red]   "
+            f"filter: {'[red]failed-only[/red]' if self._failed_only else 'all'}   "
+            f"total loaded: {len(events)}"
+        )
+
+    def _refresh_status(self) -> None:
+        try:
+            widget = self.query_one("#ev_pull_status", Static)
+        except NoMatches:
+            return
+        if self._pulling:
+            msg = "[yellow]pulling from Databricks…[/yellow]"
+        elif self._last_error:
+            msg = f"[red]pull failed:[/red] [dim]{escape(self._last_error[:200])}[/dim]"
+        elif self._last_pull is None:
+            msg = "[dim]no data yet — press [bold]r[/bold] to pull from Databricks[/dim]"
+        else:
+            ts = self._last_pull.strftime("%H:%M:%S")
+            msg = f"[dim]last pull: {ts}   press [bold]r[/bold] to refresh[/dim]"
+        widget.update(msg)
+
+    def _rebuild_table(self) -> None:
+        try:
+            table = self.query_one("#ev_table", DataTable)
+        except NoMatches:
+            return
+        table.clear()
+        rows = self._filtered()
+        self._row_events = rows
+        for e in rows:
+            st = str(e.get("status") or "pending")
+            src = str(e.get("source_table") or "")
+            tgt = str(e.get("target_table") or "")
+            arrow = f"{escape(src)} → {escape(tgt)}" if src or tgt else "-"
+            created = _fmt_event_ts(e.get("created_at"))
+            processed = _fmt_event_ts(e.get("processed_at"))
+            rows_aff = e.get("rows_affected")
+            rows_txt = f"{int(rows_aff):,}" if rows_aff is not None else "-"
+            err = str(e.get("error_message") or "")
+            err_short = _summarize_error(err) if err else ""
+            err_cell = f"[red]{escape(err_short)}[/red]" if err_short else ""
+            table.add_row(
+                _status_label(st),
+                escape(str(e.get("operation") or "-")),
+                arrow,
+                created,
+                processed,
+                rows_txt,
+                err_cell,
+            )
+
+
+def _fmt_event_ts(ts: Any) -> str:
+    """Format a bridge_events timestamp cell ('MM-DD HH:MM:SS')."""
+    if ts is None or ts == "":
+        return "-"
+    raw = str(ts)
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return raw[:19]
+    return dt.strftime("%m-%d %H:%M:%S")
+
+
+# ---------------------------------------------------------------------------
+# Wire EventsScreen into the main app: `e` binding
+# ---------------------------------------------------------------------------
 
 
 def run_monitor(jobs_db: str, queue_db: str, interval: float = 2.0) -> None:
