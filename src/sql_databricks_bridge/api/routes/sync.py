@@ -379,6 +379,131 @@ async def trigger_poll_cycle() -> dict:
         )
 
 
+# --- Recovery: reset stuck 'processing' events ---
+
+
+def _build_dbx_client() -> DatabricksClient:
+    """Build a DatabricksClient, preferring the poller warehouse when set.
+
+    Keeps recovery queries isolated from diff-sync/trigger warehouse
+    traffic, matching the poller's own isolation.
+    """
+    from sql_databricks_bridge.core.config import get_settings
+
+    settings = get_settings().databricks
+    if settings.poller_warehouse_id and (
+        settings.poller_warehouse_id != settings.warehouse_id
+    ):
+        settings = settings.model_copy(
+            update={"warehouse_id": settings.poller_warehouse_id}
+        )
+    return DatabricksClient(settings=settings)
+
+
+@router.post(
+    "/events/recover-stuck-processing",
+    summary="Reset stuck 'processing' events back to 'pending'",
+    description=(
+        "Scan bridge_events for rows still in 'processing' older than "
+        "*older_than_minutes*. If *dry_run=true* (default), returns the list "
+        "without modifying anything.  Otherwise resets them to 'pending' so "
+        "the next poll cycle picks them up.  **WARNING**: this can cause "
+        "re-execution of operations that already succeeded in SQL Server — "
+        "only safe for idempotent operations or when the on-call operator "
+        "has verified the source work is incomplete."
+    ),
+)
+async def recover_stuck_processing_events(
+    older_than_minutes: int = Query(
+        default=10,
+        ge=1,
+        le=1440,
+        description="Only consider events whose processed_at is older than this",
+    ),
+    limit: int = Query(default=100, ge=1, le=1000),
+    dry_run: bool = Query(
+        default=True,
+        description="If true, list candidates without modifying.",
+    ),
+) -> dict:
+    """Reset rows stuck in 'processing' state older than the cutoff."""
+    from sql_databricks_bridge.core.config import get_settings
+
+    events_table = get_settings().events_table
+    client = _build_dbx_client()
+
+    # Candidates = processing AND processed_at older than cutoff (or NULL,
+    # meaning we never even recorded a start — also suspicious).
+    select_sql = (
+        f"SELECT event_id, source_table, target_table, processed_at "
+        f"FROM {events_table} "
+        f"WHERE status = 'processing' "
+        f"  AND (processed_at IS NULL "
+        f"       OR processed_at < current_timestamp() - INTERVAL {int(older_than_minutes)} MINUTES) "
+        f"ORDER BY processed_at NULLS FIRST "
+        f"LIMIT {int(limit)}"
+    )
+
+    try:
+        candidates = await asyncio.to_thread(client.execute_sql, select_sql)
+    except Exception as e:
+        logger.exception("recover: candidate query failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"failed to query stuck events: {e}",
+        )
+
+    if not candidates:
+        return {
+            "dry_run": dry_run,
+            "older_than_minutes": older_than_minutes,
+            "candidates": 0,
+            "reset": 0,
+            "event_ids": [],
+        }
+
+    ids = [str(r["event_id"]) for r in candidates]
+
+    if dry_run:
+        return {
+            "dry_run": True,
+            "older_than_minutes": older_than_minutes,
+            "candidates": len(ids),
+            "reset": 0,
+            "event_ids": ids,
+        }
+
+    # Escape single quotes and build the UPDATE
+    escaped = ",".join("'" + i.replace("'", "''") + "'" for i in ids)
+    update_sql = (
+        f"UPDATE {events_table} "
+        f"SET status = 'pending', error_message = NULL, warning = NULL "
+        f"WHERE event_id IN ({escaped}) AND status = 'processing'"
+    )
+
+    try:
+        await asyncio.to_thread(client.execute_sql, update_sql)
+    except Exception as e:
+        logger.exception("recover: reset UPDATE failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"failed to reset events: {e}",
+        )
+
+    logger.warning(
+        "recover: reset %d stuck processing events to pending | ids=%s",
+        len(ids), ids[:10],
+    )
+
+    return {
+        "dry_run": False,
+        "older_than_minutes": older_than_minutes,
+        "candidates": len(ids),
+        "reset": len(ids),
+        "event_ids": ids,
+    }
+
+
 # --- WebSocket Endpoint for Real-time Updates ---
 
 
