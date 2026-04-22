@@ -546,12 +546,8 @@ def _run_trigger_extraction(
                     record.running_queries.add(query_name)
                 _persist_progress()
 
-            # Check if this query should use differential sync or incremental sync.
-            # When skip_phase2 is set, disable incremental sync — it requires
-            # warehouse access (SELECT MAX for watermark, direct writes).  These
-            # tables fall through to the full-overwrite two-phase path instead.
             diff_config = (differential_sync_config or {}).get(query_name)
-            incr_config = (incremental_sync_config or {}).get(query_name) if not skip_phase2 else None
+            incr_config = (incremental_sync_config or {}).get(query_name)
 
             try:
                 if diff_config:
@@ -791,33 +787,238 @@ def _run_trigger_extraction(
                                     job_id=job.job_id,
                                 )
 
-                        # PART 2: New rows beyond watermark (append-only)
+                        # PART 2: New rows beyond watermark — batched download with
+                        # advancing watermark.  Each batch is an independent SQL query
+                        # ordered by `key_col`, so a mid-stream TCP failure only loses
+                        # the current batch and the loop resumes from the last written
+                        # row (no wasted progress).
                         base_sql = _build_base_query()
-                        new_sql = (
-                            f"SELECT * FROM ({base_sql}) AS _incr "
-                            f"WHERE [{key_col}] > {max_key}"
-                        )
-                        # Exclude mutable window rows (already handled above)
-                        if mutable_months and date_col:
-                            new_sql += f" AND [{date_col}] < DATEADD(MONTH, -{mutable_months}, GETDATE())"
 
-                        try:
-                            count_df = extractor.sql_client.execute_query(
-                                f"SELECT COUNT(*) AS cnt FROM ({new_sql}) AS _c"
+                        def _quote_key(v):
+                            if isinstance(v, (int, float)):
+                                return str(v)
+                            s = str(v)
+                            # SQL Server DATETIME only supports ms precision —
+                            # truncate microsecond/nanosecond fractions so the
+                            # predicate literal parses.
+                            if "." in s:
+                                base, frac = s.rsplit(".", 1)
+                                frac_digits = "".join(c for c in frac if c.isdigit())
+                                if frac_digits and len(frac_digits) > 3:
+                                    s = base + "." + frac_digits[:3]
+                            return "'" + s.replace("'", "''") + "'"
+
+                        extra_filter = ""
+                        if mutable_months and date_col:
+                            extra_filter = (
+                                f" AND [{date_col}] < "
+                                f"DATEADD(MONTH, -{mutable_months}, GETDATE())"
                             )
+
+                        count_sql = (
+                            f"SELECT COUNT(*) AS cnt FROM ({base_sql}) AS _incr "
+                            f"WHERE [{key_col}] > {_quote_key(max_key)}{extra_filter}"
+                        )
+                        try:
+                            count_df = extractor.sql_client.execute_query(count_sql)
                             new_count = int(count_df.item(0, 0))
                         except Exception:
                             new_count = -1
 
                         if new_count == 0:
-                            logger.info(f"Incremental {query_name}: no new rows beyond watermark ({key_col} > {max_key})")
-                        elif new_count > 0:
-                            result.estimated_rows = (result.estimated_rows or 0) + new_count
-                            with results_lock:
-                                _persist_progress()
-                            logger.info(f"Incremental {query_name}: {new_count:,} new rows ({key_col} > {max_key})")
-                            new_extracted = _extract_and_write(new_sql, append=True, label="new")
-                            window_extracted += new_extracted
+                            logger.info(
+                                f"Incremental {query_name}: no new rows beyond watermark "
+                                f"({key_col} > {max_key})"
+                            )
+                        elif new_count != 0:
+                            if new_count > 0:
+                                result.estimated_rows = (result.estimated_rows or 0) + new_count
+                                with results_lock:
+                                    _persist_progress()
+                                logger.info(
+                                    f"Incremental {query_name}: {new_count:,} new rows "
+                                    f"({key_col} > {max_key})"
+                                )
+
+                            batch_size_cfg = int(incr_config.get("batch_size") or 50000)
+
+                            # Tiebreaker column — ensures correctness when
+                            # `key_col` has ties (bulk inserts share a
+                            # timestamp).  TOP N with `ORDER BY key` alone can
+                            # cut a tied group mid-way, then `WHERE key > max`
+                            # skips the remainder.  With a unique tiebreaker we
+                            # resume via `(key,tie) > (max_key,max_tie)` and
+                            # never drop rows.  Auto-detect `entryID`/`id`.
+                            def _find_col(df_cols, candidates):
+                                lower_map = {c.lower(): c for c in df_cols}
+                                for cand in candidates:
+                                    if cand.lower() in lower_map:
+                                        return lower_map[cand.lower()]
+                                return None
+
+                            def _quote_tie(v):
+                                if isinstance(v, (int, float)):
+                                    return str(v)
+                                return "'" + str(v).replace("'", "''") + "'"
+
+                            def _extract_batch(sql: str, label: str):
+                                chunk_dir = (
+                                    Path(".bridge_data") / "chunks"
+                                    / job.job_id / f"{query_name}_{label}"
+                                )
+
+                                def _on_progress(chunk_rows, rows_so_far):
+                                    result.rows_downloaded += chunk_rows
+                                    with results_lock:
+                                        _persist_progress()
+
+                                def _is_cancelled():
+                                    return job.status == JobStatus.CANCELLED
+
+                                parts, total = extractor.sql_client.execute_query_to_disk(
+                                    sql, chunk_dir, chunk_size=job.chunk_size,
+                                    on_progress=_on_progress, is_cancelled=_is_cancelled,
+                                )
+                                if job.status == JobStatus.CANCELLED:
+                                    raise InterruptedError("Cancelled")
+
+                                new_max = None
+                                new_tie = None
+                                tie_col_out = None
+                                if parts and total > 0:
+                                    import polars as _pl
+                                    import glob as _glob
+                                    _files = sorted(_glob.glob(str(chunk_dir / "*.parquet")))
+                                    combined = _pl.concat(
+                                        [_pl.read_parquet(f) for f in _files],
+                                        how="diagonal_relaxed",
+                                    )
+                                    actual_key = _find_col(
+                                        combined.columns, [key_col],
+                                    )
+                                    actual_tie = _find_col(
+                                        combined.columns,
+                                        ["entryID", "entry_id", "id"],
+                                    )
+                                    if actual_tie == actual_key:
+                                        actual_tie = None
+
+                                    if actual_key is not None:
+                                        raw = combined[actual_key].max()
+                                        # SQL Server DATETIME only supports 3
+                                        # decimal places — truncate to ms so the
+                                        # next batch's literal parses.
+                                        if hasattr(raw, "strftime"):
+                                            new_max = (
+                                                raw.strftime("%Y-%m-%d %H:%M:%S.")
+                                                + f"{raw.microsecond // 1000:03d}"
+                                            )
+                                        else:
+                                            s = str(raw)
+                                            if "." in s and len(s.rsplit(".", 1)[-1]) > 3:
+                                                new_max = s[: s.rfind(".") + 4]
+                                            else:
+                                                new_max = s
+
+                                        if actual_tie is not None:
+                                            tie_rows = combined.filter(
+                                                _pl.col(actual_key) == raw
+                                            )
+                                            if len(tie_rows) > 0:
+                                                new_tie = tie_rows[actual_tie].max()
+                                                tie_col_out = actual_tie
+                                    writer.append_dataframe(
+                                        combined, query_name, job.country,
+                                        tag=tag, table_suffix=table_suffix,
+                                    )
+                                try:
+                                    if chunk_dir.exists():
+                                        shutil.rmtree(chunk_dir)
+                                except Exception:
+                                    pass
+                                return total, new_max, new_tie, tie_col_out
+
+                            # Preflight: detect tiebreaker column from the
+                            # source schema so batch 1 can already use compound
+                            # ORDER BY.  Without this, SQL Server picks an
+                            # arbitrary subset within a tied group at batch's
+                            # cutoff, and we may skip rows on the next batch.
+                            tie_col = None
+                            try:
+                                _schema_df = extractor.sql_client.execute_query(
+                                    f"SELECT TOP 0 * FROM ({base_sql}) AS _schema"
+                                )
+                                tie_col = _find_col(
+                                    list(_schema_df.columns),
+                                    ["entryID", "entry_id", "id"],
+                                )
+                                if tie_col and tie_col.lower() == key_col.lower():
+                                    tie_col = None
+                            except Exception as e:
+                                logger.warning(
+                                    f"Incremental {query_name}: tiebreaker schema probe "
+                                    f"failed ({e}); falling back to single-column ORDER BY"
+                                )
+
+                            current_key = max_key
+                            current_tie = None
+                            batch_num = 0
+                            batched_total = 0
+                            while True:
+                                batch_num += 1
+                                # Build compound-key predicate when a tiebreaker
+                                # is known from a prior batch; otherwise fall
+                                # back to a single-column predicate.
+                                if tie_col is not None and current_tie is not None:
+                                    key_filter = (
+                                        f"(([{key_col}] > {_quote_key(current_key)}) "
+                                        f"OR ([{key_col}] = {_quote_key(current_key)} "
+                                        f"AND [{tie_col}] > {_quote_tie(current_tie)}))"
+                                    )
+                                else:
+                                    key_filter = (
+                                        f"[{key_col}] > {_quote_key(current_key)}"
+                                    )
+                                # Always compound ORDER BY when tiebreaker is
+                                # known upfront — prevents SQL Server from
+                                # picking an arbitrary subset at the batch
+                                # cutoff within a tied group.
+                                order_by = (
+                                    f"[{key_col}], [{tie_col}]"
+                                    if tie_col is not None
+                                    else f"[{key_col}]"
+                                )
+
+                                batch_sql = (
+                                    f"SELECT TOP {batch_size_cfg} * "
+                                    f"FROM ({base_sql}) AS _incr "
+                                    f"WHERE {key_filter}{extra_filter} "
+                                    f"ORDER BY {order_by}"
+                                )
+                                (
+                                    batch_count,
+                                    batch_max,
+                                    batch_tie,
+                                    batch_tie_col,
+                                ) = _extract_batch(batch_sql, f"new_b{batch_num}")
+                                batched_total += batch_count
+                                logger.info(
+                                    f"Incremental {query_name}: batch {batch_num} "
+                                    f"committed {batch_count:,} rows "
+                                    f"(total {batched_total:,}"
+                                    + (f"/{new_count:,}" if new_count > 0 else "")
+                                    + f", new max={batch_max}"
+                                    + (f"/{batch_tie_col}={batch_tie}" if batch_tie_col else "")
+                                    + ")"
+                                )
+                                if batch_count < batch_size_cfg or batch_max is None:
+                                    break
+                                current_key = batch_max
+                                current_tie = batch_tie
+                                # tie_col is set upfront via schema probe; do
+                                # NOT overwrite here.
+
+                            window_extracted += batched_total
 
                         total_extracted = window_extracted
 
@@ -1663,7 +1864,9 @@ async def trigger_extraction(
                         matching, "server+client" if request.differential_sync else "server default")
 
     # Build incremental sync config from INCREMENTAL_SYNC_TABLES env var
-    # Format: "table:key_col[:date_col:mutable_months]"
+    # Format: "table:key_col[:batch_size]" OR "table:key_col:date_col:mutable_months[:batch_size]"
+    # batch_size caps each SELECT TOP N (default 50000) — small batches survive
+    # TCP timeouts on wide tables (e.g. VARCHAR(MAX) payloads).
     incr_sync_cfg = {}
     for entry in (settings.incremental_sync_tables or "").split(","):
         entry = entry.strip()
@@ -1673,9 +1876,13 @@ async def trigger_extraction(
         tbl = parts[0].strip()
         if tbl and len(parts) > 1:
             cfg = {"key_column": parts[1].strip()}
-            if len(parts) >= 4:
+            if len(parts) == 3:
+                cfg["batch_size"] = int(parts[2].strip())
+            elif len(parts) >= 4:
                 cfg["date_column"] = parts[2].strip()
                 cfg["mutable_window_months"] = int(parts[3].strip())
+                if len(parts) >= 5:
+                    cfg["batch_size"] = int(parts[4].strip())
             incr_sync_cfg[tbl] = cfg
     if not incr_sync_cfg:
         incr_sync_cfg = None

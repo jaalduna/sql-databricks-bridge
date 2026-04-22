@@ -294,21 +294,33 @@ class DeltaTableWriter:
         duration = (datetime.utcnow() - start_time).total_seconds()
         return WriteResult(table_name=table_name, rows=rows, duration_seconds=duration)
 
-    def get_max_key(self, table_name: str, key_column: str) -> int | None:
+    def get_max_key(self, table_name: str, key_column: str) -> int | str | None:
         """Get MAX(key_column) from a Delta table for incremental sync watermark.
 
         Returns:
-            The max key value as int, or None if table doesn't exist or is empty.
+            The max key value, or None if table doesn't exist or is empty.
+            Numeric columns are returned as int; datetime/timestamp columns are
+            returned as ISO string so callers can quote them in SQL predicates.
         """
         try:
             if not self.table_exists(table_name):
                 return None
             rows = self.client.execute_sql(
-                f"SELECT MAX(CAST(`{key_column}` AS BIGINT)) AS max_key FROM {table_name}"
+                f"SELECT MAX(`{key_column}`) AS max_key FROM {table_name}"
             )
-            if rows and rows[0].get("max_key") is not None:
-                return int(rows[0]["max_key"])
-            return None
+            if not rows or rows[0].get("max_key") is None:
+                return None
+            raw = rows[0]["max_key"]
+            # Numeric → return as int (preserve existing behaviour)
+            if isinstance(raw, (int, float)):
+                return int(raw)
+            s = str(raw).strip()
+            # Try to parse numeric-looking strings as int for backwards compat
+            try:
+                return int(s)
+            except ValueError:
+                # Datetime / other: return raw string so caller can quote it
+                return s
         except Exception as e:
             logger.warning(f"Failed to get MAX({key_column}) from {table_name}: {e}")
             return None
