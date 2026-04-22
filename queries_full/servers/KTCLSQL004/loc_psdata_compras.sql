@@ -1,10 +1,10 @@
 -- KTCLSQL004: loc_psdata_compras
--- columns: 11
--- Source: PS_LATAM database (server-wide shared table)
--- Description: Purchase trip/journey data for all countries on KTCLSQL004
--- Target schema: 000-sql-databricks-bridge.KTCLSQL004
+-- Append-only. `id` is the monotonically-increasing PK used as watermark.
+-- Sync is driven by MAX(id) from the Databricks target — no lookback filter
+-- needed here so SQL Server can seek directly by the id index.
 
 SELECT
+    id,
     entryid_ato,
     entryid_viagem,
     feviaje,
@@ -18,4 +18,3 @@ SELECT
     wt,
     CONVERT(VARCHAR(6), feviaje, 112) AS periodo
 FROM [PS_LATAM].dbo.loc_psdata_compras
-WHERE feviaje >= DATEADD(MONTH, -{lookback_months}, GETDATE())
