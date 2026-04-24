@@ -631,6 +631,8 @@ class TestVoidColumnFix:
             {"periodo": "INT", "cantidad": "VOID", "nombre": "STRING"},
             # 3rd: _fix_void_schema reads new table schema (from parquet)
             {"periodo": "INT", "cantidad": "DOUBLE", "nombre": "STRING"},
+            # 4th: _execute_ctas reads schema for INSERT OVERWRITE TRY_CAST list
+            {"periodo": "INT", "cantidad": "DOUBLE", "nombre": "STRING"},
         ]
 
         queue.enqueue(
