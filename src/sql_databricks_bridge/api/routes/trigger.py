@@ -1570,6 +1570,39 @@ async def trigger_extraction(
             },
         )
 
+    disabled = {
+        e.strip() for e in (get_settings().disabled_entries or "").split(",") if e.strip()
+    }
+    if request.country in disabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "entry_disabled",
+                "message": f"Entry '{request.country}' is currently disabled via DISABLED_ENTRIES",
+            },
+        )
+
+    # Per-entry query blacklist: parse DISABLED_QUERIES into a set for this entry.
+    _dq_map: dict[str, set[str]] = {}
+    for pair in (get_settings().disabled_queries or "").split(","):
+        pair = pair.strip()
+        if ":" not in pair:
+            continue
+        ent, q = pair.split(":", 1)
+        _dq_map.setdefault(ent.strip(), set()).add(q.strip())
+    disabled_q_for_entry: set[str] = _dq_map.get(request.country, set())
+
+    if disabled_q_for_entry and request.queries:
+        overlap = [q for q in request.queries if q in disabled_q_for_entry]
+        if overlap:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "query_disabled",
+                    "message": f"Queries disabled for '{request.country}': {overlap}",
+                },
+            )
+
     # Capture SQLite path for the module (used by finalize_trigger_job)
     global _sqlite_db_path
     if _sqlite_db_path is None:
@@ -1732,10 +1765,17 @@ async def trigger_extraction(
             sql_client=sql_client,
         )
 
+        effective_queries = request.queries
+        if disabled_q_for_entry and effective_queries is None:
+            effective_queries = [
+                q for q in loader.list_queries(request.country)
+                if q not in disabled_q_for_entry
+            ]
+
         job = extractor.create_job(
             country=request.country,
             destination="",
-            queries=request.queries,
+            queries=effective_queries,
         )
     except FileNotFoundError as e:
         raise HTTPException(

@@ -179,6 +179,15 @@ class BridgeSettings(BaseSettings):
     # Format: "table1:key_col,table2:key_col" e.g. "nac_ato:idAto,hato_cabecalho:idhato_cabecalho"
     incremental_sync_tables: str = Field(default="", description="Append-only tables that use incremental sync (format: table:key_col,...)")
 
+    # Entries (countries/servers) to hide from listing and reject on trigger.
+    # Format: comma-separated names e.g. "KTCLSQL001,KTCLSQL002"
+    disabled_entries: str = Field(default="", description="Entries to hide from /metadata/countries and reject on /trigger (comma-separated)")
+
+    # Per-entry query exclusions. Hides matching queries from listing and
+    # rejects them on /trigger. Format: "entry:query,entry:query"
+    # e.g. "KTCLSQL005:loc_psdata_compras,KTCLSQL005:loc_psdata_procesado"
+    disabled_queries: str = Field(default="", description="Queries to disable per entry (format: entry:query,entry:query)")
+
     # Simulador sync settings
     simulador_base_path: str = Field(default="", description="Network share base path for simulador ZIP files")
     simulador_countries: str = Field(default="AR:argentina,BO:bolivia,CE:cam,CL:chile,CO:colombia,EC:ecuador,MX:mexico,PE:peru", description="Country code to schema mapping for simulador sync")

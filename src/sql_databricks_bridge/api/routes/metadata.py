@@ -60,7 +60,19 @@ async def list_countries() -> CountriesResponse:
     import asyncio
 
     loader = _get_loader()
-    entries = loader.list_all_entries()
+    settings = get_settings()
+    disabled = {
+        e.strip() for e in (settings.disabled_entries or "").split(",") if e.strip()
+    }
+    disabled_queries: dict[str, set[str]] = {}
+    for pair in (settings.disabled_queries or "").split(","):
+        pair = pair.strip()
+        if ":" not in pair:
+            continue
+        entry, query = pair.split(":", 1)
+        disabled_queries.setdefault(entry.strip(), set()).add(query.strip())
+
+    entries = [(n, t) for n, t in loader.list_all_entries() if n not in disabled]
 
     # Discover queries in parallel — each hit to the network share can take
     # ~10 s to timeout, so sequential discovery for 14 entries is too slow.
@@ -71,15 +83,18 @@ async def list_countries() -> CountriesResponse:
     tasks = [loop.run_in_executor(None, _discover, name) for name, _ in entries]
     query_lists = await asyncio.gather(*tasks)
 
-    result = [
-        CountryInfo(
-            code=name,
-            queries=queries,
-            queries_count=len(queries),
-            type=entry_type,
+    result = []
+    for (name, entry_type), queries in zip(entries, query_lists):
+        hidden = disabled_queries.get(name, set())
+        filtered = [q for q in queries if q not in hidden]
+        result.append(
+            CountryInfo(
+                code=name,
+                queries=filtered,
+                queries_count=len(filtered),
+                type=entry_type,
+            )
         )
-        for (name, entry_type), queries in zip(entries, query_lists)
-    ]
 
     return CountriesResponse(countries=result)
 
