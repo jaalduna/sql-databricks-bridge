@@ -143,10 +143,16 @@ class SQLServerClient:
             )
             # Use READ UNCOMMITTED (NOLOCK) for all read connections to avoid
             # blocking on concurrent writes — safe for analytics extraction.
+            # Also set LOCK_TIMEOUT so queries that hit an incompatible lock
+            # (e.g. schema lock from concurrent DDL, which NOLOCK doesn't
+            # bypass) fail fast with error 1222 instead of hanging forever.
             @event.listens_for(self._engine, "connect")
-            def _set_read_uncommitted(dbapi_conn, connection_record):
+            def _set_session_options(dbapi_conn, connection_record):
                 cursor = dbapi_conn.cursor()
                 cursor.execute("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
+                lock_secs = int(self.settings.lock_timeout_seconds)
+                lock_ms = -1 if lock_secs < 0 else lock_secs * 1000
+                cursor.execute(f"SET LOCK_TIMEOUT {lock_ms}")
                 cursor.close()
 
             # pyodbc connections don't expose a socket fd, so we cannot wire

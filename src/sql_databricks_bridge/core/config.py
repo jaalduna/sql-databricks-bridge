@@ -50,6 +50,15 @@ class SQLServerSettings(BaseSettings):
             "covered by SQL_ATTR_QUERY_TIMEOUT). Set to 0 to disable."
         ),
     )
+    lock_timeout_seconds: int = Field(
+        default=60,
+        description=(
+            "Session SET LOCK_TIMEOUT. Any query that waits on an incompatible "
+            "lock longer than this raises SQL Server error 1222 instead of "
+            "blocking indefinitely (e.g. on a schema lock from concurrent DDL, "
+            "which READ UNCOMMITTED does not bypass). Set to -1 to wait forever."
+        ),
+    )
 
     @property
     def connection_string(self) -> str:
