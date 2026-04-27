@@ -86,21 +86,16 @@ def _extract_with_retry(
                 return chunks, total
         except Exception as e:
             err_str = str(e)
-            is_transient = any(
-                code in err_str
-                for code in [
-                    "08S01",
-                    "08001",
-                    "10054",
-                    "10053",
-                    "Communication link failure",
-                    "connection was forcibly closed",
-                ]
+            from sql_databricks_bridge.core.transient_errors import (
+                is_transient as _is_transient,
+                is_lock_timeout as _is_lock_timeout,
+                backoff_seconds as _backoff_seconds,
             )
-            if is_transient and attempt < max_retries:
-                delay = base_delay * (2 ** attempt)
+            if _is_transient(err_str) and attempt < max_retries:
+                delay = _backoff_seconds(err_str, attempt, base=base_delay)
+                kind = "lock-contention" if _is_lock_timeout(err_str) else "transient"
                 logger.warning(
-                    f"Transient SQL error (attempt {attempt+1}/{max_retries+1}), "
+                    f"{kind.capitalize()} SQL error (attempt {attempt+1}/{max_retries+1}), "
                     f"retrying in {delay}s: {err_str[:200]}"
                 )
                 time.sleep(delay)

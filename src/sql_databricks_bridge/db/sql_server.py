@@ -31,6 +31,38 @@ _PYODBC_TYPE_MAP: dict[type, pl.DataType] = {
 }
 
 
+def _log_top_waits(conn, context: str, top: int = 3) -> None:
+    """Log the dominant SQL Server wait types for the current session.
+
+    Useful when an extraction is slow / has just timed out: hints at
+    whether we are stuck in lock waits (LCK_*), IO (PAGEIOLATCH_*),
+    network (ASYNC_NETWORK_IO), or something else. Only reads the own
+    session's wait stats so it does not need VIEW SERVER STATE.
+    """
+    try:
+        rows = conn.execute(
+            text(
+                f"SELECT TOP {top} wait_type, "
+                "wait_time_ms, signal_wait_time_ms, waiting_tasks_count "
+                "FROM sys.dm_exec_session_wait_stats "
+                "WHERE session_id = @@SPID AND wait_type NOT IN ("
+                "'BROKER_TO_FLUSH','HADR_FILESTREAM_IOMGR_IOCOMPLETION',"
+                "'CHECKPOINT_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH',"
+                "'LAZYWRITER_SLEEP','SOS_SCHEDULER_YIELD','XE_TIMER_EVENT'"
+                ") "
+                "ORDER BY wait_time_ms DESC"
+            )
+        ).fetchall()
+        if not rows:
+            return
+        summary = ", ".join(
+            f"{r[0]}={r[1]}ms({r[3]}x)" for r in rows
+        )
+        logger.warning("Top session waits during %s: %s", context, summary)
+    except Exception as exc:
+        logger.debug("Could not read session wait stats: %s", exc)
+
+
 def _schema_from_cursor(description: list[tuple]) -> dict[str, pl.DataType]:
     """Extract column name -> Polars dtype mapping from pyodbc cursor.description.
 
@@ -393,6 +425,7 @@ class SQLServerClient:
                         "Slow fetch: chunk %d took %.1fs (%d rows) — possible network stall",
                         part_num, fetch_secs, len(rows),
                     )
+                    _log_top_waits(conn, "slow fetch")
 
                 chunk_df = _rows_to_dataframe(columns, rows, cursor_schema)
 
