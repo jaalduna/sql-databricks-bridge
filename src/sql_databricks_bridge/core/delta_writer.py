@@ -10,6 +10,7 @@ import polars as pl
 
 from sql_databricks_bridge.core.composite_columns import databricks_where_in, parse_columns
 from sql_databricks_bridge.core.config import get_settings
+from sql_databricks_bridge.core.schema_cast import cast_expr, get_parquet_schema
 from sql_databricks_bridge.db.databricks import DatabricksClient
 
 logger = logging.getLogger(__name__)
@@ -172,10 +173,28 @@ class DeltaTableWriter:
         # Use INSERT OVERWRITE for existing tables to preserve time travel history.
         # Only use CREATE TABLE for genuinely new tables.
         if self.table_exists(table_name):
-            insert_sql = (
-                f"INSERT OVERWRITE {table_name} "
-                f"SELECT * EXCEPT(_rescued_data) FROM read_files('{staging_dir}', format => 'parquet')"
-            )
+            # Schema-aware overwrite: source parquet may have fewer/different
+            # columns than the target Delta (e.g. simulador VOLEQ files where
+            # the unit set varies by period). Build the SELECT list from the
+            # target schema, emitting CAST(NULL AS T) for missing source cols
+            # and TRY_CAST for cross-family type drift.
+            target_schema = self._get_table_schema(table_name)
+            if target_schema:
+                source_schema = get_parquet_schema(self.client, staging_dir)
+                cols = [c for c in target_schema if c.lower() != "_rescued_data"]
+                col_list = ", ".join(f"`{c}`" for c in cols)
+                cast_list = ", ".join(
+                    cast_expr(c, source_schema.get(c), target_schema[c]) for c in cols
+                )
+                insert_sql = (
+                    f"INSERT OVERWRITE {table_name} ({col_list}) "
+                    f"SELECT {cast_list} FROM read_files('{staging_dir}', format => 'parquet')"
+                )
+            else:
+                insert_sql = (
+                    f"INSERT OVERWRITE {table_name} "
+                    f"SELECT * EXCEPT(_rescued_data) FROM read_files('{staging_dir}', format => 'parquet')"
+                )
             self.client.execute_sql(insert_sql)
             logger.info(f"Overwrote table {table_name} with {rows} rows (INSERT OVERWRITE)")
         else:

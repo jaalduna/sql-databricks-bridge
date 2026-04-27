@@ -27,79 +27,10 @@ from sql_databricks_bridge.db.databricks import DatabricksClient
 logger = logging.getLogger(__name__)
 
 
-# Type-family groups used for parse-time compatibility detection.
-# Databricks rejects direct casts between these families (e.g. TIMESTAMP -> INT)
-# at parse time; neither CAST nor TRY_CAST saves us. In that case we fall back
-# to CAST(NULL AS target) which is always valid.
-_NUMERIC_TYPES = {"tinyint", "smallint", "int", "integer", "bigint", "float", "double", "decimal"}
-_TEMPORAL_TYPES = {"date", "timestamp", "timestamp_ntz"}
-_BOOLEAN_TYPES = {"boolean"}
-
-
-def _type_family(t: str) -> str:
-    t = t.lower().strip()
-    # Strip decimal(p,s) params
-    if t.startswith("decimal"):
-        return "decimal"
-    if t in _NUMERIC_TYPES:
-        return "numeric"
-    if t in _TEMPORAL_TYPES:
-        return "temporal"
-    if t in _BOOLEAN_TYPES:
-        return "boolean"
-    return "other"
-
-
-def _cast_expr(col: str, source_type: str | None, target_type: str) -> str:
-    """Build a CAST expression resilient to parse-time type mismatches.
-
-    - If source is unknown, use TRY_CAST (runtime NULL on failure).
-    - If source/target are cross-family incompatible (e.g. TIMESTAMP vs INT),
-      Databricks rejects even TRY_CAST at parse time, so emit ``CAST(NULL AS target)``.
-    """
-    if source_type is None:
-        return f"TRY_CAST(`{col}` AS {target_type}) AS `{col}`"
-
-    src_fam = _type_family(source_type)
-    tgt_fam = _type_family(target_type)
-
-    # Parse-time incompatible combos that Databricks rejects outright
-    incompatible = {
-        ("temporal", "numeric"),
-        ("temporal", "decimal"),
-        ("numeric", "temporal"),
-        ("decimal", "temporal"),
-        ("temporal", "boolean"),
-        ("boolean", "temporal"),
-    }
-    if (src_fam, tgt_fam) in incompatible:
-        return f"CAST(NULL AS {target_type}) AS `{col}`"
-
-    return f"TRY_CAST(`{col}` AS {target_type}) AS `{col}`"
-
-
-def _get_parquet_schema(dbx_client: DatabricksClient, staging_path: str) -> dict[str, str]:
-    """Return column -> data_type map for a parquet staging path."""
-    try:
-        rows = dbx_client.execute_sql(
-            f"SELECT * FROM read_files('{staging_path}', format => 'parquet') LIMIT 0"
-        )
-        # execute_sql returns list[dict]; for LIMIT 0 we need the column description.
-        # Fall back to DESCRIBE on read_files via a CTE-style wrapper.
-        if not rows:
-            rows = dbx_client.execute_sql(
-                f"DESCRIBE QUERY SELECT * FROM read_files('{staging_path}', format => 'parquet') LIMIT 0"
-            )
-        schema: dict[str, str] = {}
-        for r in rows:
-            name = r.get("col_name") or r.get("name")
-            dtype = r.get("data_type") or r.get("dataType")
-            if name and dtype:
-                schema[str(name)] = str(dtype)
-        return schema
-    except Exception as e:
-        logger.warning(f"Could not read parquet schema at {staging_path}: {e}")
-        return {}
+from sql_databricks_bridge.core.schema_cast import (
+    cast_expr as _cast_expr,
+    get_parquet_schema as _get_parquet_schema,
+)
 
 
 @dataclass
