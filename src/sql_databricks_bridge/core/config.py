@@ -34,6 +34,14 @@ class SQLServerSettings(BaseSettings):
         default=True,
         description="Use Windows Authentication (Trusted_Connection)",
     )
+    query_timeout_seconds: int = Field(
+        default=600,
+        description=(
+            "Per-statement pyodbc timeout. Any query (including individual "
+            "fetchmany chunks) that goes silent for longer raises an "
+            "OperationalError instead of hanging on a dead TCP connection."
+        ),
+    )
 
     @property
     def connection_string(self) -> str:

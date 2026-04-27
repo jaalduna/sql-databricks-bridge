@@ -3,8 +3,6 @@
 import datetime
 import decimal
 import logging
-import socket
-import struct
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -151,33 +149,17 @@ class SQLServerClient:
                 cursor.execute("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
                 cursor.close()
 
-            # Set TCP keep-alive on every new raw DBAPI connection
+            # pyodbc connections don't expose a socket fd, so we cannot wire
+            # SO_KEEPALIVE here. Instead, set a per-statement timeout: any
+            # individual query (including each fetchmany chunk) that goes
+            # silent past the threshold raises OperationalError, preventing
+            # indefinite hangs on dead TCP connections.
             @event.listens_for(self._engine, "connect")
-            def _set_tcp_keepalive(dbapi_conn, connection_record):
-                raw_sock = dbapi_conn.fileno() if hasattr(dbapi_conn, "fileno") else None
+            def _set_query_timeout(dbapi_conn, connection_record):
                 try:
-                    raw_conn = getattr(dbapi_conn, "connection", dbapi_conn)
-                    raw_sock = getattr(raw_conn, "fileno", lambda: None)()
-                except Exception:
-                    pass
-                if raw_sock is None:
-                    return
-                try:
-                    sock = socket.fromfd(raw_sock, socket.AF_INET, socket.SOCK_STREAM)
-                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                    # Windows SIO_KEEPALIVE_VALS: (onoff, keepalivetime_ms, keepaliveinterval_ms)
-                    try:
-                        SIO_KEEPALIVE_VALS = 0x98000004
-                        sock.ioctl(SIO_KEEPALIVE_VALS, struct.pack("III", 1, 10_000, 10_000))
-                    except (AttributeError, OSError):
-                        # Non-Windows: use TCP_KEEPIDLE / TCP_KEEPINTVL if available
-                        if hasattr(socket, "TCP_KEEPIDLE"):
-                            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10)
-                        if hasattr(socket, "TCP_KEEPINTVL"):
-                            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
-                    sock.detach()  # Don't close the fd when sock is garbage-collected
+                    dbapi_conn.timeout = int(self.settings.query_timeout_seconds)
                 except Exception as exc:
-                    logger.debug("TCP keep-alive setup failed: %s", exc)
+                    logger.debug("Could not set pyodbc statement timeout: %s", exc)
         return self._engine
 
     def _build_connection_url(self) -> str:
