@@ -155,17 +155,23 @@ class SQLServerClient:
                 cursor.execute(f"SET LOCK_TIMEOUT {lock_ms}")
                 cursor.close()
 
-            # pyodbc connections don't expose a socket fd, so we cannot wire
-            # SO_KEEPALIVE here. Instead, set a per-statement timeout: any
-            # individual query (including each fetchmany chunk) that goes
-            # silent past the threshold raises OperationalError, preventing
-            # indefinite hangs on dead TCP connections.
+            # Set the default per-statement pyodbc timeout on every new
+            # connection. Also reset on every pool checkout so per-call
+            # overrides (timeout_seconds= kwarg below) don't leak across
+            # callers that share the pool.
             @event.listens_for(self._engine, "connect")
             def _set_query_timeout(dbapi_conn, connection_record):
                 try:
                     dbapi_conn.timeout = int(self.settings.query_timeout_seconds)
                 except Exception as exc:
                     logger.debug("Could not set pyodbc statement timeout: %s", exc)
+
+            @event.listens_for(self._engine, "checkout")
+            def _reset_query_timeout(dbapi_conn, connection_record, connection_proxy):
+                try:
+                    dbapi_conn.timeout = int(self.settings.query_timeout_seconds)
+                except Exception:
+                    pass
         return self._engine
 
     def _build_connection_url(self) -> str:
@@ -209,17 +215,30 @@ class SQLServerClient:
         except SQLAlchemyError:
             return False
 
-    def execute_query(self, query: str, params: dict[str, Any] | None = None) -> pl.DataFrame:
+    def execute_query(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        timeout_seconds: int | None = None,
+    ) -> pl.DataFrame:
         """Execute query and return results as Polars DataFrame.
 
         Args:
             query: SQL query to execute.
             params: Query parameters.
+            timeout_seconds: Optional per-call statement timeout override
+                (pyodbc.Connection.timeout). Defaults to the connection's
+                configured query_timeout_seconds.
 
         Returns:
             Query results as Polars DataFrame.
         """
         with self.engine.connect() as conn:
+            if timeout_seconds is not None:
+                try:
+                    conn.connection.timeout = int(timeout_seconds)
+                except Exception:
+                    pass
             result = conn.execute(text(query), params or {})
             columns = list(result.keys())
 
@@ -308,6 +327,7 @@ class SQLServerClient:
         chunk_size: int = 100_000,
         on_progress: Callable[[int, int], None] | None = None,
         is_cancelled: Callable[[], bool] | None = None,
+        timeout_seconds: int | None = None,
     ) -> tuple[list[Path], int]:
         """Execute query and save each chunk as a parquet file on disk.
 
@@ -318,6 +338,8 @@ class SQLServerClient:
             chunk_size: Number of rows per chunk/parquet file.
             on_progress: Optional callback(chunk_rows, total_rows_so_far).
             is_cancelled: Optional callable that returns True if the job was cancelled.
+            timeout_seconds: Optional per-call statement timeout override
+                (pyodbc.Connection.timeout). Defaults to query_timeout_seconds.
 
         Returns:
             Tuple of (list of parquet file paths, total row count).
@@ -331,6 +353,11 @@ class SQLServerClient:
         stall_threshold = 120  # warn if a single fetchmany takes longer
 
         with self.engine.connect() as conn:
+            if timeout_seconds is not None:
+                try:
+                    conn.connection.timeout = int(timeout_seconds)
+                except Exception:
+                    pass
             result = conn.execute(text(query), params or {})
             columns = list(result.keys())
             part_num = 0

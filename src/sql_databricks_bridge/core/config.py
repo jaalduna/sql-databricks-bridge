@@ -37,8 +37,18 @@ class SQLServerSettings(BaseSettings):
     query_timeout_seconds: int = Field(
         default=600,
         description=(
-            "Per-statement pyodbc timeout (covers SQLExecute, not SQLFetch). "
-            "Use keepalive_seconds for fetch-side hangs."
+            "Default per-statement pyodbc timeout (covers SQLExecute, not "
+            "SQLFetch). Used by fact/diff-sync extractions. Use "
+            "keepalive_seconds for fetch-side hangs."
+        ),
+    )
+    dimension_query_timeout_seconds: int = Field(
+        default=60,
+        description=(
+            "Tighter per-statement timeout for dimension/full-load extractions "
+            "(non-diff path). Dimension queries are typically trivial; long "
+            "execution almost always means a server-side hang worth aborting "
+            "fast so the rest of the job can proceed."
         ),
     )
     keepalive_seconds: int = Field(

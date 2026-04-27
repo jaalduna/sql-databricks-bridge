@@ -1107,7 +1107,10 @@ def _run_trigger_extraction(
                                 f"SELECT COUNT(*) AS cnt, CHECKSUM_AGG(CHECKSUM(*)) AS cksum "
                                 f"FROM ({query_sql}) AS _dim_ck"
                             )
-                            _dim_ck_df = extractor.sql_client.execute_query(_dim_cksum_sql)
+                            _dim_ck_df = extractor.sql_client.execute_query(
+                                _dim_cksum_sql,
+                                timeout_seconds=settings.sql_server.dimension_query_timeout_seconds,
+                            )
                             _dim_count = int(_dim_ck_df.item(0, 0))
                             _dim_cksum = int(_dim_ck_df.item(0, 1)) if _dim_ck_df.item(0, 1) is not None else 0
 
@@ -1198,6 +1201,7 @@ def _run_trigger_extraction(
                                 query_sql, chunk_dir, chunk_size=job.chunk_size,
                                 on_progress=_on_chunk_progress,
                                 is_cancelled=_is_cancelled,
+                                timeout_seconds=settings.sql_server.dimension_query_timeout_seconds,
                             )
                             break
                         except Exception as retry_err:
