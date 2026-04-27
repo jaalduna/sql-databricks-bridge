@@ -141,11 +141,18 @@ class SQLServerClient:
                 max_overflow=10,
                 pool_recycle=1800,
             )
-            # Use READ UNCOMMITTED (NOLOCK) for all read connections to avoid
-            # blocking on concurrent writes — safe for analytics extraction.
-            # Also set LOCK_TIMEOUT so queries that hit an incompatible lock
-            # (e.g. schema lock from concurrent DDL, which NOLOCK doesn't
-            # bypass) fail fast with error 1222 instead of hanging forever.
+            # Per-session SQL Server options applied on every new connection:
+            #   READ UNCOMMITTED  — our SELECTs do not take shared row/page
+            #     locks, so they cannot block other sessions' DML on the
+            #     same table.
+            #   LOCK_TIMEOUT      — if we hit an incompatible lock (e.g.
+            #     a schema lock from concurrent DDL, which NOLOCK does not
+            #     bypass), error 1222 fires after the configured wait
+            #     instead of hanging the connection forever.
+            #   DEADLOCK_PRIORITY LOW — if SQL Server has to break a
+            #     deadlock between us and another session, we are always
+            #     chosen as the victim. The bridge's transient-error
+            #     retry recovers cleanly; the other session never notices.
             @event.listens_for(self._engine, "connect")
             def _set_session_options(dbapi_conn, connection_record):
                 cursor = dbapi_conn.cursor()
@@ -153,6 +160,7 @@ class SQLServerClient:
                 lock_secs = int(self.settings.lock_timeout_seconds)
                 lock_ms = -1 if lock_secs < 0 else lock_secs * 1000
                 cursor.execute(f"SET LOCK_TIMEOUT {lock_ms}")
+                cursor.execute("SET DEADLOCK_PRIORITY LOW")
                 cursor.close()
 
             # Set the default per-statement pyodbc timeout on every new
