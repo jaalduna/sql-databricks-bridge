@@ -236,7 +236,7 @@ class SQLServerClient:
         with self.engine.connect() as conn:
             if timeout_seconds is not None:
                 try:
-                    conn.connection.timeout = int(timeout_seconds)
+                    conn.connection.dbapi_connection.timeout = int(timeout_seconds)
                 except Exception:
                     pass
             result = conn.execute(text(query), params or {})
@@ -355,7 +355,7 @@ class SQLServerClient:
         with self.engine.connect() as conn:
             if timeout_seconds is not None:
                 try:
-                    conn.connection.timeout = int(timeout_seconds)
+                    conn.connection.dbapi_connection.timeout = int(timeout_seconds)
                 except Exception:
                     pass
             result = conn.execute(text(query), params or {})
