@@ -37,9 +37,17 @@ class SQLServerSettings(BaseSettings):
     query_timeout_seconds: int = Field(
         default=600,
         description=(
-            "Per-statement pyodbc timeout. Any query (including individual "
-            "fetchmany chunks) that goes silent for longer raises an "
-            "OperationalError instead of hanging on a dead TCP connection."
+            "Per-statement pyodbc timeout (covers SQLExecute, not SQLFetch). "
+            "Use keepalive_seconds for fetch-side hangs."
+        ),
+    )
+    keepalive_seconds: int = Field(
+        default=30,
+        description=(
+            "TCP keep-alive interval in seconds, passed to the ODBC driver via "
+            "the connection string 'Keepalive' parameter. Detects dead "
+            "connections during long-running fetchmany() calls (which are not "
+            "covered by SQL_ATTR_QUERY_TIMEOUT). Set to 0 to disable."
         ),
     )
 

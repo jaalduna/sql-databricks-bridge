@@ -21,6 +21,9 @@ class TestSQLServerClient:
         settings.password.get_secret_value.return_value = "password"
         settings.driver = "ODBC Driver 18 for SQL Server"
         settings.trust_server_certificate = True
+        settings.use_windows_auth = False
+        settings.query_timeout_seconds = 600
+        settings.keepalive_seconds = 30
         settings.sqlalchemy_url = "mssql+pyodbc://sa:password@localhost:1433/testdb"
         return settings
 

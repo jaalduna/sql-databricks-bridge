@@ -170,17 +170,24 @@ class SQLServerClient:
         """
         trust_cert = "yes" if self.settings.trust_server_certificate else "no"
         driver_encoded = self.settings.driver.replace(" ", "+")
+        keepalive = self.settings.keepalive_seconds
+
+        # ODBC Driver 17/18 for SQL Server respects the 'Keepalive' connection
+        # string keyword (TCP keep-alive interval in seconds). Without it the
+        # driver inherits the Windows registry default (~2 hours), which lets
+        # fetchmany() hang indefinitely on a dead VPN/NAT/switch session.
+        keepalive_param = f"&Keepalive={keepalive}" if keepalive > 0 else ""
 
         if self.settings.use_windows_auth:
             return (
                 f"mssql+pyodbc://@{self._server}:{self.settings.port}/{self._database}"
                 f"?driver={driver_encoded}&TrustServerCertificate={trust_cert}"
-                f"&Trusted_Connection=yes"
+                f"&Trusted_Connection=yes{keepalive_param}"
             )
         return (
             f"mssql+pyodbc://{self.settings.username}:{self.settings.password.get_secret_value()}"
             f"@{self._server}:{self.settings.port}/{self._database}"
-            f"?driver={driver_encoded}&TrustServerCertificate={trust_cert}"
+            f"?driver={driver_encoded}&TrustServerCertificate={trust_cert}{keepalive_param}"
         )
 
     def test_connection(self) -> bool:
