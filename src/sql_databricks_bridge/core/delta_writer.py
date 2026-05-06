@@ -297,6 +297,7 @@ class DeltaTableWriter:
             err_msg = str(e)
             if any(code in err_msg for code in [
                 "DATATYPE_MISMATCH", "CAST_WITHOUT_SUGGESTION",
+                "CAST_INVALID_INPUT",
                 "DELTA_DUPLICATE_COLUMNS_FOUND",
                 "UNRESOLVED_COLUMN",
             ]):
@@ -495,8 +496,9 @@ class DeltaTableWriter:
                         tag=tag, table_suffix=table_suffix,
                     )
                 col_list = ", ".join(f"`{c}`" for c in common_cols)
+                source_schema = get_parquet_schema(self.client, staging_dir)
                 cast_list = ", ".join(
-                    f"CAST(`{c}` AS {target_schema_map[c]}) AS `{c}`"
+                    cast_expr(c, source_schema.get(c), target_schema_map[c])
                     for c in common_cols
                 )
                 insert_sql = (
@@ -516,6 +518,7 @@ class DeltaTableWriter:
                 err_msg = str(e)
                 if any(code in err_msg for code in [
                     "DATATYPE_MISMATCH", "CAST_WITHOUT_SUGGESTION",
+                    "CAST_INVALID_INPUT",
                     "DELTA_DUPLICATE_COLUMNS_FOUND",
                     "UNRESOLVED_COLUMN",
                 ]):
